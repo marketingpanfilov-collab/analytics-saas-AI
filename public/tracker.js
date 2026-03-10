@@ -1,0 +1,125 @@
+/**
+ * First-party source tracker MVP
+ * Embed: <script src="https://YOUR_DOMAIN/tracker.js?site_id=YOUR_SITE_ID"></script>
+ *
+ * Captures: landing_url, referrer, utm_*, gclid, fbclid, yclid, ttclid, visitor_id
+ * Persists: visitor_id in first-party cookie (1 year), sends to backend
+ * First-touch: first visit (no cookie); Last-touch: every visit
+ *
+ * Transport: pixel-only (temporary for Safari/incognito stability).
+ */
+(function () {
+  "use strict";
+
+  if (typeof window !== "undefined" && window.__AS_TRACKER_LOADED__) return;
+  if (typeof window !== "undefined") window.__AS_TRACKER_LOADED__ = true;
+
+  var script = document.currentScript;
+  if (!script || !script.src) {
+    var scripts = document.getElementsByTagName("script");
+    for (var i = scripts.length - 1; i >= 0; i--) {
+      var s = scripts[i];
+      if (s.src && s.src.indexOf("tracker.js") !== -1) {
+        script = s;
+        break;
+      }
+    }
+  }
+  if (!script || !script.src) return;
+
+  var scriptUrl;
+  try {
+    scriptUrl = new URL(script.src);
+  } catch (e) {
+    return;
+  }
+
+  var siteId = scriptUrl.searchParams.get("site_id");
+  if (!siteId) return;
+
+  console.log("[as-tracker] tracker initialized", { site_id: siteId });
+
+  var apiBase = scriptUrl.origin;
+  var pixelEndpoint = apiBase + "/api/tracking/source/pixel";
+  var cookieName = "as_visitor";
+  var cookieMaxAge = 365 * 24 * 60 * 60;
+
+  function getQueryParam(name) {
+    var params = new URLSearchParams(window.location.search);
+    return params.get(name) || "";
+  }
+
+  function getOrCreateVisitorId() {
+    try {
+      var match = document.cookie.match(new RegExp("(?:^|; )" + cookieName + "=([^;]*)"));
+      var id = match ? decodeURIComponent(match[1]) : null;
+      if (!id || id.length < 10) {
+        id = "v_" + Math.random().toString(36).slice(2) + "_" + Date.now().toString(36);
+        document.cookie =
+          cookieName + "=" + encodeURIComponent(id) + "; path=/; max-age=" + cookieMaxAge + "; SameSite=Lax";
+      }
+      return id;
+    } catch (e) {
+      return "v_" + Math.random().toString(36).slice(2) + "_" + Date.now().toString(36);
+    }
+  }
+
+  function isFirstVisit() {
+    try {
+      return !document.cookie.match(new RegExp("(?:^|; )" + cookieName + "="));
+    } catch (e) {
+      return true;
+    }
+  }
+
+  var firstVisit = isFirstVisit();
+  var visitorId = getOrCreateVisitorId();
+  if (!visitorId || visitorId.length < 10) {
+    visitorId = "v_" + Math.random().toString(36).slice(2) + "_" + Date.now().toString(36);
+  }
+
+  var payload = {
+    visitor_id: visitorId,
+    site_id: siteId,
+    landing_url: window.location.href,
+    referrer: document.referrer || "",
+    utm_source: getQueryParam("utm_source"),
+    utm_medium: getQueryParam("utm_medium"),
+    utm_campaign: getQueryParam("utm_campaign"),
+    utm_content: getQueryParam("utm_content"),
+    utm_term: getQueryParam("utm_term"),
+    gclid: getQueryParam("gclid"),
+    fbclid: getQueryParam("fbclid"),
+    yclid: getQueryParam("yclid"),
+    ttclid: getQueryParam("ttclid"),
+    touch_type: firstVisit ? "first" : "last",
+  };
+
+  console.log("[as-tracker] payload snapshot", payload);
+
+  // Send on EVERY page load - no gate on UTM/referrer/click IDs. Direct visits must be recorded.
+  var params = new URLSearchParams();
+  params.set("visitor_id", visitorId);
+  params.set("site_id", siteId);
+  params.set("landing_url", (payload.landing_url || "").slice(0, 500));
+  params.set("referrer", (payload.referrer || "").slice(0, 500));
+  params.set("touch_type", payload.touch_type);
+  params.set("_ts", String(Date.now()));
+  if (payload.utm_source) params.set("utm_source", payload.utm_source);
+  if (payload.utm_medium) params.set("utm_medium", payload.utm_medium);
+  if (payload.utm_campaign) params.set("utm_campaign", payload.utm_campaign);
+  if (payload.utm_content) params.set("utm_content", payload.utm_content);
+  if (payload.utm_term) params.set("utm_term", payload.utm_term);
+  if (payload.gclid) params.set("gclid", payload.gclid);
+  if (payload.fbclid) params.set("fbclid", payload.fbclid);
+  if (payload.yclid) params.set("yclid", payload.yclid);
+  if (payload.ttclid) params.set("ttclid", payload.ttclid);
+
+  var pixelUrl = pixelEndpoint + "?" + params.toString();
+  console.log("[as-tracker] pixel URL built", { url: pixelUrl.slice(0, 150) + (pixelUrl.length > 150 ? "..." : "") });
+
+  var img = new Image(1, 1);
+  img.src = pixelUrl;
+
+  console.log("[as-tracker] pixel beacon sent");
+})();

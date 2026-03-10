@@ -1,0 +1,377 @@
+/* app/globals.css */
+@import "tailwindcss";
+
+/* ✅ react-date-range (Meta-like calendar base) */
+@import "react-date-range/dist/styles.css";
+@import "react-date-range/dist/theme/default.css";
+
+/* ===== БАЗОВЫЕ НАСТРОЙКИ ===== */
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  /* ТВОЙ ФОН (оставляем) */
+  background: radial-gradient(1200px 600px at 20% 10%, rgba(90, 120, 255, 0.22), transparent 60%),
+    radial-gradient(900px 500px at 90% 20%, rgba(90, 255, 190, 0.16), transparent 55%), #07070b;
+
+  color: white;
+  font-family: var(--font-jakarta), Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+    Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+/* Чтобы Tailwind был предсказуемее по border */
+*,
+::before,
+::after {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+a {
+  color: inherit;
+}
+
+/* Spinner for dashboard status button (unique name to avoid Tailwind conflict) */
+@keyframes dashboard-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Выделение текста */
+::selection {
+  background: rgba(150, 255, 200, 0.25);
+}
+
+/* Скроллбар (мягко) */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+/* ===== ДЕФОЛТНЫЕ СТИЛИ ДЛЯ INPUT/BUTTON (НЕ ЛОМАЮТ TAILWIND) =====
+   ВАЖНО: применяются только к элементам БЕЗ class="".
+*/
+
+input:not([class]),
+textarea:not([class]),
+select:not([class]) {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 12px;
+  border-radius: 12px;
+  color: white;
+  outline: none;
+}
+
+input:not([class])::placeholder,
+textarea:not([class])::placeholder {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+button:not([class]) {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 12px 14px;
+  border-radius: 12px;
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+button:not([class]):hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ===== react-date-range: dark + “Meta-like” fixes =====
+   Цель: ничего не “едет”, две сетки месяцев, нормальные инпуты, аккуратный попап.
+   Важно: эти стили НЕ зависят от Tailwind и работают глобально.
+*/
+
+.rdrDateRangeWrapper {
+  background: rgba(18, 18, 24, 0.92) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 18px !important;
+  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.65) !important;
+  overflow: hidden !important;
+}
+
+/* левая колонка “быстрых диапазонов” */
+.rdrDefinedRangesWrapper {
+  background: rgba(18, 18, 24, 0.65) !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+/* контейнер календарей (две сетки) */
+.rdrCalendarWrapper {
+  background: transparent !important;
+  color: rgba(255, 255, 255, 0.92) !important;
+}
+
+.rdrMonths {
+  width: 100% !important;
+  display: flex !important;
+  gap: 12px !important; /* чтобы два месяца выглядели “как Meta” */
+  align-items: stretch !important;
+}
+
+.rdrMonth {
+  width: 320px !important; /* фикс ширины = не едет */
+  padding: 10px 10px 12px !important;
+}
+
+/* шапка месяца */
+.rdrMonthName {
+  color: rgba(255, 255, 255, 0.88) !important;
+  font-weight: 800 !important;
+  font-size: 14px !important;
+}
+
+/* дни недели */
+.rdrWeekDays {
+  margin-top: 6px !important;
+}
+.rdrWeekDay {
+  color: rgba(255, 255, 255, 0.6) !important;
+  font-weight: 700 !important;
+  font-size: 12px !important;
+}
+
+/* сетка дней: фикс геометрии */
+.rdrDays {
+  width: 100% !important;
+}
+.rdrDay {
+  height: 40px !important;
+  line-height: 40px !important;
+}
+.rdrDayNumber span {
+  color: rgba(255, 255, 255, 0.9) !important;
+  font-weight: 650 !important;
+}
+
+/* неактивные дни */
+.rdrDayPassive .rdrDayNumber span {
+  color: rgba(255, 255, 255, 0.25) !important;
+}
+
+/* hover */
+.rdrDayHovered .rdrDayNumber span {
+  color: rgba(255, 255, 255, 0.98) !important;
+}
+
+/* диапазон (заливка) */
+.rdrInRange,
+.rdrStartEdge,
+.rdrEndEdge {
+  color: rgba(58, 124, 255, 1) !important; /* “meta-blue” */
+}
+.rdrInRange {
+  opacity: 0.28 !important;
+}
+.rdrStartEdge,
+.rdrEndEdge {
+  opacity: 0.9 !important;
+}
+
+/* скругление краёв диапазона (как в Meta) */
+.rdrDayStartPreview,
+.rdrDayEndPreview,
+.rdrDayInPreview {
+  border-color: rgba(58, 124, 255, 0.85) !important;
+}
+.rdrDayStartPreview,
+.rdrDayEndPreview {
+  border-radius: 999px !important;
+}
+
+/* выбранный день */
+.rdrDayStartOfRange .rdrDayNumber span,
+.rdrDayEndOfRange .rdrDayNumber span {
+  color: #fff !important;
+  font-weight: 800 !important;
+}
+
+/* верхние инпуты дат (которые у тебя “поехали”) */
+.rdrDateDisplayWrapper {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+  padding: 12px !important;
+}
+
+.rdrDateDisplay {
+  margin: 0 !important;
+  gap: 10px !important;
+}
+
+.rdrDateDisplayItem {
+  background: rgba(0, 0, 0, 0.18) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 14px !important;
+  box-shadow: none !important;
+  height: 44px !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+.rdrDateDisplayItem input {
+  color: rgba(255, 255, 255, 0.92) !important;
+  font-weight: 800 !important;
+  font-size: 14px !important;
+  letter-spacing: 0.2px !important;
+}
+
+/* стрелки навигации месяцев */
+.rdrNextPrevButton {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 12px !important;
+}
+.rdrNextPrevButton i {
+  border-color: rgba(255, 255, 255, 0.75) !important;
+}
+
+/* список быстрых периодов слева */
+.rdrStaticRanges,
+.rdrInputRanges {
+  padding: 10px 10px 12px !important;
+}
+.rdrStaticRangeLabel {
+  color: rgba(255, 255, 255, 0.9) !important;
+  font-weight: 650 !important;
+}
+.rdrStaticRange:hover .rdrStaticRangeLabel {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+.rdrStaticRangeSelected .rdrStaticRangeLabel {
+  background: rgba(58, 124, 255, 0.22) !important;
+  border-left: 3px solid rgba(58, 124, 255, 0.95) !important;
+}
+
+/* нижняя панель (Отмена / Готово) если ты её рисуешь сам — ок.
+   Но если используешь внутри календаря — чуть приводим к виду */
+.rdrCalendarWrapper button {
+  font-family: inherit !important;
+}
+
+/* чтобы попап не выходил за экран на ноуте */
+.rdrDateRangePickerWrapper {
+  max-width: min(980px, calc(100vw - 40px)) !important;
+}
+@media (max-width: 1040px) {
+  .rdrMonths {
+    flex-direction: column !important; /* на узких экранах 2 месяца в колонку */
+  }
+  .rdrMonth {
+    width: 100% !important;
+  }
+}
+
+/* ===== УТИЛИТЫ ДЛЯ UI ===== */
+
+@layer utilities {
+  /* ===== ACCENT COLORS (основной mint) ===== */
+  .text-mint {
+    color: rgba(150, 255, 200, 0.95);
+  }
+  .bg-mint {
+    background-color: rgba(150, 255, 200, 0.95);
+  }
+
+  /* “темнее”, чтобы белый текст читался */
+  .bg-mint-dim {
+    background-color: rgba(150, 255, 200, 0.22);
+  }
+  .bg-mint-dim2 {
+    background-color: rgba(150, 255, 200, 0.28);
+  }
+
+  /* дополнительные (под гамму) */
+  .text-blue {
+    color: rgba(120, 170, 255, 0.95);
+  }
+  .bg-blue {
+    background-color: rgba(120, 170, 255, 0.95);
+  }
+
+  .text-yellow {
+    color: rgba(255, 210, 130, 0.95);
+  }
+  .bg-yellow {
+    background-color: rgba(255, 210, 130, 0.95);
+  }
+
+  .text-red {
+    color: rgba(255, 140, 160, 0.95);
+  }
+  .bg-red {
+    background-color: rgba(255, 140, 160, 0.95);
+  }
+
+  /* ===== GRADIENT BARS (прогресс/индикаторы) ===== */
+  .bg-grad-mint {
+    background: linear-gradient(90deg, rgba(150, 255, 200, 0.95), rgba(120, 170, 255, 0.85));
+  }
+  .bg-grad-blue {
+    background: linear-gradient(90deg, rgba(120, 170, 255, 0.95), rgba(150, 255, 200, 0.75));
+  }
+  .bg-grad-yellow {
+    background: linear-gradient(90deg, rgba(255, 210, 130, 0.95), rgba(150, 255, 200, 0.75));
+  }
+  .bg-grad-red {
+    background: linear-gradient(90deg, rgba(255, 140, 160, 0.95), rgba(255, 210, 130, 0.65));
+  }
+
+  /* ===== premium “glass” карточки ===== */
+  .glass {
+    background: rgba(18, 18, 24, 0.62);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* мягкое свечение (как “glow”) */
+  .shadow-glow {
+    box-shadow: 0 0 40px rgba(150, 255, 200, 0.1), 0 20px 70px rgba(0, 0, 0, 0.55);
+  }
+
+  /* сетка (очень деликатно) */
+  .grid-bg {
+    background-image: radial-gradient(circle at 20% 10%, rgba(150, 255, 200, 0.08), transparent 45%),
+      radial-gradient(circle at 80% 20%, rgba(120, 170, 255, 0.1), transparent 45%),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+      linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+    background-size: auto, auto, 70px 70px, 70px 70px;
+    background-position: center;
+  }
+
+  /* приятные края у “пилюль”/кнопок */
+  .ring-soft {
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  }
+
+  /* текст, который часто “чернеет” из-за наследования — фикс */
+  .text-safe {
+    color: rgba(255, 255, 255, 0.92);
+  }
+  .text-muted {
+    color: rgba(255, 255, 255, 0.7);
+  }
+  .text-dim {
+    color: rgba(255, 255, 255, 0.55);
+  }
+}

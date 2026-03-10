@@ -1,0 +1,148 @@
+import { NextResponse } from "next/server";
+import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+
+/**
+ * GET /api/dashboard/accounts?project_id=...
+ * Returns all connected ad accounts for the project (canonical ad_accounts), all platforms.
+ * Used by dashboard Sources + Accounts filters. Each account has id, name, platform_account_id, platform, is_enabled.
+ */
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const projectId = searchParams.get("project_id");
+
+  if (!projectId) {
+    return NextResponse.json({ success: false, error: "project_id required" }, { status: 400 });
+  }
+
+  const admin = supabaseAdmin();
+
+  let integrationIds: string[] = [];
+
+  const { data: imRows } = await admin
+    .from("integrations_meta")
+    .select("integrations_id")
+    .eq("project_id", projectId);
+  const metaIds = (imRows ?? []).map((r: { integrations_id: string | null }) => r.integrations_id).filter(Boolean) as string[];
+
+  const { data: googleIntRows } = await admin
+    .from("integrations")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("platform", "google");
+  const googleIds = (googleIntRows ?? []).map((r: { id: string }) => r.id);
+
+  integrationIds = [...new Set([...metaIds, ...googleIds])];
+
+  if (!integrationIds.length) {
+    return NextResponse.json({ success: true, accounts: [] });
+  }
+
+  const { data: adAccounts, error } = await admin
+    .from("ad_accounts")
+    .select("id, account_name, external_account_id, provider")
+    .in("integration_id", integrationIds)
+    .order("provider", { ascending: true })
+    .order("account_name", { ascending: true });
+
+  if (error) {
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  }
+
+  const list = adAccounts ?? [];
+  const ids = list.map((a: { id: string }) => a.id);
+
+  // Primary: platform-agnostic enabled state from ad_account_settings
+  const enabledAdAccountIds = new Set<string>();
+  if (ids.length > 0) {
+    const { data: settingsRows } = await admin
+      .from("ad_account_settings")
+      .select("ad_account_id")
+      .eq("project_id", projectId)
+      .eq("is_enabled", true)
+      .in("ad_account_id", ids);
+    if (settingsRows?.length) {
+      for (const r of settingsRows as { ad_account_id: string }[]) {
+        enabledAdAccountIds.add(r.ad_account_id);
+      }
+    }
+  }
+
+  // Fallback: if no ad_account_settings yet (transition), use meta_ad_accounts for Meta
+  let metaEnabledExternalIds = new Set<string>();
+  if (enabledAdAccountIds.size === 0) {
+    const { data: metaEnabledRows } = await admin
+      .from("meta_ad_accounts")
+      .select("ad_account_id")
+      .eq("project_id", projectId)
+      .eq("is_enabled", true);
+    if (metaEnabledRows?.length) {
+      metaEnabledExternalIds = new Set((metaEnabledRows as { ad_account_id: string }[]).map((r) => r.ad_account_id));
+    }
+  }
+
+  let coverageMap: Record<string, { min_date: string; max_date: string; row_count: number }> = {};
+  if (ids.length > 0) {
+    const twoYearsAgo = new Date();
+    twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+    const fromDate = twoYearsAgo.toISOString().slice(0, 10);
+    const { data: metricsRows } = await admin
+      .from("daily_ad_metrics")
+      .select("ad_account_id, date")
+      .in("ad_account_id", ids)
+      .gte("date", fromDate);
+    const rows = (metricsRows ?? []) as { ad_account_id: string; date: string }[];
+    for (const r of rows) {
+      const aid = r.ad_account_id;
+      if (!coverageMap[aid]) coverageMap[aid] = { min_date: r.date, max_date: r.date, row_count: 0 };
+      const c = coverageMap[aid];
+      if (r.date < c.min_date) c.min_date = r.date;
+      if (r.date > c.max_date) c.max_date = r.date;
+      c.row_count += 1;
+    }
+  }
+
+  // Latest sync run per ad account (one query, no N+1): platform-agnostic sync_runs (Meta + Google)
+  const lastSyncMap: Record<string, { last_sync_at: string; last_sync_status: string }> = {};
+  if (ids.length > 0) {
+    const { data: syncRows } = await admin
+      .from("sync_runs")
+      .select("ad_account_id, started_at, status")
+      .eq("project_id", projectId)
+      .eq("sync_type", "insights")
+      .in("ad_account_id", ids)
+      .order("started_at", { ascending: false })
+      .limit(500);
+    const syncList = (syncRows ?? []) as { ad_account_id: string | null; started_at: string; status: string }[];
+    for (const row of syncList) {
+      const aid = row.ad_account_id;
+      if (aid && !(aid in lastSyncMap)) {
+        lastSyncMap[aid] = { last_sync_at: row.started_at, last_sync_status: row.status };
+      }
+    }
+  }
+
+  const accounts = list.map((a: { id: string; account_name: string | null; external_account_id: string; provider: string }) => {
+    const cov = coverageMap[a.id];
+    const has_data = !!cov && cov.row_count > 0;
+    const is_enabled =
+      enabledAdAccountIds.size > 0
+        ? enabledAdAccountIds.has(a.id)
+        : (a.provider === "meta" ? metaEnabledExternalIds.has(a.external_account_id) : false);
+    const lastSync = lastSyncMap[a.id];
+    return {
+      id: a.id,
+      name: a.account_name ?? null,
+      platform_account_id: a.external_account_id,
+      platform: a.provider,
+      is_enabled,
+      has_data: has_data,
+      min_date: cov?.min_date ?? null,
+      max_date: cov?.max_date ?? null,
+      row_count: cov?.row_count ?? 0,
+      last_sync_at: lastSync?.last_sync_at ?? null,
+      last_sync_status: lastSync?.last_sync_status ?? null,
+    };
+  });
+
+  return NextResponse.json({ success: true, accounts });
+}
