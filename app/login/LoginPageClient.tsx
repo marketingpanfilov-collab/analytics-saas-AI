@@ -10,10 +10,12 @@ export default function LoginPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Куда редиректить после логина (middleware часто ставит ?next=/app)
+  // Post-login: project selection first; never default to /app (dashboard without project_id)
   const nextPath = useMemo(() => {
     const n = searchParams.get("next");
-    return n && n.startsWith("/") ? n : "/app";
+    if (!n || !n.startsWith("/")) return "/app/projects";
+    if (n === "/app" || n === "/app/") return "/app/projects";
+    return n;
   }, [searchParams]);
 
   const [mode, setMode] = useState<Mode>("login");

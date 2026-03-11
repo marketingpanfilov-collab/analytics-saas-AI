@@ -1,9 +1,30 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import DataHealthMini from "./DataHealthMini";
+
+type ProjectItem = { id: string; name: string | null; organization_id: string | null };
+
+function sectionLabel(pathname: string): string {
+  if (pathname === "/app" || pathname === "/app/") return "Дашборд";
+  if (pathname.startsWith("/app/reports")) return "Отчёты";
+  if (pathname.startsWith("/app/ltv")) return "LTV";
+  if (pathname.startsWith("/app/utm-builder")) return "UTM Builder";
+  if (pathname.startsWith("/app/pixels")) return "BQ Pixel";
+  if (pathname.startsWith("/app/accounts")) return "Аккаунты";
+  if (pathname.startsWith("/app/project-members")) return "Участники";
+  if (pathname.startsWith("/app/org-members")) return "Организация";
+  if (pathname.startsWith("/app/sales-data")) return "Sales Data";
+  if (pathname.startsWith("/app/api")) return "API";
+  if (pathname.startsWith("/app/settings")) return "Настройки";
+  if (pathname.startsWith("/app/support")) return "Поддержка";
+  if (pathname === "/app/projects" || pathname === "/app/projects/") return "Проекты";
+  if (pathname.startsWith("/app/projects/new")) return "Создание проекта";
+  if (pathname.startsWith("/app/invite")) return "Приглашение";
+  return "Рабочая область";
+}
 
 type NoticeType = "info" | "warn" | "success";
 
@@ -76,7 +97,34 @@ function Dot({ color }: { color: string }) {
 
 export default function Topbar({ email }: { email?: string }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const projectId = searchParams.get("project_id")?.trim() ?? null;
+
   const [dataHealth, setDataHealth] = useState<number>(35);
+  const [projects, setProjects] = useState<ProjectItem[]>([]);
+
+  const section = useMemo(() => sectionLabel(pathname ?? ""), [pathname]);
+  const projectName = useMemo(
+    () => (projectId && projects.length ? (projects.find((p) => p.id === projectId)?.name ?? null) || "Проект" : null),
+    [projectId, projects]
+  );
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/projects", { cache: "no-store" });
+        const json = (await res.json()) as { success?: boolean; projects?: ProjectItem[] };
+        if (mounted && json?.success && Array.isArray(json.projects)) setProjects(json.projects);
+      } catch {
+        if (mounted) setProjects([]);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const [notifOpen, setNotifOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -169,8 +217,41 @@ export default function Topbar({ email }: { email?: string }) {
         zIndex: 30, // ✅ поверх контента
       }}
     >
-      <div style={{ fontWeight: 800, fontSize: 15, opacity: 0.9 }}>
-        Управленческая аналитика
+      {/* Project context: project name + section */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 2,
+          minWidth: 0,
+        }}
+      >
+        <div
+          style={{
+            fontWeight: 800,
+            fontSize: 15,
+            color: "white",
+            opacity: 0.95,
+            lineHeight: 1.2,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {projectName ?? "BoardIQ"}
+        </div>
+        <div
+          style={{
+            fontSize: 12,
+            color: "rgba(255,255,255,0.55)",
+            lineHeight: 1.2,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {section}
+        </div>
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>

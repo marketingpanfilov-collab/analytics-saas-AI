@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { supabase } from "@/app/lib/supabaseClient";
 
 function formatMoney(n: number) {
   return new Intl.NumberFormat("en-US", {
@@ -450,7 +451,7 @@ export default function AppDashboardClient() {
     }
   }
 
-  // Load metrics when applied range changes (not on draft changes)
+  // Load metrics when applied range changes (not on draft changes). Do not run until access is validated.
   const hasLoadedRef = useRef(false);
   useEffect(() => {
     const key = `${projectId}:${appliedDateFrom}:${appliedDateTo}:${sourcesKey}:${accountIdsKey}`;

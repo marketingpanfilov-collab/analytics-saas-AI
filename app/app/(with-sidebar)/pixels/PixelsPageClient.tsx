@@ -187,7 +187,7 @@ export default function PixelsPageClient() {
             </h1>
             <p className="mt-2 max-w-xl text-sm text-neutral-400">
               First-party source tracking captures visit attribution, UTM parameters, referrer, and click IDs
-              on your site. Install the script once and we'll surface source data for your campaigns.
+              on your site. Install the script once and we&apos;ll surface source data for your campaigns.
             </p>
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <span

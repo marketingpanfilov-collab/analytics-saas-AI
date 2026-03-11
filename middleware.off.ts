@@ -40,7 +40,7 @@ export async function middleware(request: NextRequest) {
   // 2) Если уже залогинен — не пускаем на /login
   if (pathname.startsWith("/login") && user) {
     const url = request.nextUrl.clone();
-    url.pathname = "/app";
+    url.pathname = "/app/projects";
     url.search = "";
     return NextResponse.redirect(url);
   }

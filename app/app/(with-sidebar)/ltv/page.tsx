@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import LtvChart, { type Point } from "../components/LtvChart";
-import CohortHeatmap, { type CohortRow } from "../components/CohortHeatmap";
+import LtvChart, { type Point } from "../../components/LtvChart";
+import CohortHeatmap, { type CohortRow } from "../../components/CohortHeatmap";
 
 const pillStyle = (active: boolean) => ({
   padding: "8px 12px",

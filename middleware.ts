@@ -37,10 +37,10 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // 2) If already logged in — redirect away from /login
+  // 2) If already logged in — redirect to project selection (never default to /app)
   if (pathname.startsWith("/login") && user) {
     const url = request.nextUrl.clone();
-    url.pathname = "/app";
+    url.pathname = "/app/projects";
     url.search = "";
     return NextResponse.redirect(url);
   }
