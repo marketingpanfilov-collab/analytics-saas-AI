@@ -42,17 +42,28 @@ function classifyGenericDeviation(delta: number): DeviationStatus {
   return "bad";
 }
 
+/** Расход: перерасход = плохо (red), недорасход = ок (green или yellow). delta = (fact - plan) / plan */
 function classifySpendDeviation(delta: number): DeviationStatus {
   if (!Number.isFinite(delta)) return "neutral";
-  // delta = (fact - plan) / plan
-  if (delta <= 0) {
-    // недорасход: зелёный или жёлтый, но не красный
-    const abs = Math.abs(delta);
-    if (abs <= 0.3) return "good";
-    return "warn";
-  }
-  // перерасход: используем общие пороги
-  return classifyGenericDeviation(delta);
+  if (delta > 0) return "bad";
+  if (delta >= -0.25) return "good";
+  return "warn";
+}
+
+/** Продажи / ROAS: больше план = хорошо. ratio = fact / plan. >= 1 green, >= 0.75 yellow, < 0.75 red */
+function classifySalesDeviation(ratio: number): DeviationStatus {
+  if (!Number.isFinite(ratio) || ratio < 0) return "neutral";
+  if (ratio >= 1) return "good";
+  if (ratio >= 0.75) return "warn";
+  return "bad";
+}
+
+/** CAC / CPR: меньше план = хорошо. ratio = fact / plan. <= 1 green, <= 1.25 yellow, > 1.25 red */
+function classifyLowerIsBetter(ratio: number): DeviationStatus {
+  if (!Number.isFinite(ratio) || ratio < 0) return "neutral";
+  if (ratio <= 1) return "good";
+  if (ratio <= 1.25) return "warn";
+  return "bad";
 }
 
 function badgeColors(status: DeviationStatus): { bg: string; border: string; text: string } {
@@ -115,8 +126,11 @@ function deltaPct(fact: number, plan: number) {
 
 function MetricRow({ m }: { m: Metric }) {
   const d = deltaPct(m.fact, m.plan);
-  const rel = m.plan ? (m.fact - m.plan) / m.plan : 0;
-  const status = classifyGenericDeviation(rel);
+  const ratio = m.plan > 0 ? m.fact / m.plan : 0;
+  const status =
+    m.key === "sales"
+      ? classifySalesDeviation(ratio)
+      : classifyGenericDeviation(m.plan ? (m.fact - m.plan) / m.plan : 0);
   const colors = badgeColors(status);
   const sign = d > 0 ? "+" : "";
   return (

@@ -15,6 +15,8 @@ export type MonthlyPlanRow = {
   repeat_sales_count: number | null;
   repeat_sales_budget: number | null;
   planned_revenue: number | null;
+  primary_avg_check: number | null;
+  repeat_avg_check: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -70,7 +72,7 @@ export async function GET(req: Request) {
 
   const { data: row, error } = await supabase
     .from("project_monthly_plans")
-    .select("id, project_id, month, year, sales_plan_count, sales_plan_budget, repeat_sales_count, repeat_sales_budget, planned_revenue, created_at, updated_at")
+    .select("id, project_id, month, year, sales_plan_count, sales_plan_budget, repeat_sales_count, repeat_sales_budget, planned_revenue, primary_avg_check, repeat_avg_check, created_at, updated_at")
     .eq("project_id", projectId)
     .eq("month", monthNum)
     .eq("year", yearNum)
@@ -94,6 +96,8 @@ export async function GET(req: Request) {
           repeat_sales_count: row.repeat_sales_count ?? null,
           repeat_sales_budget: row.repeat_sales_budget ?? null,
           planned_revenue: row.planned_revenue ?? null,
+          primary_avg_check: row.primary_avg_check ?? null,
+          repeat_avg_check: row.repeat_avg_check ?? null,
           created_at: row.created_at,
           updated_at: row.updated_at,
         }
@@ -124,6 +128,8 @@ export async function POST(req: Request) {
     repeat_sales_count?: number | null;
     repeat_sales_budget?: number | null;
     planned_revenue?: number | null;
+    primary_avg_check?: number | null;
+    repeat_avg_check?: number | null;
   };
   try {
     body = await req.json();
@@ -163,6 +169,8 @@ export async function POST(req: Request) {
     repeat_sales_count: body.repeat_sales_count ?? null,
     repeat_sales_budget: body.repeat_sales_budget ?? null,
     planned_revenue: body.planned_revenue ?? null,
+    primary_avg_check: body.primary_avg_check ?? null,
+    repeat_avg_check: body.repeat_avg_check ?? null,
     updated_by: user.id,
     updated_at: new Date().toISOString(),
   };
@@ -184,6 +192,8 @@ export async function POST(req: Request) {
         repeat_sales_count: payload.repeat_sales_count,
         repeat_sales_budget: payload.repeat_sales_budget,
         planned_revenue: payload.planned_revenue,
+        primary_avg_check: payload.primary_avg_check,
+        repeat_avg_check: payload.repeat_avg_check,
         updated_by: payload.updated_by,
         updated_at: payload.updated_at,
       })
@@ -208,6 +218,8 @@ export async function POST(req: Request) {
       repeat_sales_count: payload.repeat_sales_count,
       repeat_sales_budget: payload.repeat_sales_budget,
       planned_revenue: payload.planned_revenue,
+      primary_avg_check: payload.primary_avg_check,
+      repeat_avg_check: payload.repeat_avg_check,
       created_by: user.id,
       updated_by: payload.updated_by,
     })

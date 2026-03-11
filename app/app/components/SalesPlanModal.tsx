@@ -17,6 +17,8 @@ export type MonthlyPlan = {
   repeat_sales_count: number | null;
   repeat_sales_budget: number | null;
   planned_revenue: number | null;
+  primary_avg_check: number | null;
+  repeat_avg_check: number | null;
 };
 
 const modalOverlay = {
@@ -128,9 +130,12 @@ export default function SalesPlanModal({
       setRepeatSalesCpr("");
     }
 
-    // Средние чеки не восстанавливаются из схемы (полей нет в БД).
-    setPrimaryAvgCheck("");
-    setRepeatAvgCheck("");
+    setPrimaryAvgCheck(
+      initialPlan?.primary_avg_check != null ? String(initialPlan.primary_avg_check) : ""
+    );
+    setRepeatAvgCheck(
+      initialPlan?.repeat_avg_check != null ? String(initialPlan.repeat_avg_check) : ""
+    );
     setSaveError(null);
   }, [open, initialPlan]);
 
@@ -198,6 +203,8 @@ export default function SalesPlanModal({
           repeat_sales_count: repeatSalesCount === "" ? null : rc,
           repeat_sales_budget: repeatBudget > 0 ? repeatBudget : null,
           planned_revenue: totalRevenue > 0 ? totalRevenue : null,
+          primary_avg_check: primaryAvgCheck === "" ? null : primaryAvg,
+          repeat_avg_check: repeatAvgCheck === "" ? null : repeatAvg,
         }),
       });
       const json = await res.json();
@@ -604,6 +611,31 @@ export default function SalesPlanModal({
                         : "—"}
                     </span>
                   </div>
+
+                  {(() => {
+                    const daysInMonth = new Date(year, month, 0).getDate();
+                    const averageDailyBudget =
+                      summary.totalBudget > 0 && daysInMonth > 0
+                        ? summary.totalBudget / daysInMonth
+                        : 0;
+                    return (
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          fontSize: 13,
+                          color: "rgba(255,255,255,0.85)",
+                        }}
+                      >
+                        <span>Средний дневной бюджет</span>
+                        <span style={{ fontWeight: 700, color: "white" }}>
+                          {averageDailyBudget > 0
+                            ? fmtMoney(averageDailyBudget, currency, usdToKztRate)
+                            : "—"}
+                        </span>
+                      </div>
+                    );
+                  })()}
 
                   <div
                     style={{
