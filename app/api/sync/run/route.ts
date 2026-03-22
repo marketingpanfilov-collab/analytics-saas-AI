@@ -14,6 +14,16 @@ function isGoogleCustomerId(v: string) {
   return /^\d+(-?\d*)$/.test(String(v).trim());
 }
 
+/** Forward browser session to delegated route handlers (server-side fetch does not inherit cookies). */
+function forwardAuthHeaders(req: Request): HeadersInit {
+  const h: Record<string, string> = {};
+  const cookie = req.headers.get("cookie");
+  if (cookie) h.cookie = cookie;
+  const auth = req.headers.get("authorization");
+  if (auth) h.authorization = auth;
+  return h;
+}
+
 /**
  * POST /api/sync/run
  *
@@ -109,7 +119,7 @@ export async function POST(req: Request) {
     url.searchParams.set("project_id", project_id);
     url.searchParams.set("ad_account_id", ad_account_id as string);
 
-    const res = await fetch(url.toString(), { method: "GET" });
+    const res = await fetch(url.toString(), { method: "GET", headers: forwardAuthHeaders(req) });
     const json = await res.json().catch(() => ({}));
 
     const success = res.ok && json?.success === true;
@@ -159,7 +169,7 @@ export async function POST(req: Request) {
     url.searchParams.set("project_id", project_id);
     url.searchParams.set("ad_account_id", ad_account_id as string);
 
-    const res = await fetch(url.toString(), { method: "GET" });
+    const res = await fetch(url.toString(), { method: "GET", headers: forwardAuthHeaders(req) });
     const json = await res.json().catch(() => ({}));
 
     const success = res.ok && json?.success === true;
