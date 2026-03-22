@@ -1,340 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-
-type MetricTab = "Spend" | "CAC" | "ROMI" | "Покупатели";
-type ChannelTab = "Google" | "Meta" | "TikTok";
+import { useState } from "react";
 
 function cn(...v: Array<string | false | null | undefined>) {
   return v.filter(Boolean).join(" ");
-}
-
-function Pill({
-  active,
-  children,
-  onClick,
-}: {
-  active?: boolean;
-  children: React.ReactNode;
-  onClick?: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "ring-soft rounded-full px-3 py-1 text-xs font-semibold transition",
-        "bg-white/5 hover:bg-white/8",
-        active && "bg-white/10"
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-function PrimaryButton({
-  children,
-  href,
-}: {
-  children: React.ReactNode;
-  href: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className={cn(
-        "inline-flex items-center justify-center rounded-xl px-4 py-2.5",
-        "font-extrabold text-sm text-white",
-        "bg-[rgba(150,255,200,0.28)] hover:bg-[rgba(150,255,200,0.34)]",
-        "border border-white/12 shadow-glow transition"
-      )}
-    >
-      {children}
-    </Link>
-  );
-}
-
-function SecondaryButton({
-  children,
-  href,
-}: {
-  children: React.ReactNode;
-  href: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className={cn(
-        "inline-flex items-center justify-center rounded-xl px-4 py-2.5",
-        "font-bold text-sm text-white/90",
-        "bg-white/6 hover:bg-white/10 border border-white/12 transition"
-      )}
-    >
-      {children}
-    </Link>
-  );
-}
-
-function OutlineButton({
-  children,
-  href,
-}: {
-  children: React.ReactNode;
-  href: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className={cn(
-        "inline-flex items-center justify-center rounded-xl px-4 py-2.5",
-        "font-bold text-sm text-white/80",
-        "bg-transparent hover:bg-white/6 border border-white/12 transition"
-      )}
-    >
-      {children}
-    </Link>
-  );
-}
-
-function MiniProgress({
-  value,
-  variant,
-  labelLeft,
-  labelRight,
-  helper,
-}: {
-  value: number; // 0..100
-  variant: "mint" | "blue" | "yellow" | "red";
-  labelLeft: string;
-  labelRight: string;
-  helper?: string;
-}) {
-  const barClass =
-    variant === "mint"
-      ? "bg-grad-mint"
-      : variant === "blue"
-      ? "bg-grad-blue"
-      : variant === "yellow"
-      ? "bg-grad-yellow"
-      : "bg-grad-red";
-
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-baseline justify-between gap-3">
-        <div className="text-xs font-semibold text-white/80">{labelLeft}</div>
-        <div className="text-xs font-extrabold text-white/90">
-          {labelRight}
-        </div>
-      </div>
-
-      {helper ? <div className="text-[11px] text-white/55">{helper}</div> : null}
-
-      <div className="h-2 rounded-full bg-white/8 overflow-hidden ring-soft">
-        <div
-          className={cn("h-full rounded-full", barClass)}
-          style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function Sparkline() {
-  // чисто декоративно
-  return (
-    <div className="h-24 rounded-xl bg-white/4 border border-white/10 ring-soft overflow-hidden p-3">
-      <div className="h-full w-full">
-        <svg viewBox="0 0 240 90" className="h-full w-full">
-          <defs>
-            <linearGradient id="g" x1="0" x2="1">
-              <stop offset="0" stopColor="rgba(150,255,200,0.85)" />
-              <stop offset="1" stopColor="rgba(120,170,255,0.75)" />
-            </linearGradient>
-            <linearGradient id="fill" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0" stopColor="rgba(150,255,200,0.20)" />
-              <stop offset="1" stopColor="rgba(150,255,200,0.00)" />
-            </linearGradient>
-          </defs>
-          <path
-            d="M10 70 L40 62 L65 66 L92 52 L120 58 L145 45 L170 48 L200 30 L230 36"
-            fill="none"
-            stroke="url(#g)"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M10 70 L40 62 L65 66 L92 52 L120 58 L145 45 L170 48 L200 30 L230 36 L230 90 L10 90 Z"
-            fill="url(#fill)"
-          />
-        </svg>
-      </div>
-    </div>
-  );
-}
-
-function MetricCard({
-  title,
-  value,
-  sub,
-  rightNote,
-}: {
-  title: string;
-  value: string;
-  sub: string;
-  rightNote: string;
-}) {
-  return (
-    <div className="glass rounded-2xl p-5 ring-soft border border-white/10">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-xs font-semibold text-white/60">{title}</div>
-          <div className="mt-1 text-2xl font-extrabold text-mint">{value}</div>
-          <div className="mt-1 text-xs text-white/55">{sub}</div>
-        </div>
-        <div className="text-right">
-          <div className="text-[11px] text-white/55">динамика</div>
-          <div className="mt-1 text-xs font-bold text-white/80">
-            {rightNote}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-4">
-        <Sparkline />
-      </div>
-
-      <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
-        <div className="rounded-xl bg-white/4 border border-white/10 ring-soft p-3">
-          <div className="text-white/55">Топ-кампания</div>
-          <div className="mt-1 font-extrabold text-white/90">Campaign A • 41%</div>
-        </div>
-        <div className="rounded-xl bg-white/4 border border-white/10 ring-soft p-3">
-          <div className="text-white/55">Просадка конверсии</div>
-          <div className="mt-1 font-extrabold text-white/90">Checkout • −9%</div>
-        </div>
-      </div>
-
-      <div className="mt-3 rounded-xl bg-white/4 border border-white/10 ring-soft p-3 text-xs">
-        <div className="flex items-center justify-between">
-          <div className="text-white/55">Потери источника</div>
-          <div className="font-extrabold text-white/90">3%</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function HealthCard({
-  score,
-}: {
-  score: number;
-}) {
-  return (
-    <div className="glass rounded-2xl p-5 ring-soft border border-white/10">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-xs font-semibold text-white/60">
-            Качество данных
-          </div>
-          <div className="mt-1 text-xl font-extrabold text-white/95">
-            Health score
-          </div>
-          <div className="mt-1 text-xs text-white/55">
-            согласованность • полнота • шум
-          </div>
-        </div>
-        <div className="text-right">
-          <div className="text-[11px] text-white/55">score</div>
-          <div className="mt-1 text-xl font-extrabold text-mint">{score}%</div>
-        </div>
-      </div>
-
-      <div className="mt-4 space-y-4">
-        <MiniProgress
-          value={80}
-          variant="mint"
-          labelLeft="Сходимость CRM → Ads"
-          labelRight="80%"
-          helper="сходимость продаж и событий"
-        />
-        <MiniProgress
-          value={83}
-          variant="blue"
-          labelLeft="Полнота событий"
-          labelRight="83%"
-          helper="наличие utm/click id и параметров"
-        />
-        <MiniProgress
-          value={15}
-          variant="red"
-          labelLeft="Дубликаты / шум"
-          labelRight="15%"
-          helper="чем меньше — тем лучше"
-        />
-      </div>
-
-      <div className="mt-4 rounded-xl bg-white/4 border border-white/10 ring-soft p-4">
-        <div className="flex items-center gap-2">
-          <span className="inline-block h-2 w-2 rounded-full bg-mint" />
-          <div className="text-xs font-extrabold text-white/90">
-            Что означает score
-          </div>
-        </div>
-        <ul className="mt-2 space-y-1 text-xs text-white/70">
-          <li>• чем выше score — тем меньше расхождений в отчётах;</li>
-          <li>• DDA точнее распределяет вклад каналов;</li>
-          <li>• рекомендации становятся надёжнее.</li>
-        </ul>
-      </div>
-
-      <div className="mt-3 text-[11px] text-white/50">
-        * демо-пример. В продукте всё считается по вашим данным.
-      </div>
-    </div>
-  );
-}
-
-function Notice({
-  dot,
-  title,
-  text,
-}: {
-  dot: "mint" | "blue" | "yellow" | "red";
-  title: string;
-  text: string;
-}) {
-  const dotClass =
-    dot === "mint"
-      ? "bg-mint"
-      : dot === "blue"
-      ? "bg-blue"
-      : dot === "yellow"
-      ? "bg-yellow"
-      : "bg-red";
-
-  const tint =
-    dot === "mint"
-      ? "bg-[rgba(150,255,200,0.10)] border-[rgba(150,255,200,0.22)]"
-      : dot === "blue"
-      ? "bg-[rgba(120,170,255,0.10)] border-[rgba(120,170,255,0.22)]"
-      : dot === "yellow"
-      ? "bg-[rgba(255,210,130,0.10)] border-[rgba(255,210,130,0.22)]"
-      : "bg-[rgba(255,140,160,0.10)] border-[rgba(255,140,160,0.22)]";
-
-  return (
-    <div className={cn("rounded-2xl border p-4 ring-soft", tint)}>
-      <div className="flex items-start gap-3">
-        <span className={cn("mt-1.5 h-2 w-2 rounded-full", dotClass)} />
-        <div className="min-w-0">
-          <div className="text-sm font-extrabold text-white/92">{title}</div>
-          <div className="mt-1 text-sm text-white/70">{text}</div>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function FaqItem({
@@ -343,615 +13,550 @@ function FaqItem({
   defaultOpen,
 }: {
   q: string;
-  a: string[];
+  a: string;
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(!!defaultOpen);
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/4 ring-soft overflow-hidden">
+    <div className="border-b border-white/10">
       <button
         type="button"
         onClick={() => setOpen((s) => !s)}
-        className="w-full px-5 py-4 flex items-center justify-between gap-4 text-left"
+        className="w-full py-5 flex items-center justify-between gap-4 text-left"
       >
-        <div className="font-extrabold text-white/90">{q}</div>
-        <div className="text-white/60 font-black">{open ? "—" : "+"}</div>
+        <span className="font-semibold text-white/90">{q}</span>
+        <span className="text-white/50 text-xl font-light">{open ? "−" : "+"}</span>
       </button>
-      {open ? (
-        <div className="px-5 pb-5 pt-0 text-sm text-white/75 space-y-2">
-          {a.map((line, i) => (
-            <div key={i}>{line}</div>
-          ))}
-        </div>
-      ) : null}
+      {open && (
+        <div className="pb-5 text-sm text-white/65 leading-relaxed">{a}</div>
+      )}
     </div>
   );
 }
 
 export default function Page() {
-  const [metric, setMetric] = useState<MetricTab>("Spend");
-  const [channel, setChannel] = useState<ChannelTab>("Google");
-
-  const metricView = useMemo(() => {
-    if (metric === "Spend") {
-      return { title: "Spend", value: "$12,450", sub: "расход за период", note: "+8.4% vs прошлый период" };
-    }
-    if (metric === "CAC") {
-      return { title: "CAC", value: "$21.8", sub: "стоимость привлечения", note: "−4.1% vs прошлый период" };
-    }
-    if (metric === "ROMI") {
-      return { title: "ROMI", value: "168%", sub: "окупаемость маркетинга", note: "+12.0% vs прошлый период" };
-    }
-    return { title: "Покупатели", value: "1,240", sub: "за период", note: "+6.7% vs прошлый период" };
-  }, [metric]);
-
-  const score = useMemo(() => {
-    // в демо просто слегка “гуляет”
-    const base = channel === "Google" ? 81 : channel === "Meta" ? 84 : 78;
-    return base;
-  }, [channel]);
-
   return (
-    <main className="min-h-screen">
+    <main className="min-h-screen bg-[#0B0F14]">
       {/* HEADER */}
-      <header className="sticky top-0 z-50">
-        <div className="bg-black/25 backdrop-blur border-b border-white/8">
-          <div className="mx-auto max-w-6xl px-5 py-3 flex items-center justify-between gap-4">
-            <Link href="/" className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-xl glass ring-soft flex items-center justify-center font-black">
-                BIQ
-              </div>
-              <div className="leading-tight">
-                <div className="text-sm font-extrabold">BoardIQ</div>
-                <div className="text-xs text-white/55">analytics</div>
-              </div>
+      <header className="fixed top-0 left-0 right-0 z-50">
+        <div className="bg-[#0B0F14]/80 backdrop-blur-xl border-b border-white/5">
+          <div className="mx-auto max-w-6xl px-6 h-16 flex items-center justify-between">
+            <Link href="/" className="text-lg font-bold text-white">
+              BoardIQ
             </Link>
 
-            <nav className="hidden md:flex items-center gap-6 text-sm text-white/70">
-              <a href="#product" className="hover:text-white">Продукт</a>
-              <a href="#dda" className="hover:text-white">Атрибуция</a>
-              <a href="#integrations" className="hover:text-white">Интеграции</a>
-              <a href="#pricing" className="hover:text-white">Тарифы</a>
-              <a href="#faq" className="hover:text-white">Вопросы</a>
+            <nav className="hidden md:flex items-center gap-8 text-sm text-white/60">
+              <a href="#product" className="hover:text-white transition">Продукт</a>
+              <a href="#attribution" className="hover:text-white transition">Атрибуция</a>
+              <a href="#integrations" className="hover:text-white transition">Интеграции</a>
+              <a href="#pricing" className="hover:text-white transition">Тарифы</a>
+              <a href="#faq" className="hover:text-white transition">FAQ</a>
             </nav>
 
-            <div className="flex items-center gap-2">
-              <OutlineButton href="/app">Перейти в продукт</OutlineButton>
-              <SecondaryButton href="/login">Вход</SecondaryButton>
+            <div className="flex items-center gap-3">
+              <Link
+                href="/login"
+                className="text-sm text-white/70 hover:text-white transition"
+              >
+                Вход
+              </Link>
+              <Link
+                href="#pricing"
+                className="text-sm font-semibold text-white bg-white/10 hover:bg-white/15 px-4 py-2 rounded-lg transition"
+              >
+                Начать
+              </Link>
             </div>
           </div>
         </div>
       </header>
 
       {/* HERO */}
-      <section className="grid-bg">
-        <div className="mx-auto max-w-6xl px-5 pt-10 pb-10">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-start">
+      <section className="pt-32 pb-24 px-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
             {/* LEFT */}
-            <div className="space-y-6">
+            <div className="space-y-8">
+              {/* Badges */}
               <div className="flex flex-wrap gap-2">
-                <span className="ring-soft rounded-full px-3 py-1 text-xs font-semibold bg-white/5">
-                  <span className="inline-block h-2 w-2 rounded-full bg-mint mr-2" />
+                <span className="text-xs text-white/50 bg-white/5 px-3 py-1.5 rounded-full">
                   Прозрачные данные
                 </span>
-                <span className="ring-soft rounded-full px-3 py-1 text-xs font-semibold bg-white/5">
-                  <span className="inline-block h-2 w-2 rounded-full bg-blue mr-2" />
-                  Data-Driven Attribution (DDA)
+                <span className="text-xs text-white/50 bg-white/5 px-3 py-1.5 rounded-full">
+                  DDA-атрибуция
                 </span>
-                <span className="ring-soft rounded-full px-3 py-1 text-xs font-semibold bg-white/5">
-                  <span className="inline-block h-2 w-2 rounded-full bg-yellow mr-2" />
-                  Система рекомендаций
-                </span>
-                <span className="ring-soft rounded-full px-3 py-1 text-xs font-semibold bg-white/5">
-                  <span className="inline-block h-2 w-2 rounded-full bg-red mr-2" />
-                  Контроль качества
+                <span className="text-xs text-white/50 bg-white/5 px-3 py-1.5 rounded-full">
+                  Рекомендации
                 </span>
               </div>
 
-              <h1 className="text-4xl md:text-5xl font-extrabold leading-[1.02]">
-                Управленческая аналитика маркетинга без{" "}
-                <span className="text-mint">искажённых данных</span>
+              <h1 className="text-4xl md:text-5xl font-bold leading-tight text-white text-balance">
+                Управляйте маркетингом через прибыль, а не рекламные кабинеты
               </h1>
 
-              <p className="text-white/70 text-base leading-relaxed max-w-xl">
-                Подключите рекламные кабинеты, CRM и сайт — получите реальную картину:
-                выручка, расходы, CAC, ROMI и вклад каналов в продажи.
-                Плюс рекомендации: где резать, где масштабировать и что чинить.
+              <p className="text-lg text-white/55 leading-relaxed max-w-lg">
+                BoardIQ объединяет рекламу, CRM и аналитику в одну систему.
+                Видите реальную выручку, CAC, ROMI и вклад каналов — без искажённых данных.
               </p>
 
-              <div className="flex flex-wrap items-center gap-2 pt-1">
-                <PrimaryButton href="#pricing">Приобрести</PrimaryButton>
-                <SecondaryButton href="/login">Вход</SecondaryButton>
-                <OutlineButton href="#demo">Посмотреть демо</OutlineButton>
+              {/* CTA */}
+              <div className="flex flex-wrap gap-3">
+                <Link
+                  href="#pricing"
+                  className="inline-flex items-center justify-center px-6 py-3 text-sm font-semibold text-[#0B0F14] bg-white hover:bg-white/90 rounded-lg transition"
+                >
+                  Начать
+                </Link>
+                <Link
+                  href="#demo"
+                  className="inline-flex items-center justify-center px-6 py-3 text-sm font-semibold text-white/80 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition"
+                >
+                  Смотреть демо
+                </Link>
               </div>
 
-              {/* KPI ROW — фиксированная сетка, не “едет” */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3">
-                <div className="glass rounded-2xl p-5 ring-soft border border-white/10">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-xs text-white/55 font-semibold">Data Health</div>
-                      <div className="mt-1 text-2xl font-extrabold text-white/95">Высокий</div>
-                      <div className="mt-1 text-xs text-white/55">качество и полнота данных</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-[11px] text-white/55">score</div>
-                      <div className="mt-1 text-lg font-extrabold text-mint">81%</div>
-                    </div>
-                  </div>
-                  <div className="mt-4 h-2 rounded-full bg-white/8 overflow-hidden ring-soft">
-                    <div className="h-full bg-grad-mint rounded-full" style={{ width: "81%" }} />
-                  </div>
-                </div>
-
-                <div className="glass rounded-2xl p-5 ring-soft border border-white/10">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-xs text-white/55 font-semibold">Аномалии</div>
-                      <div className="mt-1 text-2xl font-extrabold text-white/95">2</div>
-                      <div className="mt-1 text-xs text-white/55">за последние 24 часа</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-[11px] text-white/55">уровень</div>
-                      <div className="mt-1 text-lg font-extrabold text-yellow">22%</div>
-                    </div>
-                  </div>
-                  <div className="mt-4 h-2 rounded-full bg-white/8 overflow-hidden ring-soft">
-                    <div className="h-full bg-grad-yellow rounded-full" style={{ width: "22%" }} />
-                  </div>
-                </div>
-
-                <div className="glass rounded-2xl p-5 ring-soft border border-white/10">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-xs text-white/55 font-semibold">Интеграции</div>
-                      <div className="mt-1 text-2xl font-extrabold text-white/95">8+</div>
-                      <div className="mt-1 text-xs text-white/55">Ads, CRM, Site, GA4</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-[11px] text-white/55">покрытие</div>
-                      <div className="mt-1 text-lg font-extrabold text-blue">68%</div>
-                    </div>
-                  </div>
-                  <div className="mt-4 h-2 rounded-full bg-white/8 overflow-hidden ring-soft">
-                    <div className="h-full bg-grad-blue rounded-full" style={{ width: "68%" }} />
-                  </div>
-                </div>
-
-                <div className="glass rounded-2xl p-5 ring-soft border border-white/10">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-xs text-white/55 font-semibold">Рекомендации</div>
-                      <div className="mt-1 text-2xl font-extrabold text-white/95">5</div>
-                      <div className="mt-1 text-xs text-white/55">к действию сегодня</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-[11px] text-white/55">готовность</div>
-                      <div className="mt-1 text-lg font-extrabold text-mint">56%</div>
-                    </div>
-                  </div>
-                  <div className="mt-4 h-2 rounded-full bg-white/8 overflow-hidden ring-soft">
-                    <div className="h-full bg-grad-mint rounded-full" style={{ width: "56%" }} />
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-white/75">
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-mint" />
-                  Честная сквозная аналитика
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-blue" />
-                  Вклад каналов (DDA)
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-yellow" />
-                  Аномалии / просадки
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-mint" />
-                  Рекомендации по росту
-                </div>
+              {/* Bullets */}
+              <div className="space-y-2 text-sm text-white/50">
+                <div>Честная сквозная аналитика</div>
+                <div>Реальный вклад каналов (DDA)</div>
+                <div>Мониторинг качества данных</div>
               </div>
             </div>
 
-            {/* RIGHT — DEMO PANEL (строго по сетке, без “жести”) */}
-            <div id="demo" className="glass rounded-3xl p-6 border border-white/10 ring-soft shadow-glow">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="text-[11px] uppercase tracking-widest text-white/45 font-bold">
-                    интерактив • пример
-                  </div>
-                  <div className="mt-1 text-lg font-extrabold text-white/95">
-                    Демонстрационная панель
+            {/* RIGHT — DASHBOARD PREVIEW */}
+            <div className="relative">
+              <div className="bg-[#12141A] border border-white/10 rounded-2xl p-6 shadow-2xl">
+                {/* Top metric */}
+                <div className="mb-6">
+                  <div className="text-xs text-white/40 uppercase tracking-wider mb-1">Выручка</div>
+                  <div className="flex items-baseline gap-3">
+                    <span className="text-4xl font-bold text-white">$127,450</span>
+                    <span className="text-sm font-medium text-emerald-400">+23%</span>
                   </div>
                 </div>
-                <div className="ring-soft rounded-full px-3 py-1 text-xs font-semibold bg-white/5 text-white/70">
-                  <span className="inline-block h-2 w-2 rounded-full bg-mint mr-2" />
-                  канал • метрика • индексы
+
+                {/* Chart */}
+                <div className="h-40 mb-6 relative">
+                  <svg className="w-full h-full" viewBox="0 0 400 120" preserveAspectRatio="none">
+                    <defs>
+                      <linearGradient id="chartGradient" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0%" stopColor="rgba(52,211,153,0.3)" />
+                        <stop offset="100%" stopColor="rgba(52,211,153,0)" />
+                      </linearGradient>
+                    </defs>
+                    <path
+                      d="M0 100 L50 85 L100 90 L150 70 L200 75 L250 55 L300 45 L350 30 L400 20 L400 120 L0 120 Z"
+                      fill="url(#chartGradient)"
+                    />
+                    <path
+                      d="M0 100 L50 85 L100 90 L150 70 L200 75 L250 55 L300 45 L350 30 L400 20"
+                      fill="none"
+                      stroke="rgba(52,211,153,0.8)"
+                      strokeWidth="2"
+                    />
+                  </svg>
                 </div>
-              </div>
 
-              {/* Tabs */}
-              <div className="mt-4 flex flex-wrap gap-2">
-                {(["Spend", "CAC", "ROMI", "Покупатели"] as MetricTab[]).map((t) => (
-                  <Pill key={t} active={metric === t} onClick={() => setMetric(t)}>
-                    {t}
-                  </Pill>
-                ))}
-              </div>
+                {/* Channel breakdown */}
+                <div className="space-y-3 mb-6">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-white/60">Google Ads</span>
+                    <span className="text-white font-medium">$42k</span>
+                  </div>
+                  <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-400/70 rounded-full" style={{ width: "45%" }} />
+                  </div>
 
-              <div className="mt-2 flex flex-wrap gap-2">
-                {(["Google", "Meta", "TikTok"] as ChannelTab[]).map((t) => (
-                  <Pill key={t} active={channel === t} onClick={() => setChannel(t)}>
-                    {t}
-                  </Pill>
-                ))}
-              </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-white/60">Meta</span>
+                    <span className="text-white font-medium">$38k</span>
+                  </div>
+                  <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                    <div className="h-full bg-indigo-400/70 rounded-full" style={{ width: "38%" }} />
+                  </div>
 
-              {/* GRID внутри панели: всегда 2 колонки на lg, 1 на мобиле */}
-              <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                <MetricCard
-                  title={`${metricView.title} • ${channel}`}
-                  value={metricView.value}
-                  sub={metricView.sub}
-                  rightNote={metricView.note}
-                />
-                <HealthCard score={score} />
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-white/60">TikTok</span>
+                    <span className="text-white font-medium">$28k</span>
+                  </div>
+                  <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                    <div className="h-full bg-pink-400/70 rounded-full" style={{ width: "28%" }} />
+                  </div>
+                </div>
+
+                {/* Data Health */}
+                <div className="flex items-center justify-between text-sm mb-4 py-3 border-t border-white/5">
+                  <span className="text-white/50">Data Health</span>
+                  <span className="text-emerald-400 font-medium">94%</span>
+                </div>
+
+                {/* Insight */}
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3">
+                  <div className="text-xs text-emerald-400/80">Рекомендация</div>
+                  <div className="text-sm text-white/80 mt-1">
+                    Увеличьте бюджет на Campaign B (+12% прогноз)
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* RECOMMENDATIONS — УНОСИМ ОТДЕЛЬНО (органично и ровно) */}
-      <section className="mx-auto max-w-6xl px-5 pb-10">
-        <div className="glass rounded-3xl p-6 border border-white/10 ring-soft">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <div className="text-[11px] uppercase tracking-widest text-white/45 font-bold">
-                сигналы • рекомендации
+      {/* SIGNALS */}
+      <section className="py-24 px-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl font-bold text-white mb-4">
+              Что требует внимания прямо сейчас
+            </h2>
+            <p className="text-white/50 max-w-xl mx-auto">
+              Система обнаруживает проблемы и даёт чёткие действия.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Signal 1 */}
+            <div className="bg-[#12141A] border-l-2 border-emerald-400 rounded-lg p-5">
+              <div className="text-sm font-semibold text-white mb-2">Перераспределение бюджета</div>
+              <div className="text-sm text-white/50 leading-relaxed">
+                Сократите 12–18% с кампаний с низким ROMI, масштабируйте лучшие
               </div>
-              <h2 className="mt-1 text-2xl font-extrabold text-white/95">
-                Что система подсветит сегодня
-              </h2>
-              <p className="mt-2 text-sm text-white/70 max-w-2xl">
-                Уведомления формируются из расхождений, потерь параметров и динамики метрик.
-                Это не “советы в вакууме”, а конкретные действия: что проверить и где улучшить.
+            </div>
+
+            {/* Signal 2 */}
+            <div className="bg-[#12141A] border-l-2 border-amber-400 rounded-lg p-5">
+              <div className="text-sm font-semibold text-white mb-2">Расхождение данных</div>
+              <div className="text-sm text-white/50 leading-relaxed">
+                7% расхождение между CRM и Ads — проверьте трекинг
+              </div>
+            </div>
+
+            {/* Signal 3 */}
+            <div className="bg-[#12141A] border-l-2 border-red-400 rounded-lg p-5">
+              <div className="text-sm font-semibold text-white mb-2">Рост CAC</div>
+              <div className="text-sm text-white/50 leading-relaxed">
+                CAC вырос на 11% — проверьте таргетинг и частоту показов
+              </div>
+            </div>
+
+            {/* Signal 4 */}
+            <div className="bg-[#12141A] border-l-2 border-blue-400 rounded-lg p-5">
+              <div className="text-sm font-semibold text-white mb-2">Потеря трекинга</div>
+              <div className="text-sm text-white/50 leading-relaxed">
+                Обнаружены сессии без UTM / click_id — проверьте редиректы
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* PRODUCT VALUE */}
+      <section id="product" className="py-24 px-6 bg-[#0A0D11]">
+        <div className="mx-auto max-w-6xl">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl font-bold text-white mb-4">
+              Единая система для маркетинговых решений
+            </h2>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-6">
+            {/* Block 1 - larger */}
+            <div className="bg-[#12141A] border border-white/5 rounded-xl p-8 md:row-span-2">
+              <div className="text-xl font-semibold text-white mb-3">
+                Единая логика метрик
+              </div>
+              <p className="text-white/50 leading-relaxed mb-6">
+                Выручка, CAC, ROMI рассчитываются по единым правилам. Никаких расхождений между отчётами.
+              </p>
+              <div className="h-32 bg-gradient-to-br from-emerald-500/10 to-transparent rounded-lg" />
+            </div>
+
+            {/* Block 2 */}
+            <div className="bg-[#12141A] border border-white/5 rounded-xl p-6">
+              <div className="text-lg font-semibold text-white mb-2">
+                Сверка источников
+              </div>
+              <p className="text-white/50 text-sm leading-relaxed">
+                Ads, CRM, аналитика — всё сведено в одну модель
               </p>
             </div>
-            <div className="hidden md:block text-sm text-white/60">
-              приоритет • причина • действие
-            </div>
-          </div>
 
-          <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Notice
-              dot="mint"
-              title="Рекомендация: перераспределить бюджет"
-              text="Сократить 12–18% бюджета в кампаниях с низким ROMI и усилить 2 топ-кампании (прогноз +9–14%)."
-            />
-            <Notice
-              dot="blue"
-              title="Сигнал: расхождение CRM ↔ Ads"
-              text="Расхождение 7%. Проверьте Purchase и передачу external_id, fbp/fbc, а также дедупликацию событий."
-            />
-            <Notice
-              dot="yellow"
-              title="Сигнал: рост CAC"
-              text="CAC вырос на 11% при той же выручке. Рекомендация: проверить частоту показов и сегментацию."
-            />
-            <Notice
-              dot="red"
-              title="Риск: потери UTM / click id"
-              text="Найдены сессии без utm/click id на шаге оплаты. Проверьте редиректы и сохранение query-параметров."
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* PRODUCT CARDS */}
-      <section id="product" className="mx-auto max-w-6xl px-5 pb-10">
-        <h2 className="text-2xl md:text-3xl font-extrabold text-white/95">
-          Прозрачные данные + DDA + рекомендации
-        </h2>
-        <p className="mt-2 text-sm text-white/70 max-w-2xl">
-          Единая логика метрик, сверка источников и управленческие подсказки — без “красивых цифр”.
-        </p>
-
-        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[
-            {
-              title: "Прозрачные расчёты",
-              text: "Единая логика, сверка источников и воспроизводимость результата.",
-              idx: "82%",
-              dot: "mint" as const,
-              bar: "bg-grad-mint",
-            },
-            {
-              title: "DDA-атрибуция",
-              text: "Оценка вклада касаний по данным пути клиента, а не по правилам кабинетов.",
-              idx: "74%",
-              dot: "blue" as const,
-              bar: "bg-grad-blue",
-            },
-            {
-              title: "Рекомендации",
-              text: "Авто-подсказки: где резать, где масштабировать и что чинить.",
-              idx: "82%",
-              dot: "yellow" as const,
-              bar: "bg-grad-yellow",
-            },
-            {
-              title: "Управленческий отчёт",
-              text: "Выручка, расходы, CAC, ROMI и вклад каналов — в одном дашборде.",
-              idx: "68%",
-              dot: "red" as const,
-              bar: "bg-grad-red",
-            },
-          ].map((c) => (
-            <div key={c.title} className="glass rounded-2xl p-5 border border-white/10 ring-soft">
-              <div className="flex items-start justify-between gap-3">
-                <div className="text-base font-extrabold text-white/92">
-                  <span className={cn(
-                    "inline-block h-2 w-2 rounded-full mr-2",
-                    c.dot === "mint" ? "bg-mint" : c.dot === "blue" ? "bg-blue" : c.dot === "yellow" ? "bg-yellow" : "bg-red"
-                  )} />
-                  {c.title}
-                </div>
-                <div className="text-right">
-                  <div className="text-[11px] text-white/55">индекс</div>
-                  <div className="text-sm font-extrabold text-white/90">{c.idx}</div>
-                </div>
+            {/* Block 3 */}
+            <div className="bg-[#12141A] border border-white/5 rounded-xl p-6">
+              <div className="text-lg font-semibold text-white mb-2">
+                Контроль качества данных
               </div>
-              <div className="mt-3 text-sm text-white/70 min-h-[44px]">
-                {c.text}
-              </div>
-              <div className="mt-4 h-2 rounded-full bg-white/8 overflow-hidden ring-soft">
-                <div className={cn("h-full rounded-full", c.bar)} style={{ width: c.idx }} />
-              </div>
-              <div className="mt-2 text-xs text-white/55">
-                Стабильно — можно масштабировать.
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-6 flex gap-2">
-          <PrimaryButton href="#pricing">Приобрести</PrimaryButton>
-          <SecondaryButton href="/login">Вход</SecondaryButton>
-          <OutlineButton href="/app">Перейти в продукт</OutlineButton>
-        </div>
-      </section>
-
-      {/* DDA */}
-      <section id="dda" className="mx-auto max-w-6xl px-5 pb-10">
-        <h2 className="text-3xl font-extrabold text-white/95">Data-Driven Attribution (DDA)</h2>
-        <p className="mt-2 text-sm text-white/70 max-w-3xl">
-          В отличие от правил (Last Click / First Click), DDA анализирует весь путь клиента и распределяет ценность продажи на основе данных.
-        </p>
-
-        <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="glass rounded-2xl p-5 border border-white/10 ring-soft">
-            <div className="text-lg font-extrabold text-white/92">Что учитывает DDA</div>
-            <ul className="mt-3 text-sm text-white/75 space-y-2">
-              <li>• все касания в пути клиента;</li>
-              <li>• порядок и частоту контактов;</li>
-              <li>• вероятность конверсии;</li>
-              <li>• влияние касаний на продажу;</li>
-              <li>• сезонность и эффект каналов.</li>
-            </ul>
-          </div>
-
-          <div className="glass rounded-2xl p-5 border border-white/10 ring-soft lg:col-span-2">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="text-lg font-extrabold text-white/92">Last Click vs DDA (пример)</div>
-                <div className="mt-1 text-sm text-white/70">Instagram → Google → Email → Покупка</div>
-              </div>
-              <span className="ring-soft rounded-full px-3 py-1 text-xs font-semibold bg-white/5 text-white/70">
-                путь клиента
-              </span>
+              <p className="text-white/50 text-sm leading-relaxed">
+                Понимайте, когда данные неполные или сломаны
+              </p>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="rounded-2xl bg-white/4 border border-white/10 ring-soft p-5">
-                <div className="text-xs text-white/55 font-semibold">Last Click</div>
-                <div className="mt-2 text-sm text-white/70">
-                  100% ценности получает последний канал — часто это искажает решения.
+            {/* Block 4 */}
+            <div className="md:col-span-2 bg-[#12141A] border border-white/5 rounded-xl p-6 flex items-center gap-6">
+              <div className="flex-1">
+                <div className="text-lg font-semibold text-white mb-2">
+                  Действенные рекомендации
                 </div>
-                <div className="mt-4 text-3xl font-extrabold text-white/95">Email: 100%</div>
-                <div className="mt-2 text-xs text-white/55">
-                  Email здесь — последний шаг перед покупкой, поэтому модель “перетягивает” вклад.
-                </div>
+                <p className="text-white/50 text-sm leading-relaxed">
+                  Знайте, что сократить, что масштабировать и что починить
+                </p>
               </div>
-
-              <div className="rounded-2xl bg-white/4 border border-white/10 ring-soft p-5">
-                <div className="text-xs text-white/55 font-semibold">DDA</div>
-
-                <div className="mt-4 space-y-3">
-                  <MiniProgress value={35} variant="yellow" labelLeft="Instagram" labelRight="35%" />
-                  <MiniProgress value={40} variant="blue" labelLeft="Google" labelRight="40%" />
-                  <MiniProgress value={25} variant="mint" labelLeft="Email" labelRight="25%" />
-                </div>
-
-                <div className="mt-3 text-xs text-white/55">
-                  DDA помогает точнее распределять бюджеты и видеть реальную окупаемость каналов.
-                </div>
-              </div>
+              <div className="hidden md:block w-24 h-24 bg-gradient-to-br from-blue-500/10 to-transparent rounded-lg" />
             </div>
           </div>
         </div>
       </section>
 
-      {/* INTEGRATIONS (оставил как у тебя было ниже, но уже аккуратно) */}
-      <section id="integrations" className="mx-auto max-w-6xl px-5 pb-10">
-        <h2 className="text-3xl font-extrabold text-white/95">Интеграции</h2>
-        <p className="mt-2 text-sm text-white/70 max-w-3xl">
-          Подключение занимает ~10 минут. Данные обновляются автоматически.
-        </p>
+      {/* ATTRIBUTION */}
+      <section id="attribution" className="py-24 px-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl font-bold text-white mb-4">
+              Data-Driven Attribution
+            </h2>
+            <p className="text-white/50 max-w-xl mx-auto">
+              Поймите реальный вклад каналов, а не искажение last click.
+            </p>
+          </div>
 
-        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[
-            { name: "Meta Ads", bar: "bg-grad-mint" },
-            { name: "Google Ads", bar: "bg-grad-blue" },
-            { name: "TikTok Ads", bar: "bg-grad-yellow" },
-            { name: "GA4", bar: "bg-grad-blue" },
-            { name: "CRM", bar: "bg-grad-mint" },
-            { name: "Платежи", bar: "bg-grad-yellow" },
-            { name: "API", bar: "bg-grad-blue" },
-            { name: "Webhooks", bar: "bg-grad-mint" },
-          ].map((x) => (
-            <div key={x.name} className="glass rounded-2xl p-5 border border-white/10 ring-soft">
-              <div className="flex items-center justify-between gap-3">
-                <div className="font-extrabold text-white/92">{x.name}</div>
-                <div className="text-xs text-white/55">готово</div>
-              </div>
-              <div className="mt-4 h-2 rounded-full bg-white/8 overflow-hidden ring-soft">
-                <div className={cn("h-full rounded-full", x.bar)} style={{ width: "90%" }} />
+          <div className="grid md:grid-cols-2 gap-8">
+            {/* Last Click */}
+            <div className="bg-[#12141A] border border-white/5 rounded-xl p-8">
+              <div className="text-sm text-white/40 uppercase tracking-wider mb-4">Last Click</div>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-white/70">Email</span>
+                  <span className="text-2xl font-bold text-white">100%</span>
+                </div>
+                <div className="h-2 bg-white/10 rounded-full">
+                  <div className="h-full bg-white/30 rounded-full w-full" />
+                </div>
               </div>
             </div>
-          ))}
+
+            {/* DDA */}
+            <div className="bg-[#12141A] border border-emerald-500/20 rounded-xl p-8">
+              <div className="text-sm text-emerald-400/70 uppercase tracking-wider mb-4">DDA Distribution</div>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-white/70">Instagram</span>
+                  <span className="text-white font-medium">35%</span>
+                </div>
+                <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-full bg-pink-400/60 rounded-full" style={{ width: "35%" }} />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-white/70">Google</span>
+                  <span className="text-white font-medium">42%</span>
+                </div>
+                <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-full bg-blue-400/60 rounded-full" style={{ width: "42%" }} />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-white/70">Email</span>
+                  <span className="text-white font-medium">23%</span>
+                </div>
+                <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-full bg-amber-400/60 rounded-full" style={{ width: "23%" }} />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p className="text-center text-white/40 text-sm mt-8 max-w-lg mx-auto">
+            DDA распределяет ценность по всему пути клиента, показывая реальный вклад каждого касания.
+          </p>
+        </div>
+      </section>
+
+      {/* INTEGRATIONS */}
+      <section id="integrations" className="py-24 px-6 bg-[#0A0D11]">
+        <div className="mx-auto max-w-6xl">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl font-bold text-white mb-4">
+              Интеграции
+            </h2>
+            <p className="text-white/50">
+              Подключайте за минуты. Данные обновляются автоматически.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap justify-center gap-3">
+            {["Meta Ads", "Google Ads", "TikTok Ads", "GA4", "CRM", "Платежи", "API", "Webhooks"].map((item) => (
+              <div
+                key={item}
+                className="bg-[#12141A] border border-white/5 px-5 py-3 rounded-lg text-sm text-white/70"
+              >
+                {item}
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
       {/* PRICING */}
-      <section id="pricing" className="mx-auto max-w-6xl px-5 pb-12">
-        <h2 className="text-3xl font-extrabold text-white/95">Тарифы</h2>
-        <p className="mt-2 text-sm text-white/70">
-          Цена зависит от количества подключений/аккаунтов. Можно начать с малого и масштабироваться.
-        </p>
+      <section id="pricing" className="py-24 px-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl font-bold text-white mb-4">
+              Тарифы для роста
+            </h2>
+          </div>
 
-        <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-          {[
-            { name: "Starter", price: "$39", items: ["до 3 источников", "базовые отчёты", "DDA-вклад"] },
-            { name: "Growth", price: "$99", items: ["до 10 источников", "управленческие отчёты", "рекомендации"] },
-            { name: "Agency", price: "$249", items: ["много проектов", "роли и доступы", "расширенная аналитика"] },
-          ].map((p) => (
-            <div key={p.name} className="glass rounded-2xl p-6 border border-white/10 ring-soft">
-              <div className="flex items-start justify-between gap-3">
-                <div className="text-lg font-extrabold text-white/92">{p.name}</div>
-                <div className="text-xl font-extrabold text-mint">{p.price}</div>
+          <div className="grid md:grid-cols-3 gap-6">
+            {/* Starter */}
+            <div className="bg-[#12141A] border border-white/5 rounded-xl p-8">
+              <div className="text-lg font-semibold text-white mb-1">Starter</div>
+              <div className="text-3xl font-bold text-white mb-6">
+                $39<span className="text-sm text-white/40 font-normal">/мес</span>
               </div>
-              <ul className="mt-4 space-y-2 text-sm text-white/75">
-                {p.items.map((it) => (
-                  <li key={it}>• {it}</li>
-                ))}
+              <ul className="space-y-3 text-sm text-white/60 mb-8">
+                <li>До 3 источников</li>
+                <li>Базовая аналитика</li>
+                <li>DDA-атрибуция</li>
               </ul>
-              {/* кнопки тарифов → на /login (дальше ты уже поведёшь на оплату) */}
-              <div className="mt-6">
-                <PrimaryButton href="/login">Купить</PrimaryButton>
-              </div>
+              <Link
+                href="/signup"
+                className="block w-full text-center py-3 text-sm font-medium text-white/80 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition"
+              >
+                Начать
+              </Link>
             </div>
-          ))}
+
+            {/* Growth */}
+            <div className="bg-[#12141A] border border-emerald-500/30 rounded-xl p-8 relative">
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-emerald-500 text-[#0B0F14] text-xs font-semibold px-3 py-1 rounded-full">
+                Популярный
+              </div>
+              <div className="text-lg font-semibold text-white mb-1">Growth</div>
+              <div className="text-3xl font-bold text-white mb-6">
+                $99<span className="text-sm text-white/40 font-normal">/мес</span>
+              </div>
+              <ul className="space-y-3 text-sm text-white/60 mb-8">
+                <li>До 10 источников</li>
+                <li>Управленческие отчёты</li>
+                <li>Рекомендации</li>
+              </ul>
+              <Link
+                href="/signup"
+                className="block w-full text-center py-3 text-sm font-semibold text-[#0B0F14] bg-emerald-500 hover:bg-emerald-400 rounded-lg transition"
+              >
+                Начать
+              </Link>
+            </div>
+
+            {/* Agency */}
+            <div className="bg-[#12141A] border border-white/5 rounded-xl p-8">
+              <div className="text-lg font-semibold text-white mb-1">Agency</div>
+              <div className="text-3xl font-bold text-white mb-6">
+                $249<span className="text-sm text-white/40 font-normal">/мес</span>
+              </div>
+              <ul className="space-y-3 text-sm text-white/60 mb-8">
+                <li>Несколько проектов</li>
+                <li>Роли в команде</li>
+                <li>Расширенная аналитика</li>
+              </ul>
+              <Link
+                href="/signup"
+                className="block w-full text-center py-3 text-sm font-medium text-white/80 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition"
+              >
+                Начать
+              </Link>
+            </div>
+          </div>
         </div>
       </section>
 
       {/* FAQ */}
-      <section id="faq" className="mx-auto max-w-6xl px-5 pb-12">
-        <h2 className="text-3xl font-extrabold text-white/95">Вопросы и ответы</h2>
-        <p className="mt-2 text-sm text-white/70">
-          Коротко по самым частым: честность данных, DDA и как мы помогаем уменьшать расходы.
-        </p>
+      <section id="faq" className="py-24 px-6 bg-[#0A0D11]">
+        <div className="mx-auto max-w-2xl">
+          <h2 className="text-3xl font-bold text-white text-center mb-12">
+            Вопросы и ответы
+          </h2>
 
-        <div className="mt-6 space-y-3">
-          <FaqItem
-            q="Почему вы говорите “мы не искажаем реальность”?"
-            a={[
-              "Мы сверяем данные между источниками (Ads ↔ CRM ↔ сайт ↔ GA4) и подсвечиваем расхождения.",
-              "Отчёт строится на согласованной логике метрик, чтобы управлять прибылью, а не “рисовать” цифры.",
-              "Если данные неполные (нет utm/click id, потери на редиректах) — это видно как снижение Data Health."
-            ]}
-            defaultOpen
-          />
-          <FaqItem
-            q="DDA — это магия?"
-            a={[
-              "Нет. DDA — это модель, которая оценивает вклад касаний на основе данных пути клиента.",
-              "Она снижает перекос Last Click и помогает точнее перераспределять бюджеты.",
-              "Качество результата зависит от полноты данных и корректной передачи событий."
-            ]}
-          />
-          <FaqItem
-            q="Какие рекомендации вы даёте?"
-            a={[
-              "Бюджетные: где резать/усиливать кампании на основе ROMI/CAC и динамики.",
-              "Технические: где теряются utm/click id, где есть расхождение CRM ↔ Ads, где нужна дедупликация.",
-              "Управленческие: какие каналы реально приносят прибыль в DDA-модели."
-            ]}
-          />
+          <div>
+            <FaqItem
+              q="Почему ваши данные точнее?"
+              a="Мы сверяем данные из нескольких источников: рекламные кабинеты, CRM, платёжные системы. Это позволяет выявлять расхождения и показывать реальную картину, а не данные одного источника."
+              defaultOpen
+            />
+            <FaqItem
+              q="Как работает DDA?"
+              a="Data-Driven Attribution анализирует все касания клиента перед покупкой и распределяет ценность пропорционально влиянию каждого канала на конверсию."
+            />
+            <FaqItem
+              q="Какие данные нужны для работы?"
+              a="Минимально — доступ к рекламным кабинетам и CRM. Для полной картины рекомендуем подключить также GA4 и платёжную систему."
+            />
+          </div>
         </div>
       </section>
 
-      {/* FOOTER CTA */}
-      <section className="mx-auto max-w-6xl px-5 pb-14">
-        <div className="glass rounded-3xl p-8 border border-white/10 ring-soft">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-            <div>
-              <h3 className="text-3xl font-extrabold text-white/95">
-                Перейдите от «кликов» к управлению прибылью
-              </h3>
-              <p className="mt-2 text-sm text-white/70">
-                Подключите источники, получите прозрачные отчёты и рекомендации по оптимизации расходов и росту продаж.
+      {/* FINAL CTA */}
+      <section className="py-24 px-6">
+        <div className="mx-auto max-w-6xl">
+          <div className="grid lg:grid-cols-2 gap-16 items-center">
+            {/* Left */}
+            <div className="space-y-6">
+              <h2 className="text-3xl md:text-4xl font-bold text-white text-balance">
+                Перейдите от кликов к управлению прибылью
+              </h2>
+              <p className="text-white/55 leading-relaxed">
+                Получите полную видимость выручки, CAC и эффективности каналов.
               </p>
-
-              <ul className="mt-4 space-y-2 text-sm text-white/75">
-                <li className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-mint" />
-                  Единая управленческая сводка: выручка, расходы, CAC, ROMI
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-blue" />
-                  DDA показывает вклад каналов по данным пути клиента
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-yellow" />
-                  Рекомендации на каждый день: резать / масштабировать / чинить
-                </li>
+              <ul className="space-y-2 text-sm text-white/50">
+                <li>Единая аналитика</li>
+                <li>DDA-атрибуция</li>
+                <li>Ежедневные рекомендации</li>
               </ul>
-
-              <div className="mt-6 flex flex-wrap gap-2">
-                <PrimaryButton href="#pricing">Приобрести</PrimaryButton>
-                <SecondaryButton href="/login">Вход</SecondaryButton>
-                <OutlineButton href="/app">Демо</OutlineButton>
+              <div className="flex flex-wrap gap-3 pt-2">
+                <Link
+                  href="#pricing"
+                  className="inline-flex items-center justify-center px-6 py-3 text-sm font-semibold text-[#0B0F14] bg-white hover:bg-white/90 rounded-lg transition"
+                >
+                  Начать
+                </Link>
+                <Link
+                  href="#demo"
+                  className="inline-flex items-center justify-center px-6 py-3 text-sm font-semibold text-white/80 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition"
+                >
+                  Смотреть демо
+                </Link>
               </div>
             </div>
 
+            {/* Right - Signal cards stack */}
             <div className="space-y-3">
-              <Notice
-                dot="mint"
-                title="Сигнал: рост CAC"
-                text="CAC вырос на 11% при той же выручке. Рекомендация: проверить сегменты и частоту показов."
-              />
-              <Notice
-                dot="blue"
-                title="Сигнал: расхождение CRM ↔ Ads"
-                text="Расхождение 7%. Проверьте Purchase, external_id и дедупликацию событий."
-              />
-              <Notice
-                dot="yellow"
-                title="Рекомендация: перераспределение бюджета"
-                text="Снять 12% с кампаний с низким ROMI и усилить 2 топ-кампании (прогноз +9–14%)."
-              />
-              <Notice
-                dot="red"
-                title="Риск: потери utm/click id"
-                text="Найдены сессии без параметров на шаге оплаты. Проверьте редиректы и сохранение query."
-              />
+              <div className="bg-[#12141A] border-l-2 border-emerald-400 rounded-lg p-4">
+                <div className="text-sm font-medium text-white">Перераспределение бюджета</div>
+                <div className="text-xs text-white/50 mt-1">Масштабируйте Campaign B на 15%</div>
+              </div>
+              <div className="bg-[#12141A] border-l-2 border-amber-400 rounded-lg p-4">
+                <div className="text-sm font-medium text-white">Аномалия в данных</div>
+                <div className="text-xs text-white/50 mt-1">Расхождение CRM ↔ Ads: 7%</div>
+              </div>
+              <div className="bg-[#12141A] border-l-2 border-blue-400 rounded-lg p-4">
+                <div className="text-sm font-medium text-white">Новый инсайт</div>
+                <div className="text-xs text-white/50 mt-1">Instagram показывает +18% эффективность</div>
+              </div>
             </div>
           </div>
         </div>
+      </section>
 
-        <div className="mt-8 flex items-center justify-between text-xs text-white/45">
-          <div>© {new Date().getFullYear()} BoardIQ</div>
-          <div className="flex gap-4">
-            <a className="hover:text-white/70" href="#product">Продукт</a>
-            <a className="hover:text-white/70" href="#pricing">Тарифы</a>
-            <a className="hover:text-white/70" href="#faq">FAQ</a>
+      {/* FOOTER */}
+      <footer className="py-12 px-6 border-t border-white/5">
+        <div className="mx-auto max-w-6xl flex flex-col md:flex-row items-center justify-between gap-4 text-sm text-white/40">
+          <div>© 2024 BoardIQ. Все права защищены.</div>
+          <div className="flex gap-6">
+            <a href="#" className="hover:text-white/70 transition">Политика конфиденциальности</a>
+            <a href="#" className="hover:text-white/70 transition">Условия использования</a>
           </div>
         </div>
-      </section>
+      </footer>
     </main>
   );
 }
