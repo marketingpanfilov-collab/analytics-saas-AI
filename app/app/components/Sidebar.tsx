@@ -9,6 +9,7 @@ import {
   fmtProjectCurrency,
   type ProjectCurrency,
 } from "@/app/lib/currency";
+import { SIDEBAR_TODAY_REFRESH_EVENT } from "@/app/lib/sidebarTodayRefreshEvent";
 
 type ProjectItem = { id: string; name: string | null; organization_id: string | null };
 
@@ -532,17 +533,6 @@ export default function Sidebar() {
   const startParam = searchParams.get("start");
   const endParam = searchParams.get("end");
 
-  useEffect(() => {
-    if (!projectId) return;
-    fetchTodaySpend();
-  }, [projectId, startParam, endParam, fetchTodaySpend]);
-
-  useEffect(() => {
-    if (!projectId) return;
-    const interval = setInterval(fetchTodaySpend, 30 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [projectId, fetchTodaySpend]);
-
   const fetchCurrentMonthPlan = useCallback(async () => {
     if (!projectId) {
       setCurrentMonthPlan(null);
@@ -669,6 +659,29 @@ export default function Sidebar() {
     }
     fetchFactSalesToday();
   }, [projectId, currentMonthPlan, fetchFactSalesToday]);
+
+  const refreshTodayWidget = useCallback(async () => {
+    await fetchTodaySpend();
+    if (currentMonthPlan) {
+      await fetchFactSalesToday();
+    }
+  }, [fetchTodaySpend, fetchFactSalesToday, currentMonthPlan]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    void refreshTodayWidget();
+    const id = window.setInterval(() => {
+      void refreshTodayWidget();
+    }, 15 * 60 * 1000);
+    const onRefresh = () => {
+      void refreshTodayWidget();
+    };
+    window.addEventListener(SIDEBAR_TODAY_REFRESH_EVENT, onRefresh);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener(SIDEBAR_TODAY_REFRESH_EVENT, onRefresh);
+    };
+  }, [projectId, startParam, endParam, refreshTodayWidget]);
 
   const hasCurrentMonthPlan = currentMonthPlan !== null;
   const primaryCountPlan = currentMonthPlan?.sales_plan_count ?? 0;

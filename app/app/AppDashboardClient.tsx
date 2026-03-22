@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { SIDEBAR_TODAY_REFRESH_EVENT } from "@/app/lib/sidebarTodayRefreshEvent";
 import { supabase } from "@/app/lib/supabaseClient";
 import AssistedAttributionCard from "./components/AssistedAttributionCard";
 import { RevenueAttributionMapCard } from "./components/RevenueAttributionMapCard";
@@ -930,6 +931,10 @@ export default function AppDashboardClient() {
       setUpdatedAt(fromApi || new Date().toISOString());
 
       await loadFromDb(c.signal);
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event(SIDEBAR_TODAY_REFRESH_EVENT));
+      }
     } catch (e: any) {
       if (isAbortError(e)) return;
       setErrorText(toErrorText(e));
