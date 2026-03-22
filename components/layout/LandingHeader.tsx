@@ -24,7 +24,7 @@ export function LandingHeader() {
               </Link>
 
               <div className="flex shrink-0 items-center gap-2 md:hidden">
-                <BaseButton href="#pricing" variant="primary">
+                <BaseButton href="/#pricing" variant="primary">
                   Приобрести
                 </BaseButton>
                 <BaseButton href="/app/projects" variant="outline">
@@ -37,28 +37,28 @@ export function LandingHeader() {
               className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 sm:gap-x-6 md:flex-1 md:justify-center md:gap-x-7 md:px-2 lg:gap-x-8"
               aria-label="Разделы лендинга"
             >
-              <a className={navLinkClass} href="#home">
+              <a className={navLinkClass} href="/#home">
                 Главная
               </a>
-              <a className={navLinkClass} href="#advantages">
+              <a className={navLinkClass} href="/#advantages">
                 Преимущества
               </a>
-              <a className={navLinkClass} href="#data">
+              <a className={navLinkClass} href="/#data">
                 Данные
               </a>
-              <a className={navLinkClass} href="#dda">
+              <a className={navLinkClass} href="/#dda">
                 DDA
               </a>
-              <a className={navLinkClass} href="#pricing">
+              <a className={navLinkClass} href="/#pricing">
                 Тарифы
               </a>
-              <a className={navLinkClass} href="#demo">
+              <a className={navLinkClass} href="/#demo">
                 Демо
               </a>
             </nav>
 
             <div className="hidden shrink-0 items-center gap-2 md:flex">
-              <BaseButton href="#pricing" variant="primary">
+              <BaseButton href="/#pricing" variant="primary">
                 Приобрести
               </BaseButton>
               <BaseButton href="/app/projects" variant="outline">
