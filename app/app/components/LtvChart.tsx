@@ -129,7 +129,7 @@ export default function LtvChart({
             <YAxis stroke="rgba(255,255,255,0.35)" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} width={36} />
             {activeDay && <ReferenceLine x={activeDay} stroke="rgba(255,255,255,0.15)" strokeWidth={1} />}
             <Tooltip
-              content={(props) => <LtvTooltipContent {...props} cohortLabel={cohortLabel} isDemo={isDemo} data={data} setActiveDay={setActiveDay} formatMoney={formatMoney} />}
+              content={(props) => <LtvTooltipContent {...(props as any)} cohortLabel={cohortLabel} isDemo={isDemo} data={data} setActiveDay={setActiveDay} formatMoney={formatMoney} />}
               cursor={{ stroke: "rgba(255,255,255,0.08)", strokeWidth: 1 }}
               position={{ y: 0 }}
               wrapperStyle={{ outline: "none" }}
