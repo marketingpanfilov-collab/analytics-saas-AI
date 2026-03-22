@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { RequisitesBlock } from "@/components/legal/RequisitesBlock";
 import { LandingHeader } from "@/components/layout/LandingHeader";
 
 export default function PrivacyPage() {
@@ -70,11 +71,8 @@ export default function PrivacyPage() {
 
             <h2 className="mb-3 mt-8 text-lg font-semibold text-white/95">3. Кто является оператором и как с нами связаться</h2>
             <p className="text-sm leading-relaxed text-white/60">3.1. Оператор персональных данных:</p>
-            <p className="text-sm leading-relaxed text-white/60">ИП AGTWO</p>
-            <p className="text-sm leading-relaxed text-white/60">Руководитель: Гончарук Анастасия Сергеевна</p>
-            <p className="text-sm leading-relaxed text-white/60">Уведомление о начале деятельности: № KZ50UWQ07924772</p>
-            <p className="text-sm leading-relaxed text-white/60">Адрес: г. Алматы, Медеуский район, ул. Кунаева, д. 15/1</p>
-            <p className="text-sm leading-relaxed text-white/60">
+            <RequisitesBlock className="mt-1" />
+            <p className="mt-3 text-sm leading-relaxed text-white/60">
               3.2. Контакты по общим вопросам: support@boardiq.kz
             </p>
             <p className="text-sm leading-relaxed text-white/60">
@@ -477,13 +475,7 @@ export default function PrivacyPage() {
             </p>
 
             <h2 className="mb-3 mt-8 text-lg font-semibold text-white/95">22. Реквизиты Оператора</h2>
-            <p className="text-sm leading-relaxed text-white/60">ИП AGTWO</p>
-            <p className="text-sm leading-relaxed text-white/60">Руководитель: Гончарук Анастасия Сергеевна</p>
-            <p className="text-sm leading-relaxed text-white/60">Уведомление о начале деятельности: № KZ50UWQ07924772</p>
-            <p className="text-sm leading-relaxed text-white/60">Адрес: г. Алматы, Медеуский район, ул. Кунаева, д. 15/1</p>
-            <p className="text-sm leading-relaxed text-white/60">Контакты:</p>
-            <p className="text-sm leading-relaxed text-white/60">support@boardiq.kz</p>
-            <p className="text-sm leading-relaxed text-white/60">privacy@boardiq.kz</p>
+            <RequisitesBlock />
 
             <p className="mt-10 text-xs text-white/40">
               Последнее обновление:{" "}
@@ -508,6 +500,9 @@ export default function PrivacyPage() {
               </Link>
               <Link className="transition hover:text-white/70" href="/privacy">
                 Политика конфиденциальности
+              </Link>
+              <Link className="transition hover:text-white/70" href="/personal-data-agreement">
+                Соглашение об обработке персональных данных
               </Link>
               <Link className="transition hover:text-white/70" href="/data-deletion">
                 Удаление данных

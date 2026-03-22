@@ -12,7 +12,8 @@ export function BaseButton({
 }: {
   children: React.ReactNode;
   href: string;
-  variant?: "primary" | "secondary" | "outline";
+  /** Как primary, но emerald — в одном тоне с карточками BoardIQ / выделенным тарифом */
+  variant?: "primary" | "primaryEmerald" | "secondary" | "outline";
   full?: boolean;
 }) {
   return (
@@ -24,10 +25,12 @@ export function BaseButton({
         full ? "w-full" : "min-w-[148px]",
         variant === "primary" &&
           "border border-[rgba(34,197,94,0.36)] bg-[rgba(34,197,94,0.18)] text-white shadow-[0_10px_30px_rgba(34,197,94,0.14)] hover:bg-[rgba(34,197,94,0.26)] hover:shadow-[0_0_30px_rgba(34,197,94,0.18)]",
+        variant === "primaryEmerald" &&
+          "border border-emerald-400/40 bg-emerald-500/[0.18] text-white shadow-[0_10px_30px_rgba(16,185,129,0.16)] hover:bg-emerald-500/[0.28] hover:shadow-[0_0_30px_rgba(16,185,129,0.22)]",
         variant === "secondary" &&
           "border border-white/12 bg-white/8 text-white/92 hover:bg-white/12",
         variant === "outline" &&
-          "border border-white/12 bg-transparent text-white/78 hover:bg-white/6"
+          "border border-white/12 bg-transparent text-white/78 hover:bg-white/6",
       )}
     >
       {children}

@@ -567,3 +567,598 @@ button:not([class]):hover {
   filter: blur(30px);
   animation: noise-drift 12s linear infinite;
 }
+
+/* Hero — заголовок: движущийся градиент (app/page.tsx) */
+@keyframes hero-title-gradient-move {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.hero-scope .hero-title-gradient {
+  /* Запас под выносные элементы (р, у, д и т.д.); при background-clip: text без этого буквы могли обрезаться */
+  overflow: visible;
+  /* Чуть приглушённее предыдущего варианта, перелив сохраняется */
+  background-image: linear-gradient(
+    105deg,
+    #fafafa 0%,
+    #e8e4f2 16%,
+    #fdf6e4 34%,
+    #e5eef9 52%,
+    #f3f0fa 70%,
+    #fafafa 100%
+  );
+  background-size: 300% 170%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: hero-title-gradient-move 12s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-scope .hero-title-gradient {
+    animation: none;
+    background-position: 50% 50%;
+  }
+}
+
+/* Hero — status badges: горизонтальные капсулы с точкой (app/page.tsx) */
+@keyframes hero-badge-pulse {
+  0%,
+  100% {
+    opacity: 0.9;
+    transform: scale(1) translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.038) translateY(-2px);
+  }
+}
+
+@keyframes hero-badge-glow-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.04),
+      0 0 10px var(--hero-badge-glow, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 0 26px var(--hero-badge-glow, transparent);
+  }
+}
+
+@keyframes hero-badge-label-glow {
+  0%,
+  100% {
+    text-shadow: 0 0 6px var(--hero-badge-text-glow, transparent);
+  }
+  50% {
+    text-shadow:
+      0 0 14px var(--hero-badge-text-glow, transparent),
+      0 0 22px var(--hero-badge-text-glow-soft, transparent);
+  }
+}
+
+@keyframes hero-badge-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.82;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.16);
+  }
+}
+
+.hero-scope .hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  border-radius: 9999px;
+  padding: 0.38rem 0.7rem 0.38rem 0.55rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.15;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transform-origin: center center;
+  animation:
+    hero-badge-pulse 3.2s ease-in-out infinite,
+    hero-badge-glow-pulse 3.2s ease-in-out infinite;
+}
+
+.hero-scope .hero-badge-label {
+  white-space: nowrap;
+  animation: hero-badge-label-glow 3.2s ease-in-out infinite;
+}
+
+.hero-scope .hero-badge:nth-child(1) .hero-badge-label {
+  animation-delay: 0s;
+}
+
+.hero-scope .hero-badge:nth-child(2) .hero-badge-label {
+  animation-delay: 0.35s;
+}
+
+.hero-scope .hero-badge:nth-child(3) .hero-badge-label {
+  animation-delay: 0.7s;
+}
+
+.hero-scope .hero-badge-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  transform-origin: center center;
+  animation: hero-badge-dot-pulse 2.4s ease-in-out infinite;
+}
+
+.hero-scope .hero-badge:nth-child(1) {
+  animation-delay: 0s, 0s;
+}
+
+.hero-scope .hero-badge:nth-child(2) {
+  animation-delay: 0.35s, 0.35s;
+}
+
+.hero-scope .hero-badge:nth-child(3) {
+  animation-delay: 0.7s, 0.7s;
+}
+
+.hero-scope .hero-badge:nth-child(1) .hero-badge-dot {
+  animation-delay: 0s;
+}
+
+.hero-scope .hero-badge:nth-child(2) .hero-badge-dot {
+  animation-delay: 0.25s;
+}
+
+.hero-scope .hero-badge:nth-child(3) .hero-badge-dot {
+  animation-delay: 0.5s;
+}
+
+@media (min-width: 1280px) {
+  .hero-scope .hero-badge {
+    font-size: 0.82rem;
+    padding: 0.42rem 0.78rem 0.42rem 0.62rem;
+  }
+
+  .hero-scope .hero-badge-dot {
+    width: 9px;
+    height: 9px;
+  }
+}
+
+.hero-scope .hero-badge--realtime {
+  --hero-badge-glow: rgba(16, 185, 129, 0.14);
+  --hero-badge-text-glow: rgba(52, 211, 153, 0.45);
+  --hero-badge-text-glow-soft: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(52, 211, 153, 0.22);
+  background: rgba(10, 14, 12, 0.58);
+  color: rgba(236, 253, 245, 0.92);
+}
+
+.hero-scope .hero-badge--realtime .hero-badge-dot {
+  background: rgba(52, 211, 153, 0.65);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.35);
+}
+
+.hero-scope .hero-badge--control {
+  --hero-badge-glow: rgba(245, 158, 11, 0.12);
+  --hero-badge-text-glow: rgba(251, 191, 36, 0.42);
+  --hero-badge-text-glow-soft: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.24);
+  background: rgba(14, 12, 8, 0.58);
+  color: rgba(255, 251, 235, 0.9);
+}
+
+.hero-scope .hero-badge--control .hero-badge-dot {
+  background: rgba(251, 191, 36, 0.7);
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.28);
+}
+
+.hero-scope .hero-badge--alert {
+  --hero-badge-glow: rgba(248, 113, 113, 0.12);
+  --hero-badge-text-glow: rgba(248, 113, 113, 0.4);
+  --hero-badge-text-glow-soft: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.22);
+  background: rgba(14, 10, 10, 0.58);
+  color: rgba(254, 242, 242, 0.92);
+}
+
+.hero-scope .hero-badge--alert .hero-badge-dot {
+  background: rgba(248, 113, 113, 0.62);
+  box-shadow: 0 0 10px rgba(248, 113, 113, 0.28);
+}
+
+/* Landing mid-page sections — только LandingMidSections.tsx */
+@keyframes landing-mid-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes landing-mid-glow {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.65;
+  }
+}
+
+@keyframes landing-mid-scan {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  35% {
+    opacity: 0.14;
+  }
+  100% {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+
+@keyframes landing-mid-bar-rise {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes landing-mid-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes landing-mid-strip {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes landing-mid-dda-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes landing-mid-shimmer {
+  0% {
+    transform: translateX(-130%);
+  }
+  100% {
+    transform: translateX(130%);
+  }
+}
+
+.landing-mid-scope .landing-mid-card-float {
+  animation: landing-mid-float 7s ease-in-out infinite;
+}
+
+.landing-mid-scope .landing-mid-glow-pulse {
+  animation: landing-mid-glow 5s ease-in-out infinite;
+}
+
+.landing-mid-scope .landing-mid-dot-pulse {
+  animation: landing-mid-glow 2.6s ease-in-out infinite;
+}
+
+.landing-mid-scope .landing-mid-scanline {
+  animation: landing-mid-scan 9s ease-in-out infinite;
+}
+
+.landing-mid-scope .landing-mid-bar-rise {
+  transform-origin: bottom center;
+  animation: landing-mid-bar-rise 0.85s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.landing-mid-scope .landing-mid-signal-row {
+  animation: landing-mid-fade-up 0.55s ease-out backwards;
+}
+
+.landing-mid-scope .landing-mid-signal-row:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.landing-mid-scope .landing-mid-signal-row:nth-child(2) {
+  animation-delay: 0.1s;
+}
+
+.landing-mid-scope .landing-mid-signal-row:nth-child(3) {
+  animation-delay: 0.2s;
+}
+
+/* Тарифы — карточки в одном визуальном языке с блоком «Почему стандартная аналитика…» */
+.landing-mid-scope .landing-pricing-card {
+  animation: landing-mid-fade-up 0.65s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.landing-mid-scope .landing-pricing-card:nth-child(1) {
+  animation-delay: 0.08s;
+}
+
+.landing-mid-scope .landing-pricing-card:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.landing-mid-scope .landing-pricing-card:nth-child(3) {
+  animation-delay: 0.24s;
+}
+
+.landing-mid-scope .landing-mid-metric-strip {
+  transform-origin: left center;
+  animation: landing-mid-strip 0.95s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.landing-mid-scope .landing-mid-signal-row:nth-child(1) .landing-mid-metric-strip {
+  animation-delay: 0.2s;
+}
+
+.landing-mid-scope .landing-mid-signal-row:nth-child(2) .landing-mid-metric-strip {
+  animation-delay: 0.35s;
+}
+
+.landing-mid-scope .landing-mid-signal-row:nth-child(3) .landing-mid-metric-strip {
+  animation-delay: 0.5s;
+}
+
+.landing-mid-scope .landing-mid-dda-bar {
+  transform-origin: left center;
+  animation: landing-mid-dda-grow 1.05s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.landing-mid-scope .landing-mid-dda-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.12),
+    transparent
+  );
+  animation: landing-mid-shimmer 3.8s ease-in-out infinite;
+}
+
+/* DataInsightsSection — столбцы графика: явная высота трека + плавная смена */
+.landing-data-scope .data-insights-chart-bar {
+  transform-origin: bottom center;
+  transition:
+    height 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.3s ease,
+    box-shadow 0.35s ease;
+}
+
+/* DDASection — линия пути и пульс узла */
+@keyframes landing-dda-flow-shift {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+@keyframes landing-dda-node-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(251, 191, 36, 0.2),
+      0 0 18px rgba(251, 191, 36, 0.12);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(251, 191, 36, 0.35),
+      0 0 28px rgba(251, 191, 36, 0.28);
+  }
+}
+
+.landing-mid-scope .landing-dda-flow-line {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.14) 40%,
+    rgba(167, 139, 250, 0.25) 50%,
+    rgba(255, 255, 255, 0.14) 60%,
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: landing-dda-flow-shift 5s linear infinite;
+  opacity: 0.85;
+}
+
+.landing-mid-scope .landing-dda-node-pulse {
+  animation: landing-dda-node-glow 2.8s ease-in-out infinite;
+}
+
+@keyframes landing-dda-node-glow-rose {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(255, 101, 104, 0.35),
+      0 0 14px rgba(255, 101, 104, 0.2);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(255, 101, 104, 0.55),
+      0 0 22px rgba(255, 101, 104, 0.32);
+  }
+}
+
+@keyframes landing-dda-node-glow-emerald {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(0, 210, 148, 0.35),
+      0 0 14px rgba(0, 210, 148, 0.2);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(0, 210, 148, 0.55),
+      0 0 22px rgba(0, 210, 148, 0.32);
+  }
+}
+
+/* #ff6568 / #00d294 — линии пути */
+.landing-mid-scope .landing-dda-flow-line--rose {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(161, 161, 170, 0.22) 40%,
+    rgba(255, 101, 104, 0.45) 50%,
+    rgba(161, 161, 170, 0.22) 60%,
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: landing-dda-flow-shift 5s linear infinite;
+  opacity: 0.75;
+}
+
+.landing-mid-scope .landing-dda-flow-line--emerald {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(161, 161, 170, 0.22) 40%,
+    rgba(0, 210, 148, 0.45) 50%,
+    rgba(161, 161, 170, 0.22) 60%,
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: landing-dda-flow-shift 5s linear infinite;
+  opacity: 0.75;
+}
+
+/* BoardIQ путь: жёлтый #fcbb00 + rgb(232,148,126) + зелёный #00d294 */
+.landing-mid-scope .landing-dda-flow-line--dda {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(161, 161, 170, 0.18) 28%,
+    rgba(252, 187, 0, 0.38) 40%,
+    rgba(232, 148, 126, 0.38) 50%,
+    rgba(0, 210, 148, 0.38) 60%,
+    rgba(161, 161, 170, 0.18) 72%,
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: landing-dda-flow-shift 5s linear infinite;
+  opacity: 0.78;
+}
+
+@keyframes landing-dda-node-glow-gold {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(252, 187, 0, 0.35),
+      0 0 14px rgba(252, 187, 0, 0.2);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(252, 187, 0, 0.55),
+      0 0 22px rgba(252, 187, 0, 0.3);
+  }
+}
+
+@keyframes landing-dda-node-glow-mauve {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(232, 148, 126, 0.45),
+      0 0 14px rgba(232, 148, 126, 0.22);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(232, 148, 126, 0.6),
+      0 0 22px rgba(232, 148, 126, 0.32);
+  }
+}
+
+@keyframes landing-dda-node-glow-green {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(0, 210, 148, 0.35),
+      0 0 14px rgba(0, 210, 148, 0.18);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(0, 210, 148, 0.55),
+      0 0 22px rgba(0, 210, 148, 0.28);
+  }
+}
+
+.landing-mid-scope .landing-dda-node-pulse-gold {
+  animation: landing-dda-node-glow-gold 2.8s ease-in-out infinite;
+}
+
+.landing-mid-scope .landing-dda-node-pulse-mauve {
+  animation: landing-dda-node-glow-mauve 2.8s ease-in-out infinite;
+}
+
+.landing-mid-scope .landing-dda-node-pulse-green {
+  animation: landing-dda-node-glow-green 2.8s ease-in-out infinite;
+}
+
+.landing-mid-scope .landing-dda-node-pulse-rose {
+  animation: landing-dda-node-glow-rose 2.8s ease-in-out infinite;
+}
+
+.landing-mid-scope .landing-dda-node-pulse-emerald {
+  animation: landing-dda-node-glow-emerald 2.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-mid-scope .landing-dda-flow-line {
+    animation: none;
+    background-position: 50% 50%;
+    opacity: 0.5;
+  }
+
+  .landing-mid-scope .landing-dda-flow-line--rose,
+  .landing-mid-scope .landing-dda-flow-line--emerald,
+  .landing-mid-scope .landing-dda-flow-line--dda {
+    animation: none;
+    background-position: 50% 50%;
+    opacity: 0.55;
+  }
+
+  .landing-mid-scope .landing-dda-node-pulse {
+    animation: none;
+  }
+
+  .landing-mid-scope .landing-dda-node-pulse-rose,
+  .landing-mid-scope .landing-dda-node-pulse-emerald,
+  .landing-mid-scope .landing-dda-node-pulse-gold,
+  .landing-mid-scope .landing-dda-node-pulse-mauve,
+  .landing-mid-scope .landing-dda-node-pulse-green {
+    animation: none;
+  }
+}
