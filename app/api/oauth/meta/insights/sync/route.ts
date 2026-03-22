@@ -118,6 +118,21 @@ function chunk<T>(arr: T[], size: number) {
   return out;
 }
 
+/**
+ * Meta Graph account-level insights sometimes return more than one row per calendar day.
+ * daily_ad_metrics has UNIQUE (ad_account_id, date) WHERE campaign_id IS NULL — duplicates break insert.
+ * Last row per date wins (same as re-processing the same window).
+ */
+function dedupeAccountDailyMetricsByDate<
+  T extends { date: string; ad_account_id: string; campaign_id: null; platform: string },
+>(rows: T[]): T[] {
+  const byDate = new Map<string, T>();
+  for (const r of rows) {
+    byDate.set(r.date, r);
+  }
+  return Array.from(byDate.values());
+}
+
 /** Update sync_runs to error and return the JSON response. */
 async function syncRunErrorAndReturn(
   admin: ReturnType<typeof supabaseAdmin>,
@@ -454,7 +469,7 @@ export async function GET(req: Request) {
     // Canonical: dual-write daily_ad_metrics (account-level)
     if (canonicalAdAccountId && accRows.length > 0) {
       type AccRow = (typeof accRows)[number];
-      const accMetricsRows = accRows
+      const accMetricsRowsMapped = accRows
         .filter((r: AccRow) => r.date_start)
         .map((r: AccRow) => ({
           project_id: projectId,
@@ -474,6 +489,15 @@ export async function GET(req: Request) {
           revenue: r.revenue ?? 0,
           roas: r.roas ?? 0,
         }));
+      const accMetricsRows = dedupeAccountDailyMetricsByDate(accMetricsRowsMapped);
+      if (accMetricsRowsMapped.length > accMetricsRows.length) {
+        console.log("[META_SYNC_DEDUPE_ACCOUNT_DAILY_METRICS]", {
+          projectId,
+          canonical_ad_account_id: canonicalAdAccountId,
+          before: accMetricsRowsMapped.length,
+          after: accMetricsRows.length,
+        });
+      }
       if (accMetricsRows.length > 0) {
         const dates = [...new Set(accMetricsRows.map((r: { date: string }) => r.date))];
         const { error: delErr } = await admin
