@@ -383,10 +383,10 @@ export async function GET(req: Request) {
       period: { since, until },
       debug_url_preview: accUrl.slice(0, 250) + "...",
       integration_debug: {
-        id: integration?.id,
-        token_source: integration?.token_source,
-        created_at: integration?.created_at,
-        account_id: integration?.account_id,
+        id: null,
+        token_source: null,
+        created_at: null,
+        account_id: null,
       },
     };
     return syncRunErrorAndReturn(admin, syncRunId, "meta_insights_fetch_account_level", { meta_error: accJson.error, period: { since, until } }, body, 400);
@@ -442,10 +442,10 @@ export async function GET(req: Request) {
         tz: accountTz,
         period: { since, until },
         integration_debug: {
-          id: integration?.id,
-          token_source: integration?.token_source,
-          created_at: integration?.created_at,
-          account_id: integration?.account_id,
+          id: null,
+          token_source: null,
+          created_at: null,
+          account_id: null,
         },
       };
       return syncRunErrorAndReturn(admin, syncRunId, "supabase_upsert_meta_insights_account_level", { rows: accRows.length }, body, 500);
@@ -683,10 +683,10 @@ export async function GET(req: Request) {
         page: pages,
         debug_url_preview: nextUrl.slice(0, 250) + "...",
         integration_debug: {
-          id: integration?.id,
-          token_source: integration?.token_source,
-          created_at: integration?.created_at,
-          account_id: integration?.account_id,
+          id: null,
+          token_source: null,
+          created_at: null,
+          account_id: null,
         },
       };
       return syncRunErrorAndReturn(admin, syncRunId, "meta_insights_fetch", { page: pages, meta_error: json.error }, body, 400);
@@ -760,10 +760,10 @@ export async function GET(req: Request) {
             period: { since, until },
             page: pages,
             integration_debug: {
-              id: integration?.id,
-              token_source: integration?.token_source,
-              created_at: integration?.created_at,
-              account_id: integration?.account_id,
+              id: null,
+              token_source: null,
+              created_at: null,
+              account_id: null,
             },
           };
           return syncRunErrorAndReturn(admin, syncRunId, "supabase_upsert_meta_insights", { page: pages, chunk_size: part.length }, body, 500);
@@ -934,10 +934,10 @@ export async function GET(req: Request) {
         tz: accountTz,
         period: { since, until },
         integration_debug: {
-          id: integration?.id,
-          token_source: integration?.token_source,
-          created_at: integration?.created_at,
-          account_id: integration?.account_id,
+          id: null,
+          token_source: null,
+          created_at: null,
+          account_id: null,
         },
       };
       return syncRunErrorAndReturn(admin, syncRunId, "paging_guard", { pages }, body, 500);
@@ -1081,10 +1081,10 @@ export async function GET(req: Request) {
     tz: accountTz,
     period: { since, until },
     integration_debug: {
-      id: integration?.id,
-      token_source: integration?.token_source,
-      created_at: integration?.created_at,
-      account_id: integration?.account_id,
+      id: null,
+      token_source: null,
+      created_at: null,
+      account_id: null,
     },
   };
   console.log("[INSIGHTS_SYNC_COUNTS]", { meta_account_rows: accList.length, saved_campaign_rows: totalSaved, meta_campaign_rows: totalMetaRows, period: { since, until } });
