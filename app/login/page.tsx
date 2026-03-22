@@ -5,9 +5,11 @@ export const dynamic = "force-dynamic";
 
 function LoginFallback() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#0b0b10]">
-      <div className="h-10 w-48 rounded-xl bg-white/[0.06]" />
-    </div>
+    <main className="flex min-h-screen items-center justify-center bg-[#0b0b10] text-white">
+      <div className="mx-auto w-full max-w-2xl px-6">
+        <div className="h-[420px] w-full animate-pulse rounded-2xl border border-white/10 bg-white/[0.03]" />
+      </div>
+    </main>
   );
 }
 

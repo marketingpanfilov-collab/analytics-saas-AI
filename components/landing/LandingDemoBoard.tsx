@@ -168,15 +168,13 @@ export function LandingDemoSection() {
   const barW = Math.max(0, Math.min(salesRatio, 1));
 
   return (
-    <section className="landing-mid-scope relative z-10 border-t border-white/10 py-14 md:py-20">
+    <section
+      id="demo"
+      className="landing-mid-scope relative z-10 scroll-mt-24 border-t border-white/10 py-14 md:py-20"
+    >
       <div className="mx-auto max-w-6xl px-5">
         <div className="mb-10 text-center md:text-left">
-          <h2
-            id="demo"
-            className="scroll-mt-28 text-3xl font-semibold tracking-tight text-white/95 md:scroll-mt-[4.25rem] md:text-4xl"
-          >
-            Демо
-          </h2>
+          <h2 className="text-3xl font-semibold tracking-tight text-white/95 md:text-4xl">Демо</h2>
           <p className="mx-auto mt-3 max-w-2xl text-base leading-relaxed text-white/60 md:mx-0">
             Так выглядит дашборд BoardIQ: расходы, конверсии и статус данных — без подключения кабинетов.
           </p>

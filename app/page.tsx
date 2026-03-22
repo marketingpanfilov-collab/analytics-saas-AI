@@ -104,8 +104,9 @@ export default function Page() {
 
       <LandingHeader />
 
-      <section className="hero-scope relative z-10">
-        <div className="mx-auto max-w-5xl px-5 pb-28 pt-36 md:pb-36 md:pt-44">
+      {/* Остаток экрана под спейсером хедера (h-16 / md:h-[4.25rem]); grid + place-content-center — стабильнее вертикального центра, чем flex + dvh */}
+      <section className="hero-scope relative z-10 grid min-h-[calc(100svh-4rem)] w-full place-content-center md:min-h-[calc(100svh-4.25rem)]">
+        <div className="mx-auto w-full max-w-5xl px-5 py-10 md:py-12">
           <div className="text-center">
             <div className="relative mx-auto inline-block max-w-4xl">
               <div
@@ -125,10 +126,7 @@ export default function Page() {
                   <span className="hero-badge-label">Alert</span>
                 </span>
               </div>
-              <h1
-                id="home"
-                className="hero-title-gradient mx-auto max-w-4xl scroll-mt-28 overflow-visible pb-[0.12em] text-4xl font-extrabold leading-[1.12] md:scroll-mt-[4.25rem] md:text-6xl md:leading-[1.1] xl:text-[72px] xl:leading-[1.08]"
-              >
+              <h1 className="hero-title-gradient mx-auto max-w-4xl overflow-visible pb-[0.12em] text-4xl font-extrabold leading-[1.12] md:text-6xl md:leading-[1.1] xl:text-[72px] xl:leading-[1.08]">
                 Управляйте маркетингом
                 <br />
                 через прибыль
@@ -158,15 +156,13 @@ export default function Page() {
       <DataInsightsSection density="spacious" />
       <DDASection density="spacious" />
 
-      <section className="landing-mid-scope relative z-10 border-t border-white/10">
+      <section
+        id="pricing"
+        className="landing-mid-scope relative z-10 scroll-mt-24 border-t border-white/10"
+      >
         <div className="mx-auto max-w-6xl px-5 pb-24 pt-14 md:pb-32 md:pt-20">
           <div className="mb-12 text-center md:mb-14">
-            <h2
-              id="pricing"
-              className="scroll-mt-28 text-3xl font-semibold tracking-tight text-white/95 md:scroll-mt-[4.25rem] md:text-4xl"
-            >
-              Тарифы
-            </h2>
+            <h2 className="text-3xl font-semibold tracking-tight text-white/95 md:text-4xl">Тарифы</h2>
           </div>
 
           <div className="grid items-stretch gap-6 md:grid-cols-3">

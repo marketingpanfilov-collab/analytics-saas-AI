@@ -48,12 +48,12 @@ export function AdvantagesSection({ density = "default" }: { density?: LandingMi
   ];
 
   return (
-    <section className={cn("landing-mid-scope border-t border-white/10", landingSectionPad(density))}>
+    <section
+      id="advantages"
+      className={cn("landing-mid-scope scroll-mt-24 border-t border-white/10", landingSectionPad(density))}
+    >
       <div className="max-w-6xl mx-auto px-6">
-        <h2
-          id="advantages"
-          className="scroll-mt-28 text-3xl font-semibold tracking-tight text-white/95 md:scroll-mt-[4.25rem]"
-        >
+        <h2 className="text-3xl font-semibold tracking-tight text-white/95">
           Почему стандартная аналитика не даёт ответа
         </h2>
         <p className={cn("mt-3 max-w-xl text-sm leading-relaxed text-white/45", density === "spacious" ? "mb-12 md:mb-14" : "mb-10")}>
@@ -728,7 +728,10 @@ export function DataInsightsSection({ density = "default" }: { density?: Landing
   };
 
   return (
-    <section className={cn("landing-mid-scope border-t border-white/10", landingSectionPad(density))}>
+    <section
+      id="data"
+      className={cn("landing-mid-scope scroll-mt-24 border-t border-white/10", landingSectionPad(density))}
+    >
       <div className="landing-data-scope mx-auto max-w-6xl px-6">
         <div
           className={cn(
@@ -737,10 +740,7 @@ export function DataInsightsSection({ density = "default" }: { density?: Landing
           )}
         >
           <div className="flex min-h-0 w-full min-w-0 flex-col">
-            <h2
-              id="data"
-              className="scroll-mt-28 text-3xl font-semibold tracking-tight text-white/95 md:scroll-mt-[4.25rem]"
-            >
+            <h2 className="text-3xl font-semibold tracking-tight text-white/95">
               Данные, которые работают за вас
             </h2>
 
@@ -1003,12 +1003,12 @@ function DDACardSummary({ model }: { model: DDAModelKind }) {
 
 export function DDASection({ density = "default" }: { density?: LandingMidSectionDensity }) {
   return (
-    <section className={cn("landing-mid-scope border-t border-white/10", landingSectionPad(density))}>
+    <section
+      id="dda"
+      className={cn("landing-mid-scope scroll-mt-24 border-t border-white/10", landingSectionPad(density))}
+    >
       <div className="landing-data-scope mx-auto max-w-6xl px-6">
-        <h2
-          id="dda"
-          className="scroll-mt-28 text-3xl font-semibold tracking-tight text-white/95 md:scroll-mt-[4.25rem]"
-        >
+        <h2 className="text-3xl font-semibold tracking-tight text-white/95">
           Data Driven Attribution (DDA)
         </h2>
         <p className="mt-6 max-w-3xl text-base leading-relaxed text-white/70">
