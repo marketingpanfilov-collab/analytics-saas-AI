@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import type { IntegrationStatusRow, IntegrationStatusValue } from "@/app/api/oauth/integration/status/route";
 
 /** Canonical account (same as dashboard). Optional fields from coverage + sync_runs. */
 type CanonicalAccount = {
@@ -16,14 +17,6 @@ type CanonicalAccount = {
   row_count?: number;
   last_sync_at?: string | null;
   last_sync_status?: string | null;
-};
-
-type ValidateResponse = {
-  success: boolean;
-  integration_id?: string | null;
-  status: "ok" | "invalid" | "expired" | "error" | "not_connected";
-  has_valid_integration: boolean;
-  reason?: string;
 };
 
 type Toast = { type: "success" | "error" | "info"; text: string };
@@ -209,6 +202,16 @@ function formatDataThrough(maxDate: string | null | undefined): string {
   return `Data through ${day}.${m}.${y}`;
 }
 
+/** Order-independent equality for id lists (e.g. platform_account_id sets). */
+function sameSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sa = new Set(a);
+  const sb = new Set(b);
+  if (sa.size !== sb.size) return false;
+  for (const x of sa) if (!sb.has(x)) return false;
+  return true;
+}
+
 function formatLastSync(iso: string | null | undefined, status: string | null | undefined): string {
   if (!iso) return "—";
   try {
@@ -240,11 +243,8 @@ export default function AccountsPageClient() {
   const [accounts, setAccounts] = useState<CanonicalAccount[]>([]);
   const [integrationId, setIntegrationId] = useState<string | null>(null);
 
-  const [integrationStatus, setIntegrationStatus] = useState<ValidateResponse["status"]>("not_connected");
-  const [integrationReason, setIntegrationReason] = useState<string | null>(null);
-
-  /** Google Ads: connected when integrations + integrations_auth have valid token. */
-  const [googleConnected, setGoogleConnected] = useState(false);
+  /** Unified integration status (same contract as dashboard). */
+  const [integrations, setIntegrations] = useState<IntegrationStatusRow[]>([]);
   /** Google: platform_account_id (external_account_id) of selected accounts; synced from is_enabled on refresh. */
   const [selectedGoogleIds, setSelectedGoogleIds] = useState<string[]>([]);
   const [showGoogleDisconnectConfirm, setShowGoogleDisconnectConfirm] = useState(false);
@@ -317,68 +317,144 @@ export default function AccountsPageClient() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  const isOk = integrationStatus === "ok";
-  const isError = integrationStatus === "invalid" || integrationStatus === "expired" || integrationStatus === "error";
-  const hasEnabledMetaAccounts = activeIds.length >= 1;
+  const metaRow = useMemo(() => integrations.find((i) => i.platform === "meta"), [integrations]);
+  const googleRow = useMemo(() => integrations.find((i) => i.platform === "google"), [integrations]);
+  const metaStatus = (metaRow?.status ?? "not_connected") as IntegrationStatusValue;
+  const googleStatus = (googleRow?.status ?? "not_connected") as IntegrationStatusValue;
+
+  const metaSyncEnabled = metaStatus === "healthy" || metaStatus === "stale" || metaStatus === "error";
+  const googleSyncEnabled = googleStatus === "healthy" || googleStatus === "stale" || googleStatus === "error";
+
+  const metaCanShowAccountSelection =
+    metaStatus === "healthy" || metaStatus === "stale" || metaStatus === "no_accounts" || metaStatus === "error";
+  const googleCanShowAccountSelection =
+    googleStatus === "healthy" || googleStatus === "stale" || googleStatus === "no_accounts" || googleStatus === "error";
+
+  const metaConnectedLike = metaCanShowAccountSelection;
+  const googleConnectedLike = googleCanShowAccountSelection;
+
+  /** Enabled ids from last accounts fetch (DB / is_enabled), not local checkbox state. */
+  const enabledMetaIds = useMemo(
+    () => accounts.filter((a) => a.platform === "meta" && a.is_enabled).map((a) => a.platform_account_id),
+    [accounts]
+  );
+  const enabledGoogleIds = useMemo(
+    () => accounts.filter((a) => a.platform === "google" && a.is_enabled).map((a) => a.platform_account_id),
+    [accounts]
+  );
+
+  const metaSelectionChanged = !sameSet(selectedIds, enabledMetaIds) || enabledMetaIds.length === 0;
+  const googleSelectionChanged = !sameSet(selectedGoogleIds, enabledGoogleIds) || enabledGoogleIds.length === 0;
+
+  const metaShowSaveSelection =
+    metaConnectedLike && selectedIds.length > 0 && metaSelectionChanged;
+
+  const googleShowSaveSelection =
+    googleConnectedLike && selectedGoogleIds.length > 0 && googleSelectionChanged;
+
+  const metaShowDisconnect = metaCanShowAccountSelection;
+  const googleShowDisconnect = googleCanShowAccountSelection;
+
+  const metaMainButtonText =
+    metaStatus === "disconnected" || metaStatus === "not_connected"
+      ? "Подключить"
+      : metaStatus === "error"
+        ? "Переподключить"
+        : "Подключено";
+
+  const googleMainButtonText =
+    googleStatus === "disconnected" || googleStatus === "not_connected"
+      ? "Подключить"
+      : googleStatus === "error"
+        ? "Переподключить"
+        : "Подключено";
+
+  const metaPrimaryButtonKind = metaStatus === "disconnected" || metaStatus === "not_connected" ? "primary" : "ghost";
+  const googlePrimaryButtonKind = googleStatus === "disconnected" || googleStatus === "not_connected" ? "primary" : "ghost";
 
   const metaStatusLabel = useMemo(() => {
-    if (!isOk) return isError ? "Ошибка" : "Не подключено";
-    if (!hasEnabledMetaAccounts) return "Подключено – выбери кабинеты";
-    return "Подключено";
-  }, [isOk, isError, hasEnabledMetaAccounts]);
+    if (metaStatus === "healthy") return "Подключено";
+    if (metaStatus === "no_accounts") return "Подключено — выбери кабинеты";
+    if (metaStatus === "error") return "Ошибка синка";
+    if (metaStatus === "stale") return "Данные устарели";
+    if (metaStatus === "disconnected") return "Отключено";
+    return "Не подключено";
+  }, [metaStatus]);
 
-  const metaStatusStyles = useMemo(() => {
-    if (isOk && hasEnabledMetaAccounts) {
-      return {
+  const googleStatusLabel = useMemo(() => {
+    if (googleStatus === "healthy") return "Подключено";
+    if (googleStatus === "no_accounts") return "Подключено — выбери аккаунты";
+    if (googleStatus === "error") return "Ошибка синка";
+    if (googleStatus === "stale") return "Данные устарели";
+    if (googleStatus === "disconnected") return "Отключено";
+    return "Не подключено";
+  }, [googleStatus]);
+
+  const statusToStyles: Record<IntegrationStatusValue, React.CSSProperties> = useMemo(
+    () => ({
+      healthy: {
         background: "rgba(110,255,200,0.12)",
         border: "1px solid rgba(110,255,200,0.25)",
         color: "rgba(140,255,210,0.95)",
-      } as React.CSSProperties;
-    }
-    if (isOk && !hasEnabledMetaAccounts) {
-      return {
+      },
+      error: {
+        background: "rgba(239,68,68,0.15)",
+        border: "1px solid rgba(239,68,68,0.35)",
+        color: "rgba(255,170,170,0.95)",
+      },
+      stale: {
+        background: "rgba(249,115,22,0.15)",
+        border: "1px solid rgba(249,115,22,0.35)",
+        color: "rgba(255,200,150,0.95)",
+      },
+      no_accounts: {
         background: "rgba(255,200,100,0.12)",
         border: "1px solid rgba(255,200,100,0.3)",
         color: "rgba(255,220,140,0.95)",
-      } as React.CSSProperties;
-    }
-    if (isError) {
-      return {
-        background: "rgba(255,120,120,0.12)",
-        border: "1px solid rgba(255,120,120,0.25)",
-        color: "rgba(255,170,170,0.95)",
-      } as React.CSSProperties;
-    }
-    return {
-      background: "rgba(255,255,255,0.06)",
-      border: "1px solid rgba(255,255,255,0.14)",
-      color: "rgba(255,255,255,0.75)",
-    } as React.CSSProperties;
-  }, [isOk, isError, hasEnabledMetaAccounts]);
+      },
+      disconnected: {
+        background: "rgba(148,163,184,0.12)",
+        border: "1px solid rgba(148,163,184,0.25)",
+        color: "rgba(180,200,220,0.95)",
+      },
+      not_connected: {
+        background: "rgba(255,255,255,0.06)",
+        border: "1px solid rgba(255,255,255,0.14)",
+        color: "rgba(255,255,255,0.75)",
+      },
+    }),
+    []
+  );
+  const metaStatusStyles = statusToStyles[metaStatus];
+  const googleStatusStyles = statusToStyles[googleStatus];
 
   async function refresh() {
     if (!projectId) return;
     setLoading(true);
     try {
-      const v = await fetch(`/api/oauth/meta/integration/validate?project_id=${encodeURIComponent(projectId)}`);
-      const vj: ValidateResponse = await v.json();
+      const statusRes = await fetch(`/api/oauth/integration/status?project_id=${encodeURIComponent(projectId)}`);
+      const statusJson = (await statusRes.json()) as { success?: boolean; integrations?: IntegrationStatusRow[] };
+      const statusList = statusJson?.integrations ?? [];
+      setIntegrations(statusList);
 
-      setIntegrationId(vj.integration_id ?? null);
-      setIntegrationStatus(vj.status);
-      setIntegrationReason(vj.reason ?? null);
-
-      const googleStatusRes = await fetch(
-        `/api/oauth/google/integration/status?project_id=${encodeURIComponent(projectId)}`
-      );
-      const googleStatusJson = (await googleStatusRes.json()) as { success?: boolean; valid?: boolean };
-      const googleValid = !!googleStatusJson?.valid;
-      setGoogleConnected(googleValid);
+      const metaFromUnified = statusList.find((i) => i.platform === "meta");
+      const googleFromUnified = statusList.find((i) => i.platform === "google");
+      setIntegrationId(metaFromUnified?.integration_id ?? null);
 
       const accRes = await fetch(`/api/dashboard/accounts?project_id=${encodeURIComponent(projectId)}`);
       const accJson = (await accRes.json()) as { success?: boolean; accounts?: CanonicalAccount[] };
       let list = accJson?.accounts ?? [];
 
-      if (googleValid && list.filter((a) => a.platform === "google").length === 0) {
+      const googleShouldDiscover =
+        googleFromUnified &&
+        googleFromUnified.oauth_valid &&
+        (googleFromUnified.status === "healthy" ||
+          googleFromUnified.status === "stale" ||
+          googleFromUnified.status === "error" ||
+          googleFromUnified.status === "no_accounts") &&
+        list.filter((a) => a.platform === "google").length === 0;
+
+      if (googleShouldDiscover) {
         try {
           await fetch("/api/oauth/google/accounts", {
             method: "POST",
@@ -440,6 +516,24 @@ export default function AccountsPageClient() {
     return map;
   }, [accounts]);
 
+  /** Hide enabled accounts for platforms that are disconnected/not_connected (unified status). */
+  const platformActiveForList = useMemo(() => {
+    const metaOk = metaStatus === "healthy" || metaStatus === "stale" || metaStatus === "no_accounts" || metaStatus === "error";
+    const googleOk =
+      googleStatus === "healthy" || googleStatus === "stale" || googleStatus === "no_accounts" || googleStatus === "error";
+    return { meta: metaOk, google: googleOk };
+  }, [metaStatus, googleStatus]);
+
+  const connectedAccountsByPlatformFiltered = useMemo(() => {
+    const map = new Map<string, CanonicalAccount[]>();
+    for (const [platformId, list] of connectedAccountsByPlatform) {
+      if (platformId === "meta" && !platformActiveForList.meta) continue;
+      if (platformId === "google" && !platformActiveForList.google) continue;
+      if (list?.length) map.set(platformId, list);
+    }
+    return map;
+  }, [connectedAccountsByPlatform, platformActiveForList]);
+
   const metaDiscoveredCount = accountsByPlatform.get("meta")?.length ?? 0;
   const googleDiscoveredCount = accountsByPlatform.get("google")?.length ?? 0;
   const googleEnabledCount = (accountsByPlatform.get("google") ?? []).filter((a) => a.is_enabled).length;
@@ -455,7 +549,19 @@ export default function AccountsPageClient() {
   }
 
   async function saveGoogleSelection() {
-    if (!projectId || !googleConnected) return;
+    if (!projectId) return;
+    if (googleStatus === "disconnected" || googleStatus === "not_connected") {
+      setToast({ type: "error", text: "Google не подключён. Подключи OAuth и нажми «Обновить»." });
+      return;
+    }
+    if (!googleShowSaveSelection) {
+      setToast({ type: "error", text: "Сохранение недоступно для текущего статуса интеграции." });
+      return;
+    }
+    if (selectedGoogleIds.length === 0) {
+      setToast({ type: "info", text: "Выбери хотя бы один аккаунт." });
+      return;
+    }
     setLoading(true);
     try {
       const r = await fetch("/api/oauth/google/connections/save", {
@@ -483,7 +589,7 @@ export default function AccountsPageClient() {
   async function saveSelection() {
     if (!projectId) return;
 
-    if (!integrationId || !isOk) {
+    if (!integrationId || !metaShowSaveSelection) {
       setToast({ type: "error", text: "Сначала подключи Meta (OAuth), затем выбирай кабинеты." });
       return;
     }
@@ -568,7 +674,6 @@ export default function AccountsPageClient() {
       }
       setShowGoogleDisconnectConfirm(false);
       setSelectedGoogleIds([]);
-      setGoogleConnected(false);
       setToast({ type: "success", text: "Google отключён." });
       await refresh();
     } catch {
@@ -579,7 +684,7 @@ export default function AccountsPageClient() {
   }
 
   const hasAnyEnabledAccounts =
-    (isOk && activeIds.length > 0) || (googleConnected && selectedGoogleIds.length > 0);
+    (metaSyncEnabled && activeIds.length > 0) || (googleSyncEnabled && selectedGoogleIds.length > 0);
 
   async function syncAll() {
     if (!projectId) return;
@@ -667,8 +772,8 @@ export default function AccountsPageClient() {
 
   async function syncOneAccount(platformAccountId: string, platform: "meta" | "google") {
     if (!projectId) return;
-    if (platform === "meta" && !isOk) return;
-    if (platform === "google" && !googleConnected) return;
+    if (platform === "meta" && !metaSyncEnabled) return;
+    if (platform === "google" && !googleSyncEnabled) return;
     setSyncingAccountId(platformAccountId);
     try {
       const r = await fetch("/api/sync/run", {
@@ -901,10 +1006,9 @@ export default function AccountsPageClient() {
 
           <div style={{ opacity: 0.8, marginTop: 6 }}>Facebook/Instagram рекламные кабинеты</div>
 
-          {/* reason (если ошибка) */}
-          {isError ? (
+          {metaStatus === "error" && metaRow?.reason ? (
             <div style={{ ...smallMuted, marginTop: 8, color: "rgba(255,170,170,0.95)", opacity: 0.9 }}>
-              {integrationReason ? `Причина: ${integrationReason}` : "Токен недействителен или доступ отозван."}
+              Причина: {metaRow.reason}
             </div>
           ) : null}
 
@@ -915,13 +1019,19 @@ export default function AccountsPageClient() {
           </div>
 
           <div style={{ marginTop: "auto", display: "flex", gap: 10, flexWrap: "wrap", paddingTop: 14 }}>
-            <Button onClick={connectMeta} disabled={!projectId || loading} kind={isOk ? "ghost" : "primary"}>
-              {isOk ? "Подключено" : "Подключить"}
+            <Button onClick={connectMeta} disabled={!projectId || loading} kind={metaPrimaryButtonKind}>
+              {metaMainButtonText}
             </Button>
-            <Button kind="ghost" onClick={saveSelection} disabled={!projectId || loading || !isOk || selectedIds.length === 0}>
-              Сохранить выбор
-            </Button>
-            {isOk ? (
+            {metaShowSaveSelection ? (
+              <Button
+                kind="ghost"
+                onClick={saveSelection}
+                disabled={!projectId || loading || selectedIds.length === 0}
+              >
+                Сохранить выбор
+              </Button>
+            ) : null}
+            {metaShowDisconnect ? (
               <button
                 type="button"
                 onClick={() => setShowDisconnectConfirm(true)}
@@ -948,7 +1058,7 @@ export default function AccountsPageClient() {
           </div>
 
           {/* Selection UI: all discovered Meta accounts (only when connected) */}
-          {isOk && metaDiscoveredCount > 0 ? (
+          {metaCanShowAccountSelection && metaDiscoveredCount > 0 ? (
             <details style={{ marginTop: 12 }}>
               <summary style={{ cursor: "pointer", fontWeight: 800, fontSize: 13, opacity: 0.9 }}>
                 Выбери кабинеты для проекта ({metaDiscoveredCount})
@@ -978,18 +1088,15 @@ export default function AccountsPageClient() {
         <div style={card}>
           <div style={cardTitleRow}>
             <div style={{ fontSize: 24, fontWeight: 950 }}>Google Ads</div>
-            <div
-              style={{
-                ...badgeBase,
-                ...(googleConnected
-                  ? { background: "rgba(110,255,200,0.12)", border: "1px solid rgba(110,255,200,0.25)", color: "rgba(140,255,210,0.95)" }
-                  : {}),
-              }}
-            >
-              {googleConnected ? "Подключено" : "Не подключено"}
-            </div>
+            <div style={{ ...badgeBase, ...googleStatusStyles }}>{googleStatusLabel}</div>
           </div>
           <div style={{ opacity: 0.8, marginTop: 6 }}>Расходы и конверсии из Google Ads</div>
+
+          {googleStatus === "error" && googleRow?.reason ? (
+            <div style={{ ...smallMuted, marginTop: 8, color: "rgba(255,170,170,0.95)", opacity: 0.9 }}>
+              Причина: {googleRow.reason}
+            </div>
+          ) : null}
 
           <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
             <div style={smallMuted}>1) Нажми «Подключить» → авторизуйся в Google</div>
@@ -998,10 +1105,10 @@ export default function AccountsPageClient() {
           </div>
 
           <div style={{ marginTop: "auto", display: "flex", gap: 10, flexWrap: "wrap", paddingTop: 14 }}>
-            <Button onClick={connectGoogle} disabled={!projectId || loading} kind={googleConnected ? "ghost" : "primary"}>
-              {googleConnected ? "Подключено" : "Подключить"}
+            <Button onClick={connectGoogle} disabled={!projectId || loading} kind={googlePrimaryButtonKind}>
+              {googleMainButtonText}
             </Button>
-            {googleConnected ? (
+            {googleShowSaveSelection ? (
               <Button
                 kind="ghost"
                 onClick={saveGoogleSelection}
@@ -1010,7 +1117,7 @@ export default function AccountsPageClient() {
                 Сохранить выбор
               </Button>
             ) : null}
-            {googleConnected ? (
+            {googleShowDisconnect ? (
               <button
                 type="button"
                 onClick={() => setShowGoogleDisconnectConfirm(true)}
@@ -1036,7 +1143,7 @@ export default function AccountsPageClient() {
             Найдено: <b>{googleDiscoveredCount}</b> • Выбрано: <b>{selectedGoogleIds.length}</b> • Включено: <b>{googleEnabledCount}</b>
           </div>
 
-          {googleConnected && googleDiscoveredCount > 0 ? (
+          {googleCanShowAccountSelection && googleDiscoveredCount > 0 ? (
             <details style={{ marginTop: 12 }}>
               <summary style={{ cursor: "pointer", fontWeight: 800, fontSize: 13, opacity: 0.9 }}>
                 Выбери аккаунты Google для проекта ({googleDiscoveredCount})
@@ -1090,7 +1197,10 @@ export default function AccountsPageClient() {
           </div>
 
           {(() => {
-            const connectedCount = PLATFORM_ORDER.reduce((n, pid) => n + (connectedAccountsByPlatform.get(pid)?.length ?? 0), 0);
+            const connectedCount = PLATFORM_ORDER.reduce(
+              (n, pid) => n + (connectedAccountsByPlatformFiltered.get(pid)?.length ?? 0),
+              0
+            );
             if (connectedCount === 0) {
               return (
                 <div style={{ ...smallMuted, marginTop: 14 }}>
@@ -1103,9 +1213,11 @@ export default function AccountsPageClient() {
             return (
               <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 16 }}>
                 {PLATFORM_ORDER.map((platformId) => {
-                  const list = connectedAccountsByPlatform.get(platformId);
+                  const list = connectedAccountsByPlatformFiltered.get(platformId);
                   const isMeta = platformId === "meta";
                   const isGoogle = platformId === "google";
+                  if (isMeta && !platformActiveForList.meta) return null;
+                  if (isGoogle && !platformActiveForList.google) return null;
                   if (isMeta && (!list || list.length === 0)) {
                     return (
                       <div key={platformId}>
@@ -1202,7 +1314,7 @@ export default function AccountsPageClient() {
                                         e.preventDefault();
                                         syncOneAccount(a.platform_account_id, "meta");
                                       }}
-                                      disabled={syncing || !isOk}
+                                      disabled={syncing || !metaSyncEnabled}
                                       style={{
                                         height: 28,
                                         padding: "0 10px",
@@ -1212,8 +1324,8 @@ export default function AccountsPageClient() {
                                         color: "white",
                                         fontSize: 11,
                                         fontWeight: 700,
-                                        cursor: syncing || !isOk ? "not-allowed" : "pointer",
-                                        opacity: syncing || !isOk ? 0.6 : 1,
+                                        cursor: syncing || !metaSyncEnabled ? "not-allowed" : "pointer",
+                                        opacity: syncing || !metaSyncEnabled ? 0.6 : 1,
                                       }}
                                     >
                                       {syncing ? "Syncing…" : "Sync now"}
@@ -1225,7 +1337,7 @@ export default function AccountsPageClient() {
                                         e.preventDefault();
                                         syncOneAccount(a.platform_account_id, "google");
                                       }}
-                                      disabled={syncing || !googleConnected}
+                                      disabled={syncing || !googleSyncEnabled}
                                       style={{
                                         height: 28,
                                         padding: "0 10px",
@@ -1235,8 +1347,8 @@ export default function AccountsPageClient() {
                                         color: "white",
                                         fontSize: 11,
                                         fontWeight: 700,
-                                        cursor: syncing || !googleConnected ? "not-allowed" : "pointer",
-                                        opacity: syncing || !googleConnected ? 0.6 : 1,
+                                        cursor: syncing || !googleSyncEnabled ? "not-allowed" : "pointer",
+                                        opacity: syncing || !googleSyncEnabled ? 0.6 : 1,
                                       }}
                                     >
                                       {syncing ? "Syncing…" : "Sync now"}
@@ -1281,18 +1393,32 @@ export default function AccountsPageClient() {
           <div style={{ ...smallMuted, marginTop: 10 }}>
             Подключение:{" "}
             <b>
-              Meta {isOk ? "токен OK" : isError ? "ошибка/отозвано" : "не подключено"}
+              Meta{" "}
+              {metaStatus === "healthy" || metaStatus === "stale" || metaStatus === "no_accounts"
+                ? "токен OK"
+                : metaStatus === "error"
+                  ? "ошибка синка"
+                  : metaStatus === "disconnected"
+                    ? "отключено"
+                    : "не подключено"}
               {", "}
-              Google {googleConnected ? "токен OK" : "не подключено"}
+              Google{" "}
+              {googleStatus === "healthy" || googleStatus === "stale" || googleStatus === "no_accounts"
+                ? "токен OK"
+                : googleStatus === "error"
+                  ? "ошибка синка"
+                  : googleStatus === "disconnected"
+                    ? "отключено"
+                    : "не подключено"}
             </b>
           </div>
 
           <div style={{ ...smallMuted, marginTop: 8 }}>
             Сохранено для sync:
             <br />
-            Meta: <b>{activeIds.length ? activeIds.join(", ") : "—"}</b>
+            Meta: <b>{metaSyncEnabled && enabledMetaIds.length ? enabledMetaIds.join(", ") : "—"}</b>
             <br />
-            Google: <b>{selectedGoogleIds.length ? selectedGoogleIds.join(", ") : "—"}</b>
+            Google: <b>{googleSyncEnabled && enabledGoogleIds.length ? enabledGoogleIds.join(", ") : "—"}</b>
           </div>
 
           <div style={{ ...smallMuted, marginTop: 12 }}>

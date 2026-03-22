@@ -24,30 +24,39 @@ export async function getMetaIntegrationForProject(
   projectId: string
 ): Promise<MetaIntegrationRow | null> {
   // 1) Primary: canonical integration + shared auth
-  const { data: integration, error: intErr } = await admin
+  const { data: intRows, error: intErr } = await admin
     .from("integrations")
     .select("id, project_id")
     .eq("project_id", projectId)
     .eq("platform", "meta")
-    .maybeSingle();
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  const integration = intRows?.[0] as { id: string; project_id: string } | undefined;
 
   if (!intErr && integration?.id) {
-    const { data: auth, error: authErr } = await admin
+    const { data: authRows, error: authErr } = await admin
       .from("integrations_auth")
       .select("access_token, token_expires_at, created_at")
       .eq("integration_id", integration.id)
-      .maybeSingle();
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    const auth = authRows?.[0] as
+      | { access_token: string; token_expires_at: string | null; created_at: string | null }
+      | undefined;
 
     if (!authErr && auth?.access_token) {
-      const { data: metaRow } = await admin
+      const { data: metaRows } = await admin
         .from("integrations_meta")
         .select("id")
         .eq("integrations_id", integration.id)
         .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .limit(1);
 
-      const legacyId = (metaRow as { id?: string } | null)?.id ?? integration.id;
+      const metaRow = metaRows?.[0] as { id?: string } | undefined;
+
+      const legacyId = metaRow?.id ?? integration.id;
       return {
         id: legacyId,
         project_id: integration.project_id,

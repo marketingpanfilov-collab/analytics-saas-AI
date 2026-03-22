@@ -43,12 +43,15 @@ export async function POST(req: Request) {
 
   const admin = supabaseAdmin();
 
-  const { data: integration, error: intErr } = await admin
+  const { data: intRows, error: intErr } = await admin
     .from("integrations")
     .select("id")
     .eq("project_id", projectId)
     .eq("platform", "google")
-    .maybeSingle();
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  const integration = intRows?.[0] as { id: string } | undefined;
 
   if (intErr || !integration?.id) {
     return NextResponse.json(
