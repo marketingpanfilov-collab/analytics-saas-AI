@@ -43,8 +43,10 @@ function normalizeSources(sources: string[] | null | undefined): string[] {
 }
 
 /**
- * Resolve ad_account ids for a project, optionally filtered by sources and/or specific account IDs.
- * Includes Meta (via integrations_meta) and Google (via integrations where platform = 'google').
+ * Resolve ad_account ids for a project that participate in sync and dashboard.
+ * Only accounts with ad_account_settings.is_enabled = true are included.
+ * Optionally filtered by sources (platform) and/or specific account IDs.
+ * Unified: integrations by project_id and platform in ('meta','google','tiktok').
  */
 async function resolveAdAccountIds(
   admin: SupabaseClient,
@@ -52,35 +54,29 @@ async function resolveAdAccountIds(
   sources?: string[] | null,
   accountIds?: string[] | null
 ): Promise<string[]> {
-  const metaRows = await admin
-    .from("integrations_meta")
-    .select("integrations_id")
-    .eq("project_id", projectId);
-  const metaIds = [...new Set((metaRows.data ?? []).map((r: { integrations_id: string | null }) => r.integrations_id).filter(Boolean))] as string[];
-
-  const googleRows = await admin
-    .from("integrations")
-    .select("id")
+  const { data: settingsRows } = await admin
+    .from("ad_account_settings")
+    .select("ad_account_id")
     .eq("project_id", projectId)
-    .eq("platform", "google");
-  const googleIds = (googleRows.data ?? []).map((r: { id: string }) => r.id);
+    .eq("is_enabled", true);
 
-  let integrationIds: string[] = [...new Set([...metaIds, ...googleIds])];
-  if (!integrationIds.length) {
-    const allInt = await admin.from("integrations").select("id").eq("project_id", projectId);
-    integrationIds = (allInt.data ?? []).map((r: { id: string }) => r.id);
-  }
-  if (!integrationIds.length) return [];
+  const enabledIds = (settingsRows ?? []).map((r: { ad_account_id: string }) => r.ad_account_id);
+  if (!enabledIds.length) return [];
 
-  const { data: adAccounts } = await admin
+  const { data: adAccounts, error: adAccountsError } = await admin
     .from("ad_accounts")
     .select("id, provider")
-    .in("integration_id", integrationIds);
+    .in("id", enabledIds);
 
-  let list = adAccounts ?? [];
+  if (adAccountsError) {
+    console.log("[CANONICAL_RESOLVE_AD_ACCOUNTS_ERROR]", { projectId, error: adAccountsError?.message ?? adAccountsError });
+    return [];
+  }
+
+  let list = (adAccounts ?? []) as { id: string; provider?: string | null }[];
   const normalizedSources = normalizeSources(sources ?? []);
   if (normalizedSources.length > 0) {
-    list = list.filter((a: { provider: string }) => normalizedSources.includes(a.provider));
+    list = list.filter((a) => normalizedSources.includes((a.provider ?? "").toString().toLowerCase()));
   }
   if (accountIds?.length) {
     const idSet = new Set(accountIds);
@@ -92,8 +88,10 @@ async function resolveAdAccountIds(
 /**
  * Fetch daily_ad_metrics for a project and date range.
  * Uses daily_ad_metrics_campaign (campaign_id IS NOT NULL) so account-level rows are excluded
- * and board aggregation does not double-count. Meta and Google campaign-level rows only.
- * sources: filter by platform (meta, google, ...). Empty = all.
+ * and board aggregation does not double-count. Only campaign-level rows are used; if a range
+ * has only account-level data (no campaign-level yet), this returns empty and dashboard shows
+ * no spend for that range until campaign-level sync completes.
+ * sources: filter by platform (meta, google, tiktok). Empty = all.
  * accountIds: filter by ad_accounts.id. Empty = all (for resolved sources).
  */
 async function fetchCanonicalRowsViaJoin(
@@ -117,7 +115,7 @@ async function fetchCanonicalRowsViaJoin(
     .from("daily_ad_metrics_campaign")
     .select("date, spend, impressions, clicks, leads, purchases, revenue")
     .in("ad_account_id", adAccountIds)
-    .in("platform", ["meta", "google"])
+    .in("platform", ["meta", "google", "tiktok"])
     .gte("date", start)
     .lte("date", end);
 
@@ -146,6 +144,35 @@ async function fetchCanonicalRowsViaJoin(
     adAccountIdsCount: adAccountIds.length,
     rowCount: rows.length,
   });
+
+  // When source-filtered and few campaign-level rows, log account-level count (non-fatal; must not throw)
+  if (
+    (options?.sources?.length ?? 0) > 0 &&
+    rows.length <= 10 &&
+    adAccountIds.length > 0
+  ) {
+    try {
+      const { count: accountLevelCount } = await admin
+        .from("daily_ad_metrics")
+        .select("date", { count: "exact", head: true })
+        .in("ad_account_id", adAccountIds)
+        .is("campaign_id", null)
+        .gte("date", start)
+        .lte("date", end);
+      const acctCount = typeof accountLevelCount === "number" ? accountLevelCount : 0;
+      console.log("[CANONICAL_SOURCE_LEVELS]", {
+        projectId,
+        start,
+        end,
+        sources: options?.sources,
+        campaign_level_rows: rows.length,
+        account_level_rows_in_range: acctCount,
+        note: acctCount > 0 && rows.length <= 2 ? "Dashboard uses campaign-level only; Google may have only account-level data." : null,
+      });
+    } catch (_) {
+      // diagnostic only; do not affect main path
+    }
+  }
 
   return rows.map((r) => ({
     date: String(r.date).slice(0, 10),
@@ -178,7 +205,7 @@ export async function getCanonicalSummary(
     const rows = await fetchCanonicalRowsViaJoin(admin, projectId, start, end, options ?? undefined);
     const inputRowCount = rows.length;
     if (inputRowCount === 0) {
-      console.log("[CANONICAL_SUMMARY_AGG]", { inputRowCount: 0, spend: 0, impressions: 0, clicks: 0, reason: "no rows" });
+      console.log("[CANONICAL_SUMMARY_AGG]", { branch: "canonical", inputRowCount: 0, spend: 0, impressions: 0, clicks: 0, reason: "no rows" });
       return null;
     }
 
@@ -188,7 +215,7 @@ export async function getCanonicalSummary(
     const leads = rows.reduce((s, r) => s + r.leads, 0);
     const purchases = rows.reduce((s, r) => s + r.purchases, 0);
     const revenue = rows.reduce((s, r) => s + r.revenue, 0);
-    console.log("[CANONICAL_SUMMARY_AGG]", { inputRowCount, spend, impressions, clicks });
+    console.log("[CANONICAL_SUMMARY_AGG]", { branch: "canonical", inputRowCount, spend, impressions, clicks });
     const dates = rows.map((r) => r.date);
     const minDay = dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : null;
     const maxDay = dates.length ? dates.reduce((a, b) => (a > b ? a : b)) : null;
@@ -226,11 +253,11 @@ export async function getCanonicalTimeseries(
   try {
     const rows = await fetchCanonicalRowsViaJoin(admin, projectId, start, end, options ?? undefined);
     if (rows.length === 0) {
-      console.log("[CANONICAL_TIMESERIES_PATH]", { used: "rpc", reason: "no rows" });
+      console.log("[CANONICAL_TIMESERIES_PATH]", { branch: "canonical", used: "canonical", reason: "no rows", rowCount: 0 });
       return null;
     }
 
-    console.log("[CANONICAL_TIMESERIES_PATH]", { used: "canonical", rowCount: rows.length });
+    console.log("[CANONICAL_TIMESERIES_PATH]", { branch: "canonical", used: "canonical", rowCount: rows.length });
     const byDate = new Map<
       string,
       { spend: number; clicks: number; leads: number; purchases: number; revenue: number }

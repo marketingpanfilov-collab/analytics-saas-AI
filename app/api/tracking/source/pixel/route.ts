@@ -3,11 +3,13 @@
  *
  * Image beacon fallback for tracking events when fetch POST fails (Safari, incognito).
  * Accepts same fields as POST /api/tracking/source via query params.
- * Returns 1x1 transparent GIF.
+ * click_id = bqcid from URL; visit_id = bqvid (pixel generates or we generate).
  */
 import { NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { classifySource } from "@/app/lib/sourceClassification";
+import { detectTrafficSource } from "@/app/lib/trafficSourceDetection";
 
 const GIF_1X1 = Buffer.from(
   "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
@@ -48,6 +50,12 @@ export async function GET(req: Request) {
     const fbclid = safeStr(params.get("fbclid"), 256);
     const yclid = safeStr(params.get("yclid"), 256);
     const ttclid = safeStr(params.get("ttclid"), 256);
+    const sessionId = safeStr(params.get("session_id"), 256);
+    const fbp = safeStr(params.get("fbp"), 512);
+    const fbc = safeStr(params.get("fbc"), 512);
+    const clickId = safeStr(params.get("click_id"), 512);
+    const visitIdParam = safeStr(params.get("visit_id"), 256);
+    const visitId = visitIdParam || randomUUID();
     const touchType = (safeStr(params.get("touch_type"), 16) ?? "last") === "first" ? "first" : "last";
 
     const sourceClassification = classifySource({
@@ -59,6 +67,15 @@ export async function GET(req: Request) {
       fbclid,
       yclid,
       ttclid,
+    });
+
+    const { traffic_source: trafficSource, traffic_platform: trafficPlatform } = detectTrafficSource({
+      fbclid,
+      gclid,
+      ttclid,
+      yclid,
+      utm_source: utmSource,
+      referrer,
     });
 
     const admin = supabaseAdmin();
@@ -76,8 +93,15 @@ export async function GET(req: Request) {
       fbclid,
       yclid,
       ttclid,
+      session_id: sessionId,
+      fbp,
+      fbc,
+      click_id: clickId,
+      visit_id: visitId,
       source_classification: sourceClassification,
       touch_type: touchType,
+      traffic_source: trafficSource,
+      traffic_platform: trafficPlatform,
     });
   } catch (e) {
     console.error("[TRACKING_PIXEL_ERROR]", e);

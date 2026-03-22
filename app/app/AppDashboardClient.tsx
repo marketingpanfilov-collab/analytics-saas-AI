@@ -1,8 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/app/lib/supabaseClient";
+import AssistedAttributionCard from "./components/AssistedAttributionCard";
+import { RevenueAttributionMapCard } from "./components/RevenueAttributionMapCard";
+import { ConversionBehaviorCard } from "./components/ConversionBehaviorCard";
+import { AttributionFlowCard } from "./components/AttributionFlowCard";
 
 function formatMoney(n: number) {
   return new Intl.NumberFormat("en-US", {
@@ -90,12 +94,112 @@ type Point = {
   spend: number;
 };
 
-function SpendLineChart({ points }: { points: Point[] }) {
+type ConversionSeriesPoint = {
+  date: string;
+  registrations: number;
+  sales: number;
+};
+
+type ChartPoint = {
+  date: string;
+  spend: number;
+  registrations: number;
+  sales: number;
+  cac: number | null;
+};
+
+function dateRange(start: string, end: string): string[] {
+  const out: string[] = [];
+  const d = new Date(start + "T00:00:00Z");
+  const endD = new Date(end + "T00:00:00Z");
+  while (d <= endD) {
+    out.push(d.toISOString().slice(0, 10));
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return out;
+}
+
+type KpiSummary = {
+  registrations: number;
+  sales: number;
+  revenue: number;
+  has_direct?: boolean;
+};
+
+type SourceOption = {
+  id: string;
+  label: string;
+  type: "platform" | "class";
+};
+const CHART_COLORS = {
+  spend: "rgba(130,255,200,0.85)",
+  registrations: "rgba(147,197,253,0.9)",
+  sales: "rgba(253,230,138,0.9)",
+  cac: "rgba(196,181,253,0.9)",
+} as const;
+
+function formatAxisValue(val: number): string {
+  if (val >= 1000) return `${(val / 1000).toFixed(1)}k`;
+  if (val >= 1) return val.toFixed(0);
+  return val.toFixed(1);
+}
+
+function mkPathWithGaps(
+  values: (number | null)[],
+  yMap: (v: number, max: number) => number,
+  max: number,
+  xForIndex: (i: number) => number
+): string {
+  const parts: string[] = [];
+  let runStart: number | null = null;
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i];
+    if (v != null && !Number.isNaN(v)) {
+      const x = xForIndex(i);
+      const y = yMap(v, max);
+      if (runStart === null) {
+        parts.push(`M ${x.toFixed(2)} ${y.toFixed(2)}`);
+        runStart = i;
+      } else {
+        parts.push(`L ${x.toFixed(2)} ${y.toFixed(2)}`);
+      }
+    } else {
+      runStart = null;
+    }
+  }
+  return parts.join(" ");
+}
+
+function MultiMetricLineChart({ points }: { points: ChartPoint[] }) {
   const w = 860;
   const h = 280;
   const pad = 22;
+  const leftPad = 46;
+  const bottomPad = 28;
+  const plotW = w - leftPad - pad;
+  const plotH = h - pad - bottomPad;
+  const svgRef = useRef<SVGSVGElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
+  const [seriesVisible, setSeriesVisible] = useState({
+    spend: true,
+    registrations: true,
+    sales: true,
+    cac: true,
+  });
 
-  if (!points || points.length < 2) {
+  const hasAnyData =
+    points &&
+    points.some(
+      (p) =>
+        (p.spend && p.spend !== 0) ||
+        (p.registrations && p.registrations !== 0) ||
+        (p.sales && p.sales !== 0) ||
+        (p.cac != null && !Number.isNaN(p.cac) && p.cac !== 0)
+    );
+
+  if (!points || points.length === 0 || !hasAnyData) {
     return (
       <div
         style={{
@@ -114,58 +218,271 @@ function SpendLineChart({ points }: { points: Point[] }) {
   }
 
   const maxSpend = Math.max(...points.map((p) => p.spend), 1);
-  const xStep = (w - pad * 2) / (points.length - 1);
-  const yMap = (v: number) => pad + (h - pad * 2) * (1 - v);
+  const maxReg = Math.max(...points.map((p) => p.registrations), 1);
+  const maxSales = Math.max(...points.map((p) => p.sales), 1);
+  const cacValues = points.map((p) => p.cac);
+  const maxCac = Math.max(...cacValues.filter((v): v is number => v != null && !Number.isNaN(v)), 1);
+  const isSinglePoint = points.length === 1;
+  const xStep = points.length > 1 ? plotW / (points.length - 1) : 0;
 
-  const mkPath = (arr: number[], max: number) =>
-    arr
+  const yMap = (v: number, max: number) => pad + plotH * (1 - v / max);
+
+  const xForIndex = (i: number) =>
+    isSinglePoint ? leftPad + plotW / 2 : leftPad + i * xStep;
+
+  const mkPath = (values: number[], max: number) =>
+    values
       .map((v, i) => {
-        const x = pad + i * xStep;
-        const y = yMap(v / max);
+        const x = xForIndex(i);
+        const y = yMap(v, max);
         return `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
       })
       .join(" ");
 
   const spendPath = mkPath(points.map((p) => p.spend), maxSpend);
+  const regPath = mkPath(points.map((p) => p.registrations), maxReg);
+  const salesPath = mkPath(points.map((p) => p.sales), maxSales);
+  const cacPath = mkPathWithGaps(cacValues, (v, max) => yMap(v, max), maxCac, xForIndex);
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    const el = svgRef.current;
+    const container = containerRef.current;
+    if (!el || !container) return;
+    const rect = el.getBoundingClientRect();
+    const contRect = container.getBoundingClientRect();
+    const xPx = e.clientX - rect.left;
+    const viewBoxX = (xPx / rect.width) * w;
+    const rel = (viewBoxX - leftPad) / plotW;
+    let idx = Math.round(rel * (points.length - 1));
+    idx = Math.max(0, Math.min(idx, points.length - 1));
+    setHoveredIndex(idx);
+    const tx = e.clientX - contRect.left + 14;
+    const ty = e.clientY - contRect.top - 8;
+    const tw = 180;
+    const th = 100;
+    let clampX = tx;
+    if (tx + tw > contRect.width) clampX = contRect.width - tw - 8;
+    if (clampX < 8) clampX = 8;
+    let clampY = ty;
+    if (ty < 8) clampY = 8;
+    if (ty + th > contRect.height - 8) clampY = contRect.height - th - 8;
+    setTooltipPos({ x: clampX, y: clampY });
+  };
+
+  const handleMouseLeave = () => {
+    setHoveredIndex(null);
+    setTooltipPos(null);
+  };
+
+  const toggleSeries = (key: keyof typeof seriesVisible) => {
+    setSeriesVisible((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const hovered = hoveredIndex != null ? points[hoveredIndex] : null;
+
+  const yTicks = 5;
+  const axisMax = maxSpend;
 
   return (
     <div
+      ref={containerRef}
       style={{
         border: "1px solid rgba(255,255,255,0.10)",
         borderRadius: 16,
         padding: 12,
+        position: "relative",
       }}
+      onMouseLeave={handleMouseLeave}
     >
       <svg
+        ref={svgRef}
         width="100%"
         viewBox={`0 0 ${w} ${h}`}
         preserveAspectRatio="none"
         style={{ display: "block" }}
+        onMouseMove={handleMouseMove}
       >
-        {Array.from({ length: 5 }).map((_, i) => {
-          const y = pad + ((h - pad * 2) * i) / 4;
+        {Array.from({ length: yTicks }).map((_, i) => {
+          const y = pad + (plotH * i) / (yTicks - 1);
+          const val = axisMax * (1 - i / (yTicks - 1));
           return (
-            <line
-              key={i}
-              x1={pad}
-              x2={w - pad}
-              y1={y}
-              y2={y}
-              stroke="rgba(255,255,255,0.06)"
-              strokeWidth="1"
-            />
+            <g key={i}>
+              <line
+                x1={leftPad}
+                x2={w - pad}
+                y1={y}
+                y2={y}
+                stroke="rgba(255,255,255,0.06)"
+                strokeWidth="1"
+              />
+              <text
+                x={leftPad - 6}
+                y={y + 4}
+                fill="rgba(255,255,255,0.5)"
+                fontSize="10"
+                textAnchor="end"
+              >
+                {formatAxisValue(val)}
+              </text>
+            </g>
           );
         })}
 
-        <path d={spendPath} fill="none" stroke="rgba(130,255,200,0.85)" strokeWidth="3" />
+        {seriesVisible.spend && (
+          <path d={spendPath} fill="none" stroke={CHART_COLORS.spend} strokeWidth="3" />
+        )}
+        {seriesVisible.registrations && (
+          <path d={regPath} fill="none" stroke={CHART_COLORS.registrations} strokeWidth="2.5" />
+        )}
+        {seriesVisible.sales && (
+          <path d={salesPath} fill="none" stroke={CHART_COLORS.sales} strokeWidth="2.5" />
+        )}
+        {seriesVisible.cac && (
+          <path d={cacPath} fill="none" stroke={CHART_COLORS.cac} strokeWidth="2.5" />
+        )}
 
-        <text x={pad} y={h - 6} fill="rgba(255,255,255,0.55)" fontSize="12">
+        {isSinglePoint && points[0] && (
+          <g aria-hidden="true">
+            {seriesVisible.spend && (
+              <circle
+                cx={xForIndex(0)}
+                cy={yMap(points[0].spend, maxSpend)}
+                r={6}
+                fill={CHART_COLORS.spend}
+                stroke="rgba(255,255,255,0.5)"
+                strokeWidth="1.5"
+              />
+            )}
+            {seriesVisible.registrations && (
+              <circle
+                cx={xForIndex(0)}
+                cy={yMap(points[0].registrations, maxReg)}
+                r={6}
+                fill={CHART_COLORS.registrations}
+                stroke="rgba(255,255,255,0.5)"
+                strokeWidth="1.5"
+              />
+            )}
+            {seriesVisible.sales && (
+              <circle
+                cx={xForIndex(0)}
+                cy={yMap(points[0].sales, maxSales)}
+                r={6}
+                fill={CHART_COLORS.sales}
+                stroke="rgba(255,255,255,0.5)"
+                strokeWidth="1.5"
+              />
+            )}
+            {seriesVisible.cac && points[0].cac != null && !Number.isNaN(points[0].cac) && (
+              <circle
+                cx={xForIndex(0)}
+                cy={yMap(points[0].cac, maxCac)}
+                r={6}
+                fill={CHART_COLORS.cac}
+                stroke="rgba(255,255,255,0.5)"
+                strokeWidth="1.5"
+              />
+            )}
+          </g>
+        )}
+
+        {hoveredIndex != null && (
+          <line
+            x1={xForIndex(hoveredIndex)}
+            x2={xForIndex(hoveredIndex)}
+            y1={pad}
+            y2={h - bottomPad}
+            stroke="rgba(255,255,255,0.35)"
+            strokeWidth="1"
+            strokeDasharray="4 2"
+          />
+        )}
+
+        <text x={leftPad} y={h - 6} fill="rgba(255,255,255,0.55)" fontSize="11">
           {fmtRuDate(points[0].date)}
         </text>
-        <text x={w - pad - 80} y={h - 6} fill="rgba(255,255,255,0.55)" fontSize="12">
+        <text x={w - pad - 72} y={h - 6} fill="rgba(255,255,255,0.55)" fontSize="11" textAnchor="end">
           {fmtRuDate(points[points.length - 1].date)}
         </text>
       </svg>
+
+      {hovered && tooltipPos && (
+        <div
+          style={{
+            position: "absolute",
+            left: tooltipPos.x,
+            top: tooltipPos.y,
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "1px solid rgba(255,255,255,0.15)",
+            background: "rgba(20,20,28,0.96)",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+            fontSize: 12,
+            color: "rgba(255,255,255,0.95)",
+            whiteSpace: "nowrap",
+            zIndex: 10,
+            pointerEvents: "none",
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>{fmtRuDate(hovered.date)}</div>
+          {seriesVisible.spend && (
+            <div style={{ opacity: 0.9 }}>Spend: {formatMoney(hovered.spend)}</div>
+          )}
+          {seriesVisible.registrations && (
+            <div style={{ opacity: 0.9 }}>Registrations: {hovered.registrations}</div>
+          )}
+          {seriesVisible.sales && (
+            <div style={{ opacity: 0.9 }}>Sales: {hovered.sales}</div>
+          )}
+          {seriesVisible.cac && (
+            <div style={{ opacity: 0.9 }}>
+              CAC: {hovered.cac != null ? formatMoney(hovered.cac) : "—"}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div
+        style={{
+          display: "flex",
+          gap: 10,
+          marginTop: 10,
+          fontSize: 12,
+          flexWrap: "wrap",
+          alignItems: "center",
+        }}
+      >
+        {(
+          [
+            { key: "spend" as const, label: "Spend" },
+            { key: "registrations" as const, label: "Registrations" },
+            { key: "sales" as const, label: "Sales" },
+            { key: "cac" as const, label: "CAC" },
+          ] as const
+        ).map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => toggleSeries(key)}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "4px 8px",
+              border: "none",
+              borderRadius: 6,
+              background: "transparent",
+              color: seriesVisible[key] ? CHART_COLORS[key] : "rgba(255,255,255,0.4)",
+              cursor: "pointer",
+              fontSize: 12,
+              opacity: seriesVisible[key] ? 1 : 0.6,
+            }}
+          >
+            <span>●</span>
+            <span>{label}</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -185,6 +502,21 @@ type DashboardAccount = {
   is_enabled: boolean;
 };
 
+type IntegrationStatusValue = "healthy" | "error" | "stale" | "disconnected" | "no_accounts" | "not_connected";
+
+type IntegrationStatusRow = {
+  platform: string;
+  connected: boolean;
+  oauth_valid: boolean;
+  enabled_accounts: number;
+  status: IntegrationStatusValue;
+  reason: string | null;
+  last_sync_status?: string | null;
+  last_sync_at?: string | null;
+  last_sync_error?: string | null;
+  data_max_date?: string | null;
+};
+
 export default function AppDashboardClient() {
   const router = useRouter();
   const sp = useSearchParams();
@@ -197,15 +529,13 @@ export default function AppDashboardClient() {
   const [accountsOpen, setAccountsOpen] = useState(false);
   const sourcesDropdownRef = useRef<HTMLDivElement>(null);
   const accountsDropdownRef = useRef<HTMLDivElement>(null);
+  const [kpiSummary, setKpiSummary] = useState<KpiSummary | null>(null);
+  const [activeSourceOptions, setActiveSourceOptions] = useState<SourceOption[]>([]);
 
   const enabledAccounts = useMemo(
     () => dashboardAccounts.filter((a) => a.is_enabled),
     [dashboardAccounts]
   );
-  const activeSourceOptions = useMemo(() => {
-    const platforms = [...new Set(enabledAccounts.map((a) => a.platform))].filter(Boolean);
-    return platforms.map((id) => ({ id, label: PLATFORM_LABELS[id] ?? id }));
-  }, [enabledAccounts]);
 
   const initial = useMemo(() => {
     const d = new Date();
@@ -229,11 +559,33 @@ export default function AppDashboardClient() {
 
   const [summary, setSummary] = useState<Summary>({ spend: 0 });
   const [points, setPoints] = useState<Point[]>([]);
+  const [conversionSeries, setConversionSeries] = useState<ConversionSeriesPoint[]>([]);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [lastOkAt, setLastOkAt] = useState<string | null>(null);
 
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [lastDebug, setLastDebug] = useState<any>(null);
+  const prevAccountCountRef = useRef<number>(0);
+  const [connectionLost, setConnectionLost] = useState(false);
+  const [dashboardIntegrationStatus, setDashboardIntegrationStatus] = useState<IntegrationStatusRow[]>([]);
+
+  /** Historical backfill: source of truth is summary + timeseries backfill metadata. Used for banner and refetch polling. */
+  const [historicalBackfill, setHistoricalBackfill] = useState<{
+    started: boolean;
+    intervals: { start: string; end: string }[];
+  } | null>(null);
+  const backfillTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const backfillAttemptRef = useRef(0);
+  const MAX_BACKFILL_ATTEMPTS = 6;
+  const BACKFILL_POLL_INTERVAL_MS = 8000;
+
+  useEffect(() => {
+    const prev = prevAccountCountRef.current;
+    const curr = dashboardAccounts.length;
+    if (curr < prev && prev > 0) setConnectionLost(true);
+    else if (curr >= prev) setConnectionLost(false);
+    prevAccountCountRef.current = curr;
+  }, [dashboardAccounts.length]);
 
   const isInvalidRange = useMemo(() => draftDateFrom > draftDateTo, [draftDateFrom, draftDateTo]);
   const isInvalidApplied = useMemo(
@@ -262,6 +614,77 @@ export default function AppDashboardClient() {
     })();
     return () => { cancelled = true; };
   }, [projectId]);
+
+  useEffect(() => {
+    if (!projectId) {
+      setDashboardIntegrationStatus([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/oauth/integration/status?project_id=${encodeURIComponent(projectId)}`,
+          { cache: "no-store" }
+        );
+        const json = (await res.json()) as { success?: boolean; integrations?: IntegrationStatusRow[] };
+        if (cancelled) return;
+        setDashboardIntegrationStatus(json?.integrations ?? []);
+      } catch {
+        if (!cancelled) setDashboardIntegrationStatus([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  // Source options (platforms + source classes) for Sources dropdown.
+  useEffect(() => {
+    if (!projectId) {
+      setActiveSourceOptions([]);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const params = new URLSearchParams({
+          project_id: projectId,
+          start: appliedDateFrom,
+          end: appliedDateTo,
+        });
+        const res = await fetch(`/api/dashboard/source-options?${params.toString()}`, {
+          cache: "no-store",
+        });
+        const json = await res.json();
+        if (cancelled) return;
+        if (res.ok && json?.success && Array.isArray(json.options)) {
+          setActiveSourceOptions(json.options as SourceOption[]);
+        } else {
+          // Fallback: platforms only from enabled accounts.
+          const platforms = [...new Set(enabledAccounts.map((a) => a.platform))].filter(Boolean);
+          const base = platforms.map((id) => ({
+            id,
+            label: PLATFORM_LABELS[id] ?? id,
+            type: "platform" as const,
+          }));
+          setActiveSourceOptions(base);
+        }
+      } catch {
+        if (cancelled) return;
+        const platforms = [...new Set(enabledAccounts.map((a) => a.platform))].filter(Boolean);
+        const base = platforms.map((id) => ({
+          id,
+          label: PLATFORM_LABELS[id] ?? id,
+          type: "platform" as const,
+        }));
+        setActiveSourceOptions(base);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, appliedDateFrom, appliedDateTo, enabledAccounts]);
 
   // Abort + гонки
   const abortRef = useRef<AbortController | null>(null);
@@ -301,6 +724,15 @@ export default function AppDashboardClient() {
     return c;
   }
 
+  function clearBackfillPolling() {
+    if (backfillTimeoutRef.current != null) {
+      clearTimeout(backfillTimeoutRef.current);
+      backfillTimeoutRef.current = null;
+    }
+    backfillAttemptRef.current = 0;
+    setHistoricalBackfill(null);
+  }
+
   const isSupportedNow = true;
 
   async function loadFromDb(
@@ -334,16 +766,22 @@ export default function AppDashboardClient() {
     try {
       const qs = params.toString();
 
-      const [sRes, tRes] = await Promise.all([
+      const [sRes, tRes, kRes, cRes] = await Promise.all([
         fetch(`/api/dashboard/summary?${qs}`, { cache: "no-store", signal }),
         fetch(`/api/dashboard/timeseries?${qs}`, { cache: "no-store", signal }),
+        fetch(`/api/dashboard/kpi?${qs}`, { cache: "no-store", signal }),
+        fetch(`/api/dashboard/timeseries-conversions?${qs}`, { cache: "no-store", signal }),
       ]);
 
       const sText = await sRes.text();
       const tText = await tRes.text();
+      const kText = await kRes.text();
+      const cText = await cRes.text();
 
       const sJson = sText ? JSON.parse(sText) : null;
       const tJson = tText ? JSON.parse(tText) : null;
+      const kJson = kText ? JSON.parse(kText) : null;
+      const cJson = cText ? JSON.parse(cText) : null;
 
       console.log("[SUMMARY_RESPONSE_RAW]", { ok: sRes.ok, totals: sJson?.totals, source: sJson?.source, raw: sJson });
       console.log("[TIMESERIES_RESPONSE_RAW]", { ok: tRes.ok, pointsCount: tJson?.points?.length, firstSpend: tJson?.points?.[0]?.spend, raw: tJson });
@@ -355,6 +793,19 @@ export default function AppDashboardClient() {
       if (!tRes.ok || !tJson?.success) {
         const apiErr = extractApiError(tJson);
         throw new Error(apiErr || tJson?.error?.message || tJson?.error || "timeseries: ошибка");
+      }
+
+      if (!kRes.ok || !kJson?.success) {
+        const apiErr = (kJson && (kJson.error || kJson.message)) || "";
+        console.warn("[KPI_CONVERSIONS_ERROR]", kRes.status, apiErr || "unknown");
+        setKpiSummary(null);
+      } else {
+        setKpiSummary({
+          registrations: Number(kJson.registrations ?? 0) || 0,
+          sales: Number(kJson.sales ?? 0) || 0,
+          revenue: Number(kJson.revenue ?? 0) || 0,
+          has_direct: Boolean(kJson.has_direct),
+        });
       }
 
       if (mySeq !== reqSeqRef.current) return;
@@ -379,6 +830,42 @@ export default function AppDashboardClient() {
       console.log("[STATE_SET_POINTS]", { pointsCount: pts.length, firstSpend: pts[0]?.spend, sample: pts.slice(0, 2) });
       setPoints(pts);
 
+      if (cRes.ok && cJson?.success && Array.isArray(cJson.points)) {
+        setConversionSeries(
+          (cJson.points as { date: string; registrations: number; sales: number }[]).map((p) => ({
+            date: String(p.date),
+            registrations: Number(p.registrations ?? 0) || 0,
+            sales: Number(p.sales ?? 0) || 0,
+          }))
+        );
+      } else {
+        setConversionSeries([]);
+      }
+
+      const backfillMeta = (sJson?.backfill ?? tJson?.backfill) as
+        | { historical_sync_started?: boolean; range_partially_covered?: boolean; intervals?: { start: string; end: string }[] }
+        | undefined;
+      const hasHistoricalBackfill =
+        backfillMeta?.historical_sync_started === true || backfillMeta?.range_partially_covered === true;
+
+      if (hasHistoricalBackfill) {
+        setHistoricalBackfill({
+          started: true,
+          intervals: Array.isArray(backfillMeta?.intervals) ? backfillMeta.intervals : [],
+        });
+        if (backfillAttemptRef.current < MAX_BACKFILL_ATTEMPTS) {
+          if (backfillTimeoutRef.current != null) clearTimeout(backfillTimeoutRef.current);
+          backfillTimeoutRef.current = setTimeout(() => {
+            backfillTimeoutRef.current = null;
+            backfillAttemptRef.current += 1;
+            const c = makeController();
+            loadFromDb(c.signal, start, end);
+          }, BACKFILL_POLL_INTERVAL_MS);
+        }
+      } else {
+        clearBackfillPolling();
+      }
+
       setLastDebug({
         summary: sJson,
         timeseries: tJson,
@@ -386,7 +873,7 @@ export default function AppDashboardClient() {
       });
     } catch (e: any) {
       if (isAbortError(e)) return;
-
+      clearBackfillPolling();
       setErrorText(toErrorText(e));
       // Keep previous summary/points visible on error
     } finally {
@@ -485,6 +972,7 @@ export default function AppDashboardClient() {
     return () => {
       abortInFlight();
       loadingKeyRef.current = null;
+      clearBackfillPolling();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, appliedDateFrom, appliedDateTo, sourcesKey, accountIdsKey]);
@@ -557,6 +1045,130 @@ export default function AppDashboardClient() {
       d.getMinutes()
     ).padStart(2, "0")}`;
   }, [lastOkAt]);
+
+  const systemStatus = useMemo(() => {
+    const count = dashboardAccounts.length;
+    if (count === 0) return { status: "no_connections" as const, label: "No integrations", tooltip: "No advertising sources connected." };
+    if (connectionLost) return { status: "connection_lost" as const, label: "Connection lost", tooltip: "One or more integrations lost connection." };
+    const hasError = dashboardIntegrationStatus.some((i) => i.status === "error");
+    const hasStale = dashboardIntegrationStatus.some((i) => i.status === "stale");
+    const hasDisconnected = dashboardIntegrationStatus.some((i) => i.status === "disconnected");
+    if (hasError) return { status: "error" as const, label: "Error", tooltip: "One or more integrations have sync errors or data not updated today." };
+    if (hasStale) return { status: "stale" as const, label: "Stale", tooltip: "Data is behind or last sync was over 20 minutes ago." };
+    if (hasDisconnected) return { status: "disconnected" as const, label: "Disconnected", tooltip: "One or more integrations are disconnected." };
+    return { status: "healthy" as const, label: "Healthy", tooltip: "All integrations are connected and syncing normally." };
+  }, [dashboardAccounts.length, connectionLost, dashboardIntegrationStatus]);
+
+  const dataFreshnessStr = useMemo(() => {
+    const iso = safeIso(updatedAt);
+    if (!iso) return "—";
+    const ts = new Date(iso).getTime();
+    if (Number.isNaN(ts)) return "—";
+    const diffMs = Date.now() - ts;
+    const diffMin = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    if (diffMin < 1) return "just now";
+    if (diffMin < 60) return `${diffMin} min ago`;
+    if (diffHours < 24) return diffHours === 1 ? "1 hour ago" : `${diffHours} hours ago`;
+    return updatedStr;
+  }, [updatedAt, updatedStr]);
+
+  const INTEGRATION_PLATFORMS = useMemo(
+    () => [
+      { id: "meta", label: "Meta Ads" },
+      { id: "google", label: "Google Ads" },
+      { id: "tiktok", label: "TikTok Ads" },
+      { id: "yandex", label: "Yandex Ads" },
+    ],
+    []
+  );
+
+  /** Data Status: count only healthy integrations (green). Total = Meta, Google, TikTok. */
+  const healthyCount = useMemo(
+    () => dashboardIntegrationStatus.filter((i) => i.status === "healthy").length,
+    [dashboardIntegrationStatus]
+  );
+  const totalPlatformsCount = 3; // meta, google, tiktok
+  const adPlatformsCount = healthyCount;
+
+  const integrationStatusByPlatform = useMemo(() => {
+    const map = new Map<string, IntegrationStatusValue>();
+    for (const i of dashboardIntegrationStatus) {
+      map.set(i.platform, i.status as IntegrationStatusValue);
+    }
+    return map;
+  }, [dashboardIntegrationStatus]);
+
+  const platformStatusColor: Record<IntegrationStatusValue, string> = {
+    healthy: "#22c55e",
+    error: "#ef4444",
+    stale: "#f97316",
+    no_accounts: "#eab308",
+    disconnected: "#94a3b8",
+    not_connected: "#94a3b8",
+  };
+  const platformStatusLabel: Record<IntegrationStatusValue, string> = {
+    healthy: "Healthy",
+    error: "Error",
+    stale: "Stale",
+    no_accounts: "No accounts",
+    disconnected: "Disconnected",
+    not_connected: "Not connected",
+  };
+
+  const statusStyles: Record<string, { bg: string; color: string }> = {
+    healthy: { bg: "rgba(34,197,94,0.15)", color: "#22c55e" },
+    error: { bg: "rgba(239,68,68,0.15)", color: "#ef4444" },
+    stale: { bg: "rgba(249,115,22,0.15)", color: "#f97316" },
+    disconnected: { bg: "rgba(148,163,184,0.15)", color: "#94a3b8" },
+    sync_delayed: { bg: "rgba(234,179,8,0.15)", color: "#eab308" },
+    connection_lost: { bg: "rgba(239,68,68,0.15)", color: "#ef4444" },
+    no_connections: { bg: "rgba(148,163,184,0.15)", color: "#94a3b8" },
+  };
+
+  // Derived KPI helpers for CPL / CAC.
+  const registrationsCount = kpiSummary?.registrations ?? 0;
+  const salesCount = kpiSummary?.sales ?? 0;
+  const spendValue = summary.spend ?? 0;
+
+  const cplValue = registrationsCount > 0 ? spendValue / registrationsCount : null;
+  const cacValue = salesCount > 0 ? spendValue / salesCount : null;
+
+  const cplLabel = cplValue !== null ? formatMoney(cplValue) : "—";
+  const cacLabel = cacValue !== null ? formatMoney(cacValue) : "—";
+
+  const chartPoints = useMemo((): ChartPoint[] => {
+    if (appliedDateFrom > appliedDateTo) return [];
+    const dates = dateRange(appliedDateFrom, appliedDateTo);
+    return dates.map((date) => {
+      const spend = points.find((p) => p.date === date)?.spend ?? 0;
+      const sales = conversionSeries.find((c) => c.date === date)?.sales ?? 0;
+      return {
+        date,
+        spend,
+        registrations: conversionSeries.find((c) => c.date === date)?.registrations ?? 0,
+        sales,
+        cac: sales > 0 ? spend / sales : null,
+      };
+    });
+  }, [appliedDateFrom, appliedDateTo, points, conversionSeries]);
+
+  // Block-level readiness only: no page-level demo flag. Each section/card decides its own.
+  const hasRealKpiData =
+    !loading &&
+    (Number(summary?.spend ?? 0) > 0 ||
+      Number(kpiSummary?.registrations ?? 0) > 0 ||
+      Number(kpiSummary?.sales ?? 0) > 0 ||
+      Number(kpiSummary?.revenue ?? 0) > 0);
+  const hasRealSpendChartData =
+    !loading &&
+    chartPoints.some(
+      (p) =>
+        (p.spend && p.spend > 0) ||
+        (p.registrations > 0) ||
+        (p.sales > 0) ||
+        (p.cac != null && p.cac > 0)
+    );
 
   const card = {
     borderRadius: 18,
@@ -650,16 +1262,28 @@ export default function AppDashboardClient() {
     return map;
   }, [enabledAccounts]);
 
-  const platformsForAccounts = selectedSources.length
-    ? activeSourceOptions.filter((s) => selectedSources.includes(s.id))
-    : activeSourceOptions;
+  const platformsForAccounts = useMemo(
+    () =>
+      (selectedSources.length
+        ? activeSourceOptions.filter((s) => selectedSources.includes(s.id))
+        : activeSourceOptions
+      ).filter((opt) => opt.type === "platform"),
+    [selectedSources, activeSourceOptions]
+  );
 
-  const sourcesLabel =
-    selectedSources.length === 0
-      ? "All"
-      : selectedSources.length >= activeSourceOptions.length
-        ? "All"
-        : selectedSources.map((id) => activeSourceOptions.find((o) => o.id === id)?.label ?? id).join(", ");
+  const sourcesLabel = useMemo(() => {
+    if (!effectiveSources || effectiveSources.length === 0) {
+      return "All";
+    }
+    if (effectiveSources.length === activeSourceOptions.length) {
+      return "All";
+    }
+    if (effectiveSources.length === 1) {
+      const opt = activeSourceOptions.find((o) => o.id === effectiveSources[0]);
+      return opt?.label ?? effectiveSources[0];
+    }
+    return "Mixed";
+  }, [effectiveSources, activeSourceOptions]);
   const accountsLabel = selectedAccountIds.length === 0 ? "All" : `${selectedAccountIds.length} selected`;
 
   const handleDateBlur = () => {
@@ -968,6 +1592,30 @@ export default function AppDashboardClient() {
         </div>
       ) : null}
 
+      {historicalBackfill?.started ? (
+        <div
+          style={{
+            marginTop: 10,
+            padding: "10px 14px",
+            borderRadius: 10,
+            background: "rgba(234,179,8,0.12)",
+            border: "1px solid rgba(234,179,8,0.3)",
+            color: "rgba(255,235,180,0.95)",
+            fontSize: 13,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flexWrap: "wrap",
+          }}
+        >
+          <span style={{ fontWeight: 700 }}>Подгружаем исторические данные</span>
+          {historicalBackfill.intervals.length > 0 ? (
+            <span style={{ opacity: 0.9 }}>
+              {historicalBackfill.intervals.map((iv) => `${fmtRuDate(iv.start)} — ${fmtRuDate(iv.end)}`).join("; ")}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* KPI cards: Расход, Регистрации, Продажи, ROAS */}
       <div
@@ -989,149 +1637,315 @@ export default function AppDashboardClient() {
           <div style={{ fontSize: 36, fontWeight: 900, marginTop: 10 }}>
             {formatMoney(summary.spend)}
           </div>
-          <div style={{ opacity: 0.72, marginTop: 6 }}>CPL: — • CAC: —</div>
+          <div style={{ opacity: 0.72, marginTop: 6 }}>CPL: {cplLabel} • CAC: {cacLabel}</div>
         </div>
 
-        <div
-          style={{
-            ...mini,
-            ...card,
-            background: "rgba(255,255,255,0.02)",
-            borderColor: "rgba(255,255,255,0.06)",
-            opacity: 0.7,
-          }}
-        >
+        <div style={{ ...mini, ...card }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
             <div style={{ opacity: 0.6 }}>Регистрации</div>
+            <div style={tag(sourcesLabel)}>{sourcesLabel}</div>
           </div>
-          <div style={{ fontSize: 36, fontWeight: 900, marginTop: 10, opacity: 0.85 }}>—</div>
-          <div style={{ opacity: 0.6, marginTop: 6 }}>Конверсия лид → продажа: —</div>
+          <div style={{ fontSize: 36, fontWeight: 900, marginTop: 10, opacity: 0.95 }}>
+            {kpiSummary ? (kpiSummary.registrations || kpiSummary.registrations === 0 ? kpiSummary.registrations : "—") : "—"}
+          </div>
+          <div style={{ opacity: 0.6, marginTop: 6 }}>
+            {(() => {
+              if (!kpiSummary) return "Конверсия лид → продажа: —";
+              const { registrations, sales } = kpiSummary;
+              if (!registrations || registrations <= 0) return "Конверсия лид → продажа: —";
+              const cr = (sales / registrations) * 100;
+              return `Конверсия лид → продажа: ${cr.toFixed(1)}%`;
+            })()}
+          </div>
         </div>
 
-        <div
-          style={{
-            ...mini,
-            ...card,
-            background: "rgba(255,255,255,0.02)",
-            borderColor: "rgba(255,255,255,0.06)",
-            opacity: 0.7,
-          }}
-        >
+        <div style={{ ...mini, ...card }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
             <div style={{ opacity: 0.6 }}>Продажи</div>
+            <div style={tag(sourcesLabel)}>{sourcesLabel}</div>
           </div>
-          <div style={{ fontSize: 36, fontWeight: 900, marginTop: 10, opacity: 0.85 }}>—</div>
-          <div style={{ opacity: 0.6, marginTop: 6 }}>Выручка: —</div>
+          <div style={{ fontSize: 36, fontWeight: 900, marginTop: 10, opacity: 0.95 }}>
+            {kpiSummary ? (kpiSummary.sales || kpiSummary.sales === 0 ? kpiSummary.sales : "—") : "—"}
+          </div>
+          <div style={{ opacity: 0.6, marginTop: 6 }}>
+            {kpiSummary ? `Выручка: ${formatMoney(kpiSummary.revenue)}` : "Выручка: —"}
+          </div>
         </div>
 
-        <div
-          style={{
-            ...mini,
-            ...card,
-            background: "rgba(255,255,255,0.02)",
-            borderColor: "rgba(255,255,255,0.06)",
-            opacity: 0.7,
-          }}
-        >
+        <div style={{ ...mini, ...card }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
             <div style={{ opacity: 0.6 }}>ROAS</div>
+            <div style={tag(sourcesLabel)}>{sourcesLabel}</div>
           </div>
-          <div style={{ fontSize: 36, fontWeight: 900, marginTop: 10, opacity: 0.85 }}>—</div>
+          <div style={{ fontSize: 36, fontWeight: 900, marginTop: 10, opacity: 0.95 }}>
+            {(() => {
+              if (!kpiSummary) return "—";
+              const spend = summary.spend ?? 0;
+              const revenue = kpiSummary.revenue ?? 0;
+              if (!spend || spend <= 0) return "0.00";
+              const roas = revenue / spend;
+              return roas.toFixed(2);
+            })()}
+          </div>
           <div style={{ opacity: 0.6, marginTop: 6 }}>Выручка / расход</div>
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16 }}>
+      {/* ROW 2: Динамика расхода | Data Status (исходные пропорции: 2fr 1fr, gap 16) */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "2fr 1fr",
+          gap: 16,
+          marginBottom: 20,
+          alignItems: "stretch",
+        }}
+      >
         <div style={{ ...mini, ...card, padding: 20 }}>
           <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 10 }}>Динамика расхода</div>
-          <div style={{ opacity: 0.7, marginBottom: 14 }}>Spend (по выбранному диапазону)</div>
+          <div style={{ opacity: 0.7, marginBottom: 14 }}>Spend, Registrations, Sales (по выбранному диапазону)</div>
 
-          <SpendLineChart points={points} />
-
-          <div style={{ display: "flex", gap: 14, marginTop: 12, opacity: 0.85, fontSize: 13 }}>
-            <span>● Spend</span>
-          </div>
+          <MultiMetricLineChart points={chartPoints} />
         </div>
 
         <div style={{ ...mini, ...card, padding: 20 }}>
-          <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 12 }}>Data Status</div>
+          <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+            <span>Data Status</span>
+            <span
+              title={systemStatus.tooltip}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "4px 8px",
+                borderRadius: 6,
+                background: statusStyles[systemStatus.status].bg,
+                color: statusStyles[systemStatus.status].color,
+                fontWeight: 600,
+                fontSize: 12,
+              }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "currentColor", flexShrink: 0 }} />
+              <span>
+                {adPlatformsCount} / {totalPlatformsCount} healthy&nbsp;&nbsp;{systemStatus.label}
+              </span>
+            </span>
+          </div>
 
-          <div
-            style={{
-              display: "grid",
-              gap: 10,
-              fontSize: 13,
-              color: "rgba(255,255,255,0.9)",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-              <span style={{ opacity: 0.7 }}>Source scope</span>
-              <span>{sourcesLabel}</span>
+          <div style={{ fontSize: 13, color: "rgba(255,255,255,0.9)" }}>
+            {/* Integrations */}
+            <div
+              style={{
+                background: "rgba(255,255,255,0.02)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: 10,
+                padding: "12px 14px",
+                marginTop: 4,
+                marginBottom: 10,
+              }}
+            >
+              <div
+                style={{
+                  opacity: 0.7,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  marginBottom: 6,
+                }}
+              >
+                Integrations
+              </div>
+              {INTEGRATION_PLATFORMS.map((p) => {
+                const status = integrationStatusByPlatform.get(p.id) ?? "not_connected";
+                const dotColor = platformStatusColor[status];
+                const label = platformStatusLabel[status];
+                return (
+                  <div
+                    key={p.id}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 12,
+                      marginTop: 2,
+                    }}
+                  >
+                    <span style={{ opacity: 0.9 }}>{p.label}</span>
+                    <span
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        justifyContent: "flex-end",
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: "50%",
+                          background: dotColor,
+                          flexShrink: 0,
+                        }}
+                      />
+                      {label}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-              <span style={{ opacity: 0.7 }}>Account scope</span>
-              <span>
-                {selectedAccountIds.length === 0
-                  ? `All (${dashboardAccounts.length})`
-                  : `${selectedAccountIds.length} selected`}
-              </span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-              <span style={{ opacity: 0.7 }}>Connected accounts</span>
-              <span>{dashboardAccounts.length}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-              <span style={{ opacity: 0.7 }}>Date range</span>
-              <span>
-                {appliedDateFrom && appliedDateTo
-                  ? `${fmtRuDate(appliedDateFrom)} – ${fmtRuDate(appliedDateTo)}`
-                  : "—"}
-              </span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-              <span style={{ opacity: 0.7 }}>Last updated</span>
-              <span>{updatedStr}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-              <span style={{ opacity: 0.7 }}>Last OK</span>
-              <span>{lastOkStr}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-              <span style={{ opacity: 0.7 }}>Campaigns</span>
-              <span>
-                {lastDebug?.summary?.debug?.campaigns_cnt != null
-                  ? String(lastDebug.summary.debug.campaigns_cnt)
-                  : "—"}
-              </span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-              <span style={{ opacity: 0.7 }}>Account rows</span>
-              <span>
-                {lastDebug?.summary?.debug?.account_rows != null
-                  ? String(lastDebug.summary.debug.account_rows)
-                  : "—"}
-              </span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-              <span style={{ opacity: 0.7 }}>Campaign rows</span>
-              <span>
-                {lastDebug?.summary?.debug?.campaign_rows != null
-                  ? String(lastDebug.summary.debug.campaign_rows)
-                  : "—"}
-              </span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-              <span style={{ opacity: 0.7 }}>Mode</span>
-              <span>
-                {lastDebug?.summary?.source?.includes("canonical")
-                  ? "canonical"
-                  : lastDebug?.summary?.source
-                    ? "fallback"
+
+            {/* Data */}
+            <div
+              style={{
+                background: "rgba(255,255,255,0.02)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: 10,
+                padding: "12px 14px",
+                marginTop: 12,
+                marginBottom: 10,
+              }}
+            >
+              <div
+                style={{
+                  opacity: 0.7,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  marginBottom: 6,
+                }}
+              >
+                Data
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 2 }}>
+                <span style={{ opacity: 0.7 }}>Date range</span>
+                <span style={{ textAlign: "right" }}>
+                  {appliedDateFrom && appliedDateTo
+                    ? `${fmtRuDate(appliedDateFrom)} – ${fmtRuDate(appliedDateTo)}`
                     : "—"}
-              </span>
+                </span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 4 }}>
+                <span style={{ opacity: 0.7 }}>Last updated</span>
+                <span style={{ textAlign: "right" }}>{updatedStr}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 4 }}>
+                <span style={{ opacity: 0.7 }}>Last successful</span>
+                <span style={{ textAlign: "right" }}>{lastOkStr}</span>
+              </div>
+            </div>
+
+            {/* Accounts */}
+            <div
+              style={{
+                background: "rgba(255,255,255,0.02)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: 10,
+                padding: "12px 14px",
+                marginTop: 12,
+              }}
+            >
+              <div
+                style={{
+                  opacity: 0.7,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  marginBottom: 6,
+                }}
+              >
+                Accounts
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 2 }}>
+                <span style={{ opacity: 0.7 }}>Ad platforms</span>
+                <span style={{ textAlign: "right" }}>{adPlatformsCount}</span>
+              </div>
             </div>
           </div>
         </div>
+      </div>
+
+      {/* ROW 3: Помогающая атрибуция | Топ путей пользователей */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 20,
+          marginBottom: 20,
+          alignItems: "stretch",
+        }}
+      >
+        <AssistedAttributionCard
+          projectId={projectId || null}
+          days={
+            appliedDateFrom && appliedDateTo
+              ? Math.max(
+                  1,
+                  Math.ceil(
+                    (new Date(appliedDateTo).getTime() -
+                      new Date(appliedDateFrom).getTime()) /
+                      (24 * 60 * 60 * 1000)
+                  )
+                )
+              : 30
+          }
+        />
+        <AttributionFlowCard
+          projectId={projectId || null}
+          days={
+            appliedDateFrom && appliedDateTo
+              ? Math.max(
+                  1,
+                  Math.ceil(
+                    (new Date(appliedDateTo).getTime() -
+                      new Date(appliedDateFrom).getTime()) /
+                      (24 * 60 * 60 * 1000)
+                  )
+                )
+              : 30
+          }
+        />
+      </div>
+
+      {/* ROW 4: Карта выручки по атрибуции */}
+      <div style={{ marginBottom: 20 }}>
+        <RevenueAttributionMapCard
+          projectId={projectId || null}
+          days={
+            appliedDateFrom && appliedDateTo
+              ? Math.max(
+                  1,
+                  Math.ceil(
+                    (new Date(appliedDateTo).getTime() -
+                      new Date(appliedDateFrom).getTime()) /
+                      (24 * 60 * 60 * 1000)
+                  )
+                )
+              : 30
+          }
+        />
+      </div>
+
+      {/* ROW 5: Поведение конверсии */}
+      <div style={{ marginBottom: 20 }}>
+        <ConversionBehaviorCard
+          projectId={projectId || null}
+          days={
+            appliedDateFrom && appliedDateTo
+              ? Math.max(
+                  1,
+                  Math.ceil(
+                    (new Date(appliedDateTo).getTime() -
+                      new Date(appliedDateFrom).getTime()) /
+                      (24 * 60 * 60 * 1000)
+                  )
+                )
+              : 30
+          }
+        />
       </div>
 
       {/* ✅ Advanced кнопка в самый низ справа (sandbars) */}

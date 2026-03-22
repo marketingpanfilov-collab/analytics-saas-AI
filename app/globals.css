@@ -375,3 +375,53 @@ button:not([class]):hover {
     color: rgba(255, 255, 255, 0.55);
   }
 }
+
+/* ===== HELP TOOLTIP (LTV and others) ===== */
+.help-tooltip-trigger:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: rgba(255, 255, 255, 0.72) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
+.help-tooltip-content {
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.help-tooltip-content strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  margin-bottom: 6px;
+}
+.help-tooltip-content br + br {
+  content: "";
+  display: block;
+  margin-top: 6px;
+}
+.help-tooltip-content .help-formula {
+  display: block;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.66);
+  margin-top: 8px;
+}
+
+/* ===== LTV FILTER DROPDOWNS ===== */
+.filter-dropdown-wrap:hover .filter-dropdown-chevron {
+  opacity: 0.9;
+}
+
+/* ===== LTV REVENUE COMPOSITION SEGMENTS ===== */
+@keyframes revenue-segment-enter {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+.revenue-segment {
+  transform-origin: left;
+  animation: revenue-segment-enter 600ms ease-out forwards;
+}

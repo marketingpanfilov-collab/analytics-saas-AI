@@ -34,7 +34,7 @@
     return;
   }
 
-  var siteId = scriptUrl.searchParams.get("site_id");
+  var siteId = (script && script.getAttribute("data-project-id")) || scriptUrl.searchParams.get("site_id");
   if (!siteId) return;
 
   console.log("[as-tracker] tracker initialized", { site_id: siteId });
@@ -78,9 +78,44 @@
     visitorId = "v_" + Math.random().toString(36).slice(2) + "_" + Date.now().toString(36);
   }
 
+  try {
+    if (typeof window !== "undefined") window.boardiqVisitorId = visitorId;
+    try { localStorage.setItem("boardiq_visitor_id", visitorId); } catch (e) {}
+  } catch (e) {}
+
+  function getSessionId() {
+    try {
+      var key = "boardiq_session_id";
+      var s = sessionStorage.getItem(key);
+      if (!s) {
+        s = "s_" + Math.random().toString(36).slice(2) + "_" + Date.now().toString(36);
+        sessionStorage.setItem(key, s);
+      }
+      return s;
+    } catch (e) { return ""; }
+  }
+
+  function getFbCookie(name) {
+    try {
+      var match = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
+      return match ? decodeURIComponent(match[1]) : "";
+    } catch (e) { return ""; }
+  }
+
+  var sessionId = getSessionId();
+  var fbp = getFbCookie("_fbp");
+  var fbc = getFbCookie("_fbc");
+
+  var clickId = getQueryParam("bqcid") || "";
+  if (clickId) try { sessionStorage.setItem("boardiq_click_id", clickId); } catch (e) {}
+  if (!clickId) try { clickId = sessionStorage.getItem("boardiq_click_id") || ""; } catch (e) {}
+  var visitId = "bqvid_" + Math.random().toString(36).slice(2) + "_" + Date.now().toString(36);
+
   var payload = {
     visitor_id: visitorId,
     site_id: siteId,
+    session_id: sessionId,
+    page_url: window.location.href,
     landing_url: window.location.href,
     referrer: document.referrer || "",
     utm_source: getQueryParam("utm_source"),
@@ -88,11 +123,15 @@
     utm_campaign: getQueryParam("utm_campaign"),
     utm_content: getQueryParam("utm_content"),
     utm_term: getQueryParam("utm_term"),
-    gclid: getQueryParam("gclid"),
     fbclid: getQueryParam("fbclid"),
-    yclid: getQueryParam("yclid"),
+    gclid: getQueryParam("gclid"),
     ttclid: getQueryParam("ttclid"),
+    yclid: getQueryParam("yclid"),
+    fbp: fbp || undefined,
+    fbc: fbc || undefined,
     touch_type: firstVisit ? "first" : "last",
+    click_id: clickId || undefined,
+    visit_id: visitId,
   };
 
   console.log("[as-tracker] payload snapshot", payload);
@@ -114,6 +153,11 @@
   if (payload.fbclid) params.set("fbclid", payload.fbclid);
   if (payload.yclid) params.set("yclid", payload.yclid);
   if (payload.ttclid) params.set("ttclid", payload.ttclid);
+  if (payload.session_id) params.set("session_id", payload.session_id);
+  if (payload.fbp) params.set("fbp", payload.fbp);
+  if (payload.fbc) params.set("fbc", payload.fbc);
+  if (payload.click_id) params.set("click_id", payload.click_id);
+  params.set("visit_id", payload.visit_id);
 
   var pixelUrl = pixelEndpoint + "?" + params.toString();
   console.log("[as-tracker] pixel URL built", { url: pixelUrl.slice(0, 150) + (pixelUrl.length > 150 ? "..." : "") });
@@ -122,4 +166,16 @@
   img.src = pixelUrl;
 
   console.log("[as-tracker] pixel beacon sent");
+
+  if (typeof window !== "undefined") {
+    window.BoardIQ = {
+      getVisitorId: function() { return getOrCreateVisitorId(); },
+      getSessionId: function() { return getSessionId(); },
+      getClickId: function() {
+        var q = getQueryParam("bqcid");
+        if (q) return q;
+        try { return sessionStorage.getItem("boardiq_click_id") || ""; } catch (e) { return ""; }
+      },
+    };
+  }
 })();

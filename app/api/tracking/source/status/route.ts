@@ -2,10 +2,12 @@
  * GET /api/tracking/source/status?site_id=xxx
  *
  * Returns whether visit_source_events has received any events for this site.
- * Minimal query, always returns JSON, hardened for local dev stability.
+ * Requires authenticated user with access to the project (site_id = project_id).
  */
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { createServerSupabase } from "@/app/lib/supabaseServer";
+import { requireProjectAccess } from "@/app/lib/auth/requireProjectAccess";
 
 function safeJson(body: object, status = 200) {
   return NextResponse.json(body, { status });
@@ -16,6 +18,19 @@ export async function GET(req: Request) {
     const siteId = new URL(req.url).searchParams.get("site_id")?.trim();
     if (!siteId) {
       return safeJson({ success: false, error: "site_id required" }, 400);
+    }
+
+    const supabase = await createServerSupabase();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return safeJson({ success: false, error: "Unauthorized" }, 401);
+    }
+
+    const access = await requireProjectAccess(user.id, siteId);
+    if (!access) {
+      return safeJson({ success: false, error: "Project access denied" }, 403);
     }
 
     const admin = supabaseAdmin();

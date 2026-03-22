@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
 
 /**
  * GET /api/dashboard/accounts?project_id=...
@@ -14,38 +15,40 @@ export async function GET(req: Request) {
     return NextResponse.json({ success: false, error: "project_id required" }, { status: 400 });
   }
 
+  const access = await requireProjectAccessOrInternal(req, projectId);
+  if (!access.allowed) {
+    console.log("[ACCOUNTS_ACCESS_DENIED]", { projectId, status: access.status });
+    return NextResponse.json(access.body, { status: access.status });
+  }
+
   const admin = supabaseAdmin();
 
-  let integrationIds: string[] = [];
-
-  const { data: imRows } = await admin
-    .from("integrations_meta")
-    .select("integrations_id")
-    .eq("project_id", projectId);
-  const metaIds = (imRows ?? []).map((r: { integrations_id: string | null }) => r.integrations_id).filter(Boolean) as string[];
-
-  const { data: googleIntRows } = await admin
+  const { data: intRows } = await admin
     .from("integrations")
     .select("id")
     .eq("project_id", projectId)
-    .eq("platform", "google");
-  const googleIds = (googleIntRows ?? []).map((r: { id: string }) => r.id);
+    .in("platform", ["meta", "google", "tiktok"]);
 
-  integrationIds = [...new Set([...metaIds, ...googleIds])];
-
+  const integrationIds = (intRows ?? []).map((r: { id: string }) => r.id);
   if (!integrationIds.length) {
     return NextResponse.json({ success: true, accounts: [] });
   }
 
+  const partialErrors: { type: string; message: string }[] = [];
+
   const { data: adAccounts, error } = await admin
     .from("ad_accounts")
-    .select("id, account_name, external_account_id, provider")
+    .select("id, provider, external_account_id, account_name")
     .in("integration_id", integrationIds)
     .order("provider", { ascending: true })
     .order("account_name", { ascending: true });
 
   if (error) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    console.log("[DASHBOARD_ACCOUNTS_FETCH_ERROR]", {
+      projectId,
+      message: error.message,
+    });
+    partialErrors.push({ type: "ad_accounts_fetch_error", message: error.message });
   }
 
   const list = adAccounts ?? [];
@@ -121,7 +124,7 @@ export async function GET(req: Request) {
     }
   }
 
-  const accounts = list.map((a: { id: string; account_name: string | null; external_account_id: string; provider: string }) => {
+  const accounts = list.map((a: { id: string; external_account_id: string; provider: string; account_name: string | null }) => {
     const cov = coverageMap[a.id];
     const has_data = !!cov && cov.row_count > 0;
     const is_enabled =
@@ -131,7 +134,7 @@ export async function GET(req: Request) {
     const lastSync = lastSyncMap[a.id];
     return {
       id: a.id,
-      name: a.account_name ?? null,
+      name: a.account_name ?? a.external_account_id ?? "Account",
       platform_account_id: a.external_account_id,
       platform: a.provider,
       is_enabled,
@@ -144,5 +147,9 @@ export async function GET(req: Request) {
     };
   });
 
-  return NextResponse.json({ success: true, accounts });
+  return NextResponse.json({
+    success: true,
+    accounts,
+    ...(partialErrors.length > 0 && { partial_errors: partialErrors }),
+  });
 }

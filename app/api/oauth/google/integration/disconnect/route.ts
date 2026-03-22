@@ -26,11 +26,19 @@ export async function POST(req: Request) {
       ? ((body as Record<string, unknown>).project_id as string).trim()
       : "";
 
+  console.log("[GOOGLE_DISCONNECT_ENTER]", { projectId });
+
   if (!projectId) {
     return NextResponse.json({ success: false, error: "project_id required" }, { status: 400 });
   }
 
   const admin = supabaseAdmin();
+
+  const logStep = (step: string, extra?: Record<string, unknown>) => {
+    console.log("[GOOGLE_DISCONNECT_STEP]", { step, ...(extra || {}) });
+  };
+
+  logStep("resolve_integration_start", { projectId });
 
   const { data: integration, error: intErr } = await admin
     .from("integrations")
@@ -40,36 +48,86 @@ export async function POST(req: Request) {
     .maybeSingle();
 
   if (intErr) {
+    console.error("[GOOGLE_DISCONNECT_DB_ERROR]", {
+      step: "resolve_integration",
+      message: intErr.message,
+      details: (intErr as any).details ?? null,
+      hint: (intErr as any).hint ?? null,
+    });
     return NextResponse.json(
-      { success: false, error: intErr.message ?? "Failed to resolve Google integration" },
+      {
+        success: false,
+        step: "resolve_integration",
+        error: intErr.message ?? "Failed to resolve Google integration",
+      },
       { status: 500 }
     );
   }
 
   if (!integration?.id) {
+    logStep("already_disconnected", { projectId });
     return NextResponse.json({ success: true, disconnected: true, message: "Already disconnected" });
   }
 
   const integrationId = integration.id as string;
 
-  const { data: googleAdAccounts } = await admin
+  console.log("[GOOGLE_DISCONNECT_BEFORE_DB]", { projectId, integrationId });
+  logStep("before_db", { projectId, integrationId });
+
+  logStep("select_ad_accounts", { projectId, integrationId });
+
+  const { data: googleAdAccounts, error: adAccountsSelectErr } = await admin
     .from("ad_accounts")
     .select("id")
     .eq("integration_id", integrationId);
+  if (adAccountsSelectErr) {
+    console.error("[GOOGLE_DISCONNECT_DB_ERROR]", {
+      step: "select_ad_accounts",
+      message: adAccountsSelectErr.message,
+      details: (adAccountsSelectErr as any).details ?? null,
+      hint: (adAccountsSelectErr as any).hint ?? null,
+    });
+    return NextResponse.json(
+      {
+        success: false,
+        step: "select_ad_accounts",
+        error: adAccountsSelectErr.message ?? "Failed to load Google ad_accounts",
+      },
+      { status: 500 }
+    );
+  }
   const adAccountIds = (googleAdAccounts ?? []).map((r: { id: string }) => r.id);
 
   if (adAccountIds.length > 0) {
+    logStep("delete_ad_account_settings", {
+      projectId,
+      integrationId,
+      adAccountIdsCount: adAccountIds.length,
+    });
+
     const { error: settingsErr } = await admin
       .from("ad_account_settings")
       .delete()
       .in("ad_account_id", adAccountIds);
     if (settingsErr) {
+      console.error("[GOOGLE_DISCONNECT_DB_ERROR]", {
+        step: "delete_ad_account_settings",
+        message: settingsErr.message,
+        details: (settingsErr as any).details ?? null,
+        hint: (settingsErr as any).hint ?? null,
+      });
       return NextResponse.json(
-        { success: false, error: settingsErr.message ?? "Failed to delete ad_account_settings" },
+        {
+          success: false,
+          step: "delete_ad_account_settings",
+          error: settingsErr.message ?? "Failed to delete ad_account_settings",
+        },
         { status: 500 }
       );
     }
   }
+
+  logStep("delete_integration_entities", { projectId, integrationId });
 
   const { error: entitiesErr } = await admin
     .from("integration_entities")
@@ -77,33 +135,47 @@ export async function POST(req: Request) {
     .eq("integration_id", integrationId)
     .eq("platform", "google");
   if (entitiesErr) {
+    console.error("[GOOGLE_DISCONNECT_DB_ERROR]", {
+      step: "delete_integration_entities",
+      message: entitiesErr.message,
+      details: (entitiesErr as any).details ?? null,
+      hint: (entitiesErr as any).hint ?? null,
+    });
     return NextResponse.json(
-      { success: false, error: entitiesErr.message ?? "Failed to delete integration_entities" },
+      {
+        success: false,
+        step: "delete_integration_entities",
+        error: entitiesErr.message ?? "Failed to delete integration_entities",
+      },
       { status: 500 }
     );
   }
 
-  const { error: adAccErr } = await admin
-    .from("ad_accounts")
-    .delete()
-    .eq("integration_id", integrationId);
-  if (adAccErr) {
-    return NextResponse.json(
-      { success: false, error: adAccErr.message ?? "Failed to delete ad_accounts" },
-      { status: 500 }
-    );
-  }
+  logStep("delete_integrations_auth", { projectId, integrationId });
 
   const { error: authErr } = await admin
     .from("integrations_auth")
     .delete()
     .eq("integration_id", integrationId);
   if (authErr) {
+    console.error("[GOOGLE_DISCONNECT_DB_ERROR]", {
+      step: "delete_integrations_auth",
+      message: authErr.message,
+      details: (authErr as any).details ?? null,
+      hint: (authErr as any).hint ?? null,
+    });
     return NextResponse.json(
-      { success: false, error: authErr.message ?? "Failed to delete integrations_auth" },
+      {
+        success: false,
+        step: "delete_integrations_auth",
+        error: authErr.message ?? "Failed to delete integrations_auth",
+      },
       { status: 500 }
     );
   }
+
+  console.log("[GOOGLE_DISCONNECT_AFTER_DB]", { projectId, integrationId });
+  logStep("after_db", { projectId, integrationId });
 
   return NextResponse.json({
     success: true,

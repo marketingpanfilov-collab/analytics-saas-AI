@@ -19,8 +19,12 @@ export type CurrentUserContext = {
   user: { id: string; email?: string } | null;
   memberships: Membership[];
   projects: Project[];
+  archivedProjects: Project[];
   activeProject: Project | null;
   roleMap: Record<string, string>;
+  organizationName: string | null;
+  organizationId: string | null;
+  canTransferOwnership: boolean;
 };
 
 /**
@@ -35,8 +39,12 @@ export async function getCurrentUserContext(): Promise<CurrentUserContext> {
     user: null,
     memberships: [],
     projects: [],
+    archivedProjects: [],
     activeProject: null,
     roleMap: {},
+    organizationName: null,
+    organizationId: null,
+    canTransferOwnership: false,
   };
 
   if (!user) {
@@ -65,25 +73,49 @@ export async function getCurrentUserContext(): Promise<CurrentUserContext> {
       user: { id: user.id, email: user.email ?? undefined },
       memberships: [],
       projects: [],
+      archivedProjects: [],
       activeProject: null,
       roleMap: {},
+      organizationName: null,
+      organizationId: null,
+      canTransferOwnership: false,
     };
   }
 
   const orgRole = memberships[0]!.role;
+  const orgId = memberships[0]!.organization_id;
   let projects: Project[] = [];
+  let archivedProjects: Project[] = [];
   const roleMap: Record<string, string> = {};
+  let organizationName: string | null = null;
+  const canTransferOwnership = memberships.some((m) => m.role === "owner");
+
+  const { data: orgRow } = await supabase
+    .from("organizations")
+    .select("name")
+    .eq("id", orgId)
+    .maybeSingle();
+  if (orgRow?.name) organizationName = orgRow.name;
 
   if (ORG_ROLES_ALL_PROJECTS.includes(orgRole)) {
-    const orgId = memberships[0]!.organization_id;
     console.log("[getCurrentUserContext] orgRole is owner/admin, querying projects for organization_id:", orgId);
     const { data: projs, error: projsError } = await supabase
       .from("projects")
       .select("id, name, organization_id")
-      .eq("organization_id", orgId);
+      .eq("organization_id", orgId)
+      .eq("archived", false);
     console.log("[getCurrentUserContext] projs:", JSON.stringify(projs), "error:", projsError?.message ?? null);
     projects = (projs ?? []) as Project[];
     projects.forEach((p) => {
+      roleMap[p.id] = orgRole;
+    });
+    const { data: archived } = await supabase
+      .from("projects")
+      .select("id, name, organization_id")
+      .eq("organization_id", orgId)
+      .eq("archived", true);
+    archivedProjects = (archived ?? []) as Project[];
+    archivedProjects.forEach((p) => {
       roleMap[p.id] = orgRole;
     });
   } else {
@@ -100,7 +132,8 @@ export async function getCurrentUserContext(): Promise<CurrentUserContext> {
     const { data: projs } = await supabase
       .from("projects")
       .select("id, name, organization_id")
-      .in("id", projectIds);
+      .in("id", projectIds)
+      .eq("archived", false);
     console.log("[getCurrentUserContext] project_members branch: projectIds:", projectIds, "projs:", JSON.stringify(projs));
     const projMap = new Map(((projs ?? []) as Project[]).map((p) => [p.id, p]));
     projects = projectIds.map((id) => projMap.get(id)).filter(Boolean) as Project[];
@@ -117,7 +150,11 @@ export async function getCurrentUserContext(): Promise<CurrentUserContext> {
     user: { id: user.id, email: user.email ?? undefined },
     memberships,
     projects,
+    archivedProjects,
     activeProject,
     roleMap,
+    organizationName,
+    organizationId: memberships.length > 0 ? memberships[0]!.organization_id : null,
+    canTransferOwnership,
   };
 }

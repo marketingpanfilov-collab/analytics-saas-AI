@@ -8,6 +8,7 @@ import {
   dashboardCacheSet,
   DASHBOARD_CACHE_TTL,
 } from "@/app/lib/dashboardCache";
+import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
 
 function toISODate(s: string | null) {
   if (!s) return null;
@@ -40,9 +41,48 @@ export async function GET(req: Request) {
     );
   }
 
-  console.log("[ROUTE_BACKFILL_ENTER]", { projectId, start, end });
+  // If only class sources (direct / organic / referral) are selected, there is no paid spend.
+  // In that case we should return zero spend instead of "all" spend.
+  const PLATFORM_SOURCES = ["meta", "google", "tiktok", "yandex"];
+  const hasSources = sources && sources.length > 0;
+  const hasAnyPlatformSource =
+    hasSources && sources!.some((s) => PLATFORM_SOURCES.includes(s.toLowerCase()));
+  if (hasSources && !hasAnyPlatformSource) {
+    const body = {
+      success: true,
+      source: "daily_ad_metrics (canonical)",
+      updated_at: null,
+      totals: {
+        spend: 0,
+        impressions: 0,
+        clicks: 0,
+      },
+      debug: {
+        min_day: null,
+        max_day: null,
+        campaigns_cnt: null,
+        ad_account_id: null,
+        account_rows: 0,
+        campaign_rows: 0,
+      },
+    };
+    console.log("[SUMMARY_RETURN_CLASS_ONLY]", {
+      sources,
+      totals: body.totals,
+    });
+    return NextResponse.json(body);
+  }
+
+  const access = await requireProjectAccessOrInternal(req, projectId);
+  if (!access.allowed) {
+    console.log("[SUMMARY_ACCESS_DENIED]", { projectId, status: access.status });
+    return NextResponse.json(access.body, { status: access.status });
+  }
+
+  console.log("[ROUTE_BACKFILL_ENTER]", { projectId, start, end, access_source: access.source });
   const admin = supabaseAdmin();
-  const didSync = await ensureBackfill(admin, projectId, start, end, req.url);
+  const backfillResult = await ensureBackfill(admin, projectId, start, end, req.url);
+  const didSync = backfillResult.triggered;
 
   const cacheKey = dashboardCacheKey("summary", projectId, start!, end!, sourcesKey, accountIdsKey);
   // Use cache only when we have a canonical response with non-zero data (avoid stale/zero cache)
@@ -62,7 +102,7 @@ export async function GET(req: Request) {
 
   const canonical = await getCanonicalSummary(admin, projectId, start, end, { sources, accountIds });
   const d = canonical?.data;
-  const body = {
+  const body: Record<string, unknown> = {
     success: true,
     source: "daily_ad_metrics (canonical)",
     updated_at: null,
@@ -80,7 +120,19 @@ export async function GET(req: Request) {
       campaign_rows: canonical?.rowCount ?? 0,
     },
   };
-  dashboardCacheSet(cacheKey, body, DASHBOARD_CACHE_TTL.summary);
-  console.log("[SUMMARY_RETURN]", { branch: "canonical", totals: body.totals, spend: body.totals.spend, impressions: body.totals.impressions, clicks: body.totals.clicks });
+  if (backfillResult.triggered && backfillResult.reason === "historical") {
+    body.backfill = {
+      range_partially_covered: true,
+      historical_sync_started: true,
+      intervals: backfillResult.historicalSyncIntervals,
+    };
+  }
+  const isHistoricalPartial =
+    body.backfill && (body.backfill as { historical_sync_started?: boolean; range_partially_covered?: boolean }).historical_sync_started;
+  if (!isHistoricalPartial) {
+    dashboardCacheSet(cacheKey, body, DASHBOARD_CACHE_TTL.summary);
+  }
+  const totals = body.totals as { spend: number; impressions: number; clicks: number };
+  console.log("[SUMMARY_RETURN]", { branch: "canonical", totals, spend: totals.spend, impressions: totals.impressions, clicks: totals.clicks });
   return NextResponse.json(body);
 }

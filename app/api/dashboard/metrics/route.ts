@@ -8,6 +8,7 @@ import {
   dashboardCacheSet,
   DASHBOARD_CACHE_TTL,
 } from "@/app/lib/dashboardCache";
+import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
 
 function toISODate(s: string | null) {
   if (!s) return null;
@@ -37,14 +38,26 @@ export async function GET(req: Request) {
   const sourcesKey = sources?.length ? [...sources].sort().join(",") : "all";
   const accountIdsKey = accountIds?.length ? [...accountIds].sort().join(",") : "all";
 
+  if (!projectId) {
+    return NextResponse.json(
+      { success: false, error: "project_id обязателен" },
+      { status: 400 }
+    );
+  }
+
+  const access = await requireProjectAccessOrInternal(req, projectId);
+  if (!access.allowed) {
+    console.log("[METRICS_ACCESS_DENIED]", { projectId, status: access.status });
+    return NextResponse.json(access.body, { status: access.status });
+  }
+
   const range = start && end ? { start, end } : defaultDateRange();
   const admin = supabaseAdmin();
 
   let didSync = false;
-  if (projectId) {
-    console.log("[ROUTE_BACKFILL_ENTER]", { projectId, start: range.start, end: range.end });
-    didSync = await ensureBackfill(admin, projectId, range.start, range.end, req.url);
-  }
+  console.log("[ROUTE_BACKFILL_ENTER]", { projectId, start: range.start, end: range.end, access_source: access.source });
+  const backfillResult = await ensureBackfill(admin, projectId, range.start, range.end, req.url);
+  didSync = backfillResult.triggered;
 
   const cacheKey = dashboardCacheKey(
     "metrics",
@@ -57,33 +70,19 @@ export async function GET(req: Request) {
   if (!didSync) {
     const cached = dashboardCacheGet(cacheKey);
     if (cached != null) {
-      console.log("[METRICS_RESPONSE_RAW]", { from: "cache", rowCount: Array.isArray(cached) ? cached.length : 0 });
+      console.log("[METRICS_RESPONSE_RAW]", { branch: "cache", rowCount: Array.isArray(cached) ? cached.length : 0 });
       return NextResponse.json(cached);
     }
   }
 
-  // Canonical: when project_id provided
-  if (projectId) {
-    const canonical = await getCanonicalMetrics(admin, projectId, range.start, range.end, { sources, accountIds });
-    if (canonical && canonical.length > 0) {
-      dashboardCacheSet(cacheKey, canonical, DASHBOARD_CACHE_TTL.metrics);
-      console.log("[METRICS_RESPONSE_RAW]", { from: "canonical", rowCount: canonical.length });
-      return NextResponse.json(canonical);
-    }
+  const canonical = await getCanonicalMetrics(admin, projectId, range.start, range.end, { sources, accountIds });
+  if (canonical && canonical.length > 0) {
+    dashboardCacheSet(cacheKey, canonical, DASHBOARD_CACHE_TTL.metrics);
+    console.log("[METRICS_RESPONSE_RAW]", { branch: "canonical", rowCount: canonical.length });
+    return NextResponse.json(canonical);
   }
 
-  // Legacy: dashboard_meta_metrics table (no project filter)
-  const { data, error } = await admin
-    .from("dashboard_meta_metrics")
-    .select("*")
-    .order("day", { ascending: true });
-
-  if (error) {
-    return NextResponse.json({ error }, { status: 500 });
-  }
-
-  const result = data ?? [];
-  dashboardCacheSet(cacheKey, result, DASHBOARD_CACHE_TTL.metrics);
-  console.log("[METRICS_RESPONSE_RAW]", { from: "legacy", rowCount: result.length });
-  return NextResponse.json(result);
+  // No legacy fallback: dashboard_meta_metrics has no project filter and could leak data. Return empty.
+  console.log("[METRICS_RESPONSE_RAW]", { branch: "canonical", fallback_reason: "no_canonical_rows", rowCount: 0 });
+  return NextResponse.json([]);
 }

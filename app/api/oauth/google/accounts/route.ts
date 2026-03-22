@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { getValidGoogleAccessToken } from "@/app/lib/googleAdsAuth";
 
 const LIST_ACCESSIBLE_CUSTOMERS_URL =
   "https://googleads.googleapis.com/v20/customers:listAccessibleCustomers";
@@ -173,20 +174,16 @@ export async function POST(req: Request) {
     );
   }
 
-  const { data: auth, error: authErr } = await admin
-    .from("integrations_auth")
-    .select("access_token")
-    .eq("integration_id", integration.id)
-    .maybeSingle();
+  const token = await getValidGoogleAccessToken(admin, integration.id);
 
-  if (authErr || !auth?.access_token) {
+  if (!token) {
     return NextResponse.json(
-      { success: false, error: "Google auth token not found; reconnect Google OAuth" },
+      { success: false, error: "Google auth token not found or expired; reconnect Google OAuth" },
       { status: 401 }
     );
   }
 
-  const accessToken = auth.access_token;
+  const accessToken = token.access_token;
 
   const listRes = await fetch(LIST_ACCESSIBLE_CUSTOMERS_URL, {
     method: "GET",

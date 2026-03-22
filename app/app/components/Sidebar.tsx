@@ -643,14 +643,17 @@ export default function Sidebar() {
     }
     const today = todayYmd();
     try {
-      const res = await fetch(
-        `/api/dashboard/timeseries?project_id=${encodeURIComponent(projectId)}&start=${today}&end=${today}`,
-        { cache: "no-store" }
-      );
-      const json = (await res.json()) as { success?: boolean; points?: { sales?: number }[] };
-      if (json?.success && Array.isArray(json.points)) {
-        const total = json.points.reduce((s, p) => s + (Number(p.sales ?? 0) || 0), 0);
-        setFactSalesToday(total);
+      const params = new URLSearchParams({
+        project_id: projectId,
+        event_name: "purchase",
+        date: today,
+        page: "1",
+        page_size: "1",
+      });
+      const res = await fetch(`/api/conversion-events?${params.toString()}`, { cache: "no-store" });
+      const json = (await res.json()) as { success?: boolean; total?: number };
+      if (json?.success && typeof json.total === "number") {
+        setFactSalesToday(json.total);
       } else {
         setFactSalesToday(null);
       }
@@ -742,18 +745,23 @@ export default function Sidebar() {
   const visibleTop = metrics.filter((m) => m.key === "sales");
   const hidden = metrics.filter((m) => m.key !== "sales");
 
+  const sidebarBackground =
+    "radial-gradient(800px 260px at 30% 0%, rgba(120,120,255,0.16), transparent 60%), linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01))";
+
   return (
-    <aside
+    <div
       style={{
-        padding: 16,
-        borderRight: "1px solid rgba(255,255,255,0.08)",
-        background:
-          "radial-gradient(800px 260px at 30% 0%, rgba(120,120,255,0.16), transparent 60%), linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01))",
+        display: "flex",
+        flexDirection: "column",
+        minHeight: "100vh",
         minWidth: 260,
         width: 260,
         maxWidth: 260,
+        borderRight: "1px solid rgba(255,255,255,0.08)",
+        background: sidebarBackground,
       }}
     >
+      <aside style={{ padding: 16, flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
       {/* Project switcher */}
       <div ref={switcherRef} style={{ position: "relative", marginBottom: 12 }}>
         <button
@@ -1178,8 +1186,8 @@ export default function Sidebar() {
                   </span>
                 </div>
               </div>
-            </div>
-          ) : (
+        </div>
+      ) : (
             <div style={{ opacity: 0.55, fontSize: 12 }}>Показать ROAS / CAC / CPR</div>
           )}
         </div>
@@ -1228,8 +1236,16 @@ export default function Sidebar() {
           👥 Организация
         </Link>
 
-        <Link href={withProjectId("/app/sales-data")} style={itemStyle(pathname.startsWith("/app/sales-data"))}>
-          🧾 Sales Data
+        <Link href={withProjectId("/app/conversion-data")} style={itemStyle(pathname.startsWith("/app/conversion-data"))}>
+          🧾 Conversion Data
+        </Link>
+
+        <Link href={withProjectId("/app/attribution-debugger")} style={itemStyle(pathname.startsWith("/app/attribution-debugger"))}>
+          🔍 Проверка атрибуции
+        </Link>
+
+        <Link href={withProjectId("/app/weekly-report")} style={itemStyle(pathname.startsWith("/app/weekly-report"))}>
+          📊 Weekly Board Report
         </Link>
 
         <Link href={withProjectId("/app/api")} style={itemStyle(pathname.startsWith("/app/api"))}>
@@ -1245,7 +1261,7 @@ export default function Sidebar() {
         </Link>
       </div>
 
-      <div style={{ marginTop: 18, opacity: 0.6, fontSize: 12 }}>v0.1 — локальная версия</div>
+      <div style={{ marginTop: "auto", fontSize: 12, color: "rgba(255,255,255,0.45)" }}>v1.0 beta</div>
 
       {projectId ? (
         <SalesPlanModal
@@ -1261,6 +1277,7 @@ export default function Sidebar() {
           usdToKztRate={usdToKztRate}
         />
       ) : null}
-    </aside>
+      </aside>
+    </div>
   );
 }

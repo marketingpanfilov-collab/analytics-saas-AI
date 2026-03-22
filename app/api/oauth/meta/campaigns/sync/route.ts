@@ -77,16 +77,27 @@ export async function GET(req: Request) {
   const list = Array.isArray(json?.data) ? json.data : [];
 
   // 3) готовим rows под campaigns: ad_account_id = external (act_*), platform = meta
-  const rows = list.map((c: any) => ({
-    project_id: projectId,
-    meta_campaign_id: String(c.id),
-    name: c.name ?? null,
-    status: c.status ?? null,
-    objective: c.objective ?? null,
-    ad_account_id: adAccountId,
-    platform: "meta" as const,
-    ...(adAccountsId && { ad_accounts_id: adAccountsId }),
-  }));
+  const rows = list
+    .map((c: any) => ({
+      project_id: projectId,
+      meta_campaign_id: String(c.id),
+      name: c.name ?? null,
+      status: c.status ?? null,
+      objective: c.objective ?? null,
+      ad_account_id: adAccountId,
+      platform: "meta" as const,
+      ...(adAccountsId && { ad_accounts_id: adAccountsId }),
+    }))
+    .filter((row) => {
+      if (!row.ad_accounts_id) {
+        console.warn("[CAMPAIGN_SKIP_NO_AD_ACCOUNT]", {
+          campaignId: row.meta_campaign_id,
+          platform: "meta",
+        });
+        return false;
+      }
+      return true;
+    });
 
   // 4) UPSERT в campaigns (dual-write: legacy + canonical link)
   const { error: upErr } = await admin

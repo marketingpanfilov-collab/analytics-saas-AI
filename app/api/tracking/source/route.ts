@@ -5,8 +5,10 @@
  * CORS enabled for cross-origin tracker requests.
  */
 import { NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { classifySource } from "@/app/lib/sourceClassification";
+import { detectTrafficSource } from "@/app/lib/trafficSourceDetection";
 
 function safeStr(v: unknown, maxLen = 2048): string | null {
   if (v == null || v === "") return null;
@@ -51,6 +53,14 @@ export async function POST(req: Request) {
     const yclid = safeStr(body.yclid, 256);
     const ttclid = safeStr(body.ttclid, 256);
     const touchType = (safeStr(body.touch_type, 16) ?? "last") === "first" ? "first" : "last";
+    const sessionId = safeStr(body.session_id, 256);
+    const fbp = safeStr(body.fbp, 512);
+    const fbc = safeStr(body.fbc, 512);
+    const clickId = safeStr(body.click_id, 512);
+    const visitIdParam = safeStr(body.visit_id, 256);
+    const visitId = visitIdParam || randomUUID();
+    const campaignIntentRaw = safeStr(body.campaign_intent, 32);
+    const campaign_intent = campaignIntentRaw === "retention" ? "retention" : null;
 
     const sourceClassification = classifySource({
       referrer,
@@ -61,6 +71,15 @@ export async function POST(req: Request) {
       fbclid,
       yclid,
       ttclid,
+    });
+
+    const { traffic_source: trafficSource, traffic_platform: trafficPlatform } = detectTrafficSource({
+      fbclid,
+      gclid,
+      ttclid,
+      yclid,
+      utm_source: utmSource,
+      referrer,
     });
 
     const admin = supabaseAdmin();
@@ -78,8 +97,16 @@ export async function POST(req: Request) {
       fbclid,
       yclid,
       ttclid,
+      session_id: sessionId,
+      fbp,
+      fbc,
+      click_id: clickId,
+      visit_id: visitId,
       source_classification: sourceClassification,
       touch_type: touchType,
+      traffic_source: trafficSource,
+      traffic_platform: trafficPlatform,
+      campaign_intent: campaign_intent ?? null,
     });
 
     if (error) {

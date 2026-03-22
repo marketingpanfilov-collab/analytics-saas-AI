@@ -20,9 +20,14 @@ export default async function ProjectsPage() {
   return (
     <ProjectsListClient
       projects={context.projects}
+      archivedProjects={context.archivedProjects}
       activeProjectId={context.activeProject?.id ?? null}
       roleMap={context.roleMap}
       canCreate={canCreate}
+      currentUserId={context.user?.id ?? null}
+      canTransferOwnership={context.canTransferOwnership}
+      organizationId={context.organizationId}
+      organizationName={context.organizationName}
     />
   );
 }

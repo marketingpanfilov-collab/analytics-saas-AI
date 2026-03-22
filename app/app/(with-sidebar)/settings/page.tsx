@@ -1,14 +1,14 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 
 const CURRENCY_OPTIONS = [
   { value: "USD", label: "USD ($)" },
   { value: "KZT", label: "KZT (₸)" },
 ];
 
-export default function SettingsPage() {
+function SettingsPageContent() {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project_id")?.trim() ?? "";
 
@@ -206,5 +206,13 @@ export default function SettingsPage() {
         )}
       </section>
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: 24 }}>Загрузка…</div>}>
+      <SettingsPageContent />
+    </Suspense>
   );
 }

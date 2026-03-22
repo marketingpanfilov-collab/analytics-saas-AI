@@ -3,7 +3,10 @@
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
-import DataHealthMini from "./DataHealthMini";
+import DataHealthMini, {
+  type DataHealthIssue,
+  type DataHealthRecommendation,
+} from "./DataHealthMini";
 
 type ProjectItem = { id: string; name: string | null; organization_id: string | null };
 
@@ -16,7 +19,7 @@ function sectionLabel(pathname: string): string {
   if (pathname.startsWith("/app/accounts")) return "Аккаунты";
   if (pathname.startsWith("/app/project-members")) return "Участники";
   if (pathname.startsWith("/app/org-members")) return "Организация";
-  if (pathname.startsWith("/app/sales-data")) return "Sales Data";
+  if (pathname.startsWith("/app/conversion-data") || pathname.startsWith("/app/sales-data")) return "Conversion Data";
   if (pathname.startsWith("/app/api")) return "API";
   if (pathname.startsWith("/app/settings")) return "Настройки";
   if (pathname.startsWith("/app/support")) return "Поддержка";
@@ -101,7 +104,21 @@ export default function Topbar({ email }: { email?: string }) {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project_id")?.trim() ?? null;
 
-  const [dataHealth, setDataHealth] = useState<number>(35);
+  type DataQualityPayload = {
+    has_data: boolean;
+    score: number | null;
+    label: string;
+    breakdown: {
+      click_capture_quality: number;
+      visit_attribution_quality: number;
+      conversion_attribution_quality: number;
+      purchase_completeness: number;
+      registration_completeness: number;
+    } | null;
+    issues: DataHealthIssue[];
+    recommendations: DataHealthRecommendation[];
+  };
+  const [dataQuality, setDataQuality] = useState<DataQualityPayload | null>(null);
   const [projects, setProjects] = useState<ProjectItem[]>([]);
 
   const section = useMemo(() => sectionLabel(pathname ?? ""), [pathname]);
@@ -162,17 +179,56 @@ export default function Topbar({ email }: { email?: string }) {
   const unreadCount = useMemo(() => notices.filter((n) => n.unread).length, [notices]);
 
   useEffect(() => {
-    async function loadHealth() {
+    async function loadDataQuality() {
+      if (!projectId) {
+        setDataQuality(null);
+        return;
+      }
       try {
-        const r = await fetch("/api/health", { cache: "no-store" });
-        const j = await r.json();
-        setDataHealth(Number(j?.score ?? 35));
+        const r = await fetch(`/api/data-quality?project_id=${encodeURIComponent(projectId)}&days=30`, {
+          cache: "no-store",
+        });
+        const j = (await r.json()) as {
+          success?: boolean;
+          has_data?: boolean;
+          score?: number | null;
+          label?: string;
+          breakdown?: DataQualityPayload["breakdown"];
+          issues?: DataQualityPayload["issues"];
+          recommendations?: DataQualityPayload["recommendations"];
+        };
+        if (j?.success && j?.has_data !== undefined) {
+          setDataQuality({
+            has_data: j.has_data,
+            score: j.score ?? null,
+            label: j.label ?? "No data",
+            breakdown: j.breakdown ?? null,
+            issues: Array.isArray(j.issues) ? j.issues : [],
+            recommendations: Array.isArray(j.recommendations) ? j.recommendations : [],
+          });
+        } else {
+          setDataQuality({
+            has_data: false,
+            score: null,
+            label: "No data",
+            breakdown: null,
+            issues: [],
+            recommendations: [],
+          });
+        }
       } catch {
-        setDataHealth(35);
+        setDataQuality({
+          has_data: false,
+          score: null,
+          label: "No data",
+          breakdown: null,
+          issues: [],
+          recommendations: [],
+        });
       }
     }
-    loadHealth();
-  }, []);
+    loadDataQuality();
+  }, [projectId]);
 
   // ✅ Закрытие попапа по клику вне
   useEffect(() => {
@@ -255,7 +311,7 @@ export default function Topbar({ email }: { email?: string }) {
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-        <DataHealthMini value={dataHealth} />
+        <DataHealthMini projectId={projectId} initialData={dataQuality} />
 
         {/* Notifications */}
         <div ref={popoverRef} style={{ position: "relative" }}>

@@ -1,6 +1,12 @@
 // app/api/oauth/meta/insights/sync/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { withSyncLock } from "@/app/lib/syncLock";
+import { datesInRange } from "@/app/lib/dashboardBackfill";
+import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { startSyncRun, finishSyncRunSuccess, finishSyncRunError } from "@/app/lib/syncRuns";
+import { runPostSyncInvariantChecks } from "@/app/lib/postSyncInvariantChecks";
+import { getMetaIntegrationForProject } from "@/app/lib/metaIntegration";
 
 async function fbGetJson(url: string) {
   const r = await fetch(url, { method: "GET" });
@@ -112,29 +118,6 @@ function chunk<T>(arr: T[], size: number) {
   return out;
 }
 
-/** Update a sync_runs row (on success or error). */
-async function updateSyncRun(
-  admin: ReturnType<typeof supabaseAdmin>,
-  runId: string | null,
-  updates: {
-    status: "ok" | "error";
-    rows_written?: number;
-    error_message?: string | null;
-    meta?: Record<string, unknown> | null;
-  }
-) {
-  if (!runId) return;
-  const finishedAt = new Date().toISOString();
-  const row: Record<string, unknown> = {
-    status: updates.status,
-    finished_at: finishedAt,
-  };
-  if (updates.rows_written != null) row.rows_written = updates.rows_written;
-  if (updates.error_message != null) row.error_message = updates.error_message;
-  if (updates.meta != null) row.meta = updates.meta;
-  await admin.from("sync_runs").update(row).eq("id", runId);
-}
-
 /** Update sync_runs to error and return the JSON response. */
 async function syncRunErrorAndReturn(
   admin: ReturnType<typeof supabaseAdmin>,
@@ -144,7 +127,7 @@ async function syncRunErrorAndReturn(
   body: object,
   status: number
 ) {
-  await updateSyncRun(admin, runId, { status: "error", error_message: errorMessage, meta });
+  await finishSyncRunError(admin, runId, errorMessage, meta);
   return NextResponse.json(body, { status: status as 400 | 404 | 500 });
 }
 
@@ -158,6 +141,7 @@ export async function GET(req: Request) {
   const dateStopParam = searchParams.get("date_stop");
 
   if (!projectIdRaw || !adAccountIdRaw) {
+    console.log("[META_SYNC_400_MISSING_PARAMS]", { project_id: projectIdRaw || null, ad_account_id: adAccountIdRaw || null });
     return NextResponse.json(
       { success: false, error: "project_id and ad_account_id required" },
       { status: 400 }
@@ -165,6 +149,7 @@ export async function GET(req: Request) {
   }
 
   if (!isUuid(projectIdRaw)) {
+    console.log("[META_SYNC_400_INVALID_PROJECT]", { project_id: projectIdRaw });
     return NextResponse.json(
       {
         success: false,
@@ -176,6 +161,7 @@ export async function GET(req: Request) {
   }
 
   if (!isMetaActId(adAccountIdRaw)) {
+    console.log("[META_SYNC_400_INVALID_AD_ACCOUNT]", { ad_account_id: adAccountIdRaw });
     return NextResponse.json(
       {
         success: false,
@@ -187,6 +173,7 @@ export async function GET(req: Request) {
   }
 
   if (dateStartParam && !isYmd(dateStartParam)) {
+    console.log("[META_SYNC_400_INVALID_DATE_START]", { date_start: dateStartParam });
     return NextResponse.json(
       {
         success: false,
@@ -198,6 +185,7 @@ export async function GET(req: Request) {
   }
 
   if (dateStopParam && !isYmd(dateStopParam)) {
+    console.log("[META_SYNC_400_INVALID_DATE_STOP]", { date_stop: dateStopParam });
     return NextResponse.json(
       {
         success: false,
@@ -211,37 +199,76 @@ export async function GET(req: Request) {
   const projectId = projectIdRaw;
   const adAccountId = adAccountIdRaw;
 
-  const admin = supabaseAdmin();
-
-  // ✅ 1) access_token from integrations_meta (БЕЗ single()!)
-  // 🔧 Берём oauth_meta и ПРЕДПОЧИТАЕМ account_id=act_..., default, primary
-  const { data: tokenCandidates, error: intErr } = await admin
-    .from("integrations_meta")
-    .select("id, access_token, token_source, created_at, account_id, integrations_id")
-    .eq("project_id", projectId)
-    .eq("token_source", "oauth_meta")
-    .in("account_id", [adAccountId, "default", "primary"])
-    .order("created_at", { ascending: false })
-    .limit(10);
-
-  if (intErr) {
-    return NextResponse.json(
-      {
-        success: false,
-        step: "supabase_select_integration",
-        error: intErr?.message || intErr,
-      },
-      { status: 500 }
-    );
+  const access = await requireProjectAccessOrInternal(req, projectId, { allowInternalBypass: true });
+  if (!access.allowed) {
+    console.log("[META_SYNC_ACCESS_DENIED]", { projectId, status: access.status });
+    return NextResponse.json(access.body, { status: access.status });
   }
 
-  const integration =
-    (tokenCandidates || []).find((x: any) => x?.account_id === adAccountId && x?.access_token) ||
-    (tokenCandidates || []).find((x: any) => x?.account_id === "default" && x?.access_token) ||
-    (tokenCandidates || []).find((x: any) => x?.account_id === "primary" && x?.access_token) ||
-    null;
+  console.log("[META_INSIGHTS_SYNC_ENTER]", {
+    ad_account_id: adAccountId,
+    date_start: dateStartParam ?? null,
+    date_stop: dateStopParam ?? null,
+    project_id: projectId,
+    access_source: access.source,
+  });
 
-  if (!integration?.access_token) {
+  const admin = supabaseAdmin();
+
+  // Resolve canonical integrations (for ad_accounts linkage) and legacy Meta integration (for token).
+  const { data: integrationsForProject } = await admin
+    .from("integrations")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("platform", "meta");
+  const integrationIdsList = (integrationsForProject ?? []).map((r: { id: string }) => r.id);
+  const { data: adAccountRowForProject } = integrationIdsList.length
+    ? await admin
+        .from("ad_accounts")
+        .select("id, integration_id")
+        .eq("external_account_id", adAccountId)
+        .in("integration_id", integrationIdsList)
+        .limit(1)
+        .maybeSingle()
+    : { data: null };
+  const integrationIdFromAdAccount = (adAccountRowForProject as { integration_id?: string } | null)?.integration_id ?? null;
+
+  // 1) Token: use shared resolver (integrations + integrations_auth with fallback to integrations_meta).
+  const metaIntegration = await getMetaIntegrationForProject(admin, projectId);
+
+  const integrationsId = integrationIdFromAdAccount ?? null;
+  let canonicalAdAccountIdForLog: string | null = adAccountRowForProject?.id ?? null;
+  if (!canonicalAdAccountIdForLog && integrationsId) {
+    const { data: adAcc } = await admin
+      .from("ad_accounts")
+      .select("id")
+      .eq("integration_id", integrationsId)
+      .eq("external_account_id", adAccountId)
+      .limit(1)
+      .maybeSingle();
+    canonicalAdAccountIdForLog = adAcc?.id ?? null;
+  }
+  console.log("[META_SYNC_RESOLVED]", {
+    projectId,
+    ad_account_id_external: adAccountId,
+    resolved_integration_id: integrationsId,
+    resolved_canonical_ad_account_id: canonicalAdAccountIdForLog,
+    integration_found: !!metaIntegration?.id,
+    integration_has_token: !!(metaIntegration?.access_token),
+    integrations_meta_candidates_count: metaIntegration ? 1 : 0,
+    ad_accounts_row_exists: !!adAccountRowForProject,
+    integrations_auth_exists_for_integration: null,
+  });
+
+  if (!metaIntegration?.access_token) {
+    console.log("[META_SYNC_404_NO_TOKEN]", {
+      projectId,
+      ad_account_id: adAccountId,
+      token_candidates_count: 0,
+      integration_found: !!metaIntegration?.id,
+      resolved_integration_id: integrationsId,
+      resolved_canonical_ad_account_id: canonicalAdAccountIdForLog,
+    });
     return NextResponse.json(
       {
         success: false,
@@ -251,37 +278,9 @@ export async function GET(req: Request) {
     );
   }
 
-  const accessToken = integration.access_token;
+  const accessToken = metaIntegration.access_token!;
 
-  // 1b) Canonical: resolve ad_accounts.id for daily_ad_metrics dual-write
-  // Lookup by integration_id only (integrations_meta.integrations_id = ad_accounts.integration_id)
-  let canonicalAdAccountId: string | null = null;
-  const integrationsId = (integration as { integrations_id?: string | null }).integrations_id;
-  if (integrationsId) {
-    const { data: adAcc } = await admin
-      .from("ad_accounts")
-      .select("id")
-      .eq("integration_id", integrationsId)
-      .eq("external_account_id", adAccountId)
-      .limit(1)
-      .maybeSingle();
-    canonicalAdAccountId = adAcc?.id ?? null;
-  }
-
-  // Sync run tracking (platform-agnostic)
-  let syncRunId: string | null = null;
-  const { data: runRow } = await admin
-    .from("sync_runs")
-    .insert({
-      project_id: projectId,
-      platform: "meta",
-      ad_account_id: canonicalAdAccountId,
-      sync_type: "insights",
-      status: "running",
-    })
-    .select("id")
-    .single();
-  syncRunId = (runRow as { id?: string } | null)?.id ?? null;
+  const canonicalAdAccountId: string | null = canonicalAdAccountIdForLog;
 
   // ✅ 2) account timezone (so days match Ads Manager)
   const tzUrl =
@@ -294,7 +293,7 @@ export async function GET(req: Request) {
   const tzJson = await fbGetJson(tzUrl);
   if (tzJson?.error) {
     const body = { success: false, step: "meta_timezone_fetch", meta_error: tzJson.error };
-    return syncRunErrorAndReturn(admin, syncRunId, "meta_timezone_fetch", { meta_error: tzJson.error }, body, 400);
+    return NextResponse.json(body, { status: 400 });
   }
 
   const accountTz: string = tzJson?.timezone_name || "UTC";
@@ -306,9 +305,50 @@ export async function GET(req: Request) {
   console.log("[INSIGHTS_SYNC_PERIOD]", { date_start_param: dateStartParam, date_stop_param: dateStopParam, since, until, tz: accountTz });
 
   if (since > until) {
-    const body = { success: false, error: "date_start must be <= date_stop", tz: accountTz, period: { since, until } };
-    return syncRunErrorAndReturn(admin, syncRunId, "date_start must be <= date_stop", { since, until }, body, 400);
+    console.log("[META_SYNC_400_DATE_RANGE]", {
+      projectId,
+      ad_account_id: adAccountId,
+      since,
+      until,
+      tz: accountTz,
+    });
+    return NextResponse.json(
+      { success: false, error: "date_start must be <= date_stop", tz: accountTz, period: { since, until } },
+      { status: 400 }
+    );
   }
+
+  return withSyncLock("meta", adAccountId, since, until, "insights", async () => {
+  const { id: syncRunId, alreadyRunning } = await startSyncRun(admin, {
+    projectId,
+    platform: "meta",
+    adAccountId: canonicalAdAccountId,
+    syncType: "insights",
+    dateStart: since,
+    dateEnd: until,
+    metadata: { tz: accountTz },
+  });
+  if (alreadyRunning) {
+    console.log("[META_SYNC_SKIP_LOCKED]", {
+      platform: "meta",
+      adAccountId: canonicalAdAccountId,
+      since,
+      until,
+    });
+    return NextResponse.json({
+      success: true,
+      skipped: true,
+      reason: "already_running",
+    });
+  }
+  let accountRowsInserted = 0;
+  console.log("[META_SYNC_RUN_INSERT]", {
+    sync_run_id: syncRunId,
+    ad_account_id: canonicalAdAccountId,
+    since,
+    until,
+    platform: "meta",
+  });
 
   // ===========================
   // ✅ A) ACCOUNT-LEVEL SPEND (daily) — чтобы совпадало с Ads Manager totals
@@ -329,6 +369,12 @@ export async function GET(req: Request) {
   const accJson = await fbGetJson(accUrl);
 
   if (accJson?.error) {
+    console.log("[META_SYNC_400_INSIGHTS_FETCH_ACCOUNT]", {
+      projectId,
+      ad_account_id: adAccountId,
+      meta_error: accJson.error,
+      period: { since, until },
+    });
     const body = {
       success: false,
       step: "meta_insights_fetch_account_level",
@@ -382,6 +428,12 @@ export async function GET(req: Request) {
     });
 
     if (upAccErr) {
+      console.log("[META_SYNC_500_UPSERT_META_INSIGHTS_ACCOUNT]", {
+        projectId,
+        ad_account_id: adAccountId,
+        error: upAccErr?.message || upAccErr,
+        rows: accRows.length,
+      });
       const body = {
         success: false,
         step: "supabase_upsert_meta_insights_account_level",
@@ -431,6 +483,11 @@ export async function GET(req: Request) {
           .is("campaign_id", null)
           .in("date", dates);
         if (delErr) {
+          console.log("[META_SYNC_500_DAILY_METRICS_DELETE_ACCOUNT]", {
+            projectId,
+            canonical_ad_account_id: canonicalAdAccountId,
+            error: delErr?.message ?? delErr,
+          });
           const body = {
             success: false,
             step: "daily_ad_metrics_delete_account",
@@ -443,6 +500,12 @@ export async function GET(req: Request) {
         }
         const { error: insErr } = await admin.from("daily_ad_metrics").insert(accMetricsRows);
         if (insErr) {
+          console.log("[META_SYNC_500_DAILY_METRICS_INSERT_ACCOUNT]", {
+            projectId,
+            canonical_ad_account_id: canonicalAdAccountId,
+            error: insErr?.message ?? insErr,
+            rows: accMetricsRows.length,
+          });
           const body = {
             success: false,
             step: "daily_ad_metrics_insert_account",
@@ -454,13 +517,72 @@ export async function GET(req: Request) {
           };
           return syncRunErrorAndReturn(admin, syncRunId, "daily_ad_metrics_insert_account", { rows: accMetricsRows.length }, body, 500);
         }
+        accountRowsInserted += accMetricsRows.length;
         console.log("[INSIGHTS_SYNC_WRITE]", { account_level_rows_inserted: accMetricsRows.length, dates: accMetricsRows.map((r: { date: string }) => r.date).slice(0, 10), canonicalAdAccountId });
       } else {
         console.log("[INSIGHTS_SYNC_WRITE]", { account_level_rows_inserted: 0, reason: "no canonicalAdAccountId or no accMetricsRows" });
       }
     }
+
   } else {
     console.log("[INSIGHTS_SYNC_WRITE]", { account_level_rows_inserted: 0, reason: "accList.length === 0 (no account-level data from Meta)" });
+  }
+
+  // Zero-fill: days in [since, until] with no API data → account-level zero rows (coverage, no endless backfill)
+  if (canonicalAdAccountId) {
+    const allDates = datesInRange(since, until);
+    const datesFromApi = new Set(
+      (accList as { date_start?: string }[]).map((i) => (i.date_start ?? "").slice(0, 10)).filter(Boolean)
+    );
+    const { data: existingRows } = await admin
+      .from("daily_ad_metrics")
+      .select("date")
+      .eq("ad_account_id", canonicalAdAccountId)
+      .is("campaign_id", null)
+      .gte("date", since)
+      .lte("date", until);
+    const existingDates = new Set((existingRows ?? []).map((r: { date: string }) => r.date));
+    const zeroDates = allDates.filter((d) => !datesFromApi.has(d) && !existingDates.has(d));
+    if (zeroDates.length > 0) {
+      const zeroRows = zeroDates.map((date) => ({
+        project_id: projectId,
+        ad_account_id: canonicalAdAccountId,
+        campaign_id: null,
+        date,
+        platform: "meta" as const,
+        spend: 0,
+        impressions: 0,
+        clicks: 0,
+        reach: 0,
+        cpm: 0,
+        cpc: 0,
+        ctr: 0,
+        leads: 0,
+        purchases: 0,
+        revenue: 0,
+        roas: 0,
+      }));
+      const { error: zeroErr } = await admin.from("daily_ad_metrics").insert(zeroRows);
+      if (zeroErr) {
+        console.log("[META_SYNC_500_DAILY_METRICS_INSERT_ZERO_DAYS]", {
+          projectId,
+          canonical_ad_account_id: canonicalAdAccountId,
+          error: zeroErr?.message ?? zeroErr,
+          zero_rows: zeroRows.length,
+        });
+        const body = {
+          success: false,
+          step: "daily_ad_metrics_insert_zero_days",
+          error: zeroErr?.message ?? zeroErr,
+          zero_rows: zeroRows.length,
+          period: { since, until },
+          canonical_ad_account_id: canonicalAdAccountId,
+        };
+        return syncRunErrorAndReturn(admin, syncRunId, "daily_ad_metrics_insert_zero_days", { zero_rows: zeroRows.length }, body, 500);
+      }
+      accountRowsInserted += zeroRows.length;
+      console.log("[INSIGHTS_SYNC_WRITE]", { zero_days_inserted: zeroRows.length, dates_sample: zeroDates.slice(0, 5), canonicalAdAccountId });
+    }
   }
 
   // ===========================
@@ -546,6 +668,12 @@ export async function GET(req: Request) {
     const json = await fbGetJson(nextUrl);
 
     if (json?.error) {
+      console.log("[META_SYNC_400_INSIGHTS_FETCH_PAGE]", {
+        projectId,
+        ad_account_id: adAccountId,
+        page: pages,
+        meta_error: json.error,
+      });
       const body = {
         success: false,
         step: "meta_insights_fetch",
@@ -617,6 +745,12 @@ export async function GET(req: Request) {
         });
 
         if (upErr) {
+          console.log("[META_SYNC_500_UPSERT_META_INSIGHTS_CHUNK]", {
+            projectId,
+            ad_account_id: adAccountId,
+            page: pages,
+            error: upErr?.message || upErr,
+          });
           const body = {
             success: false,
             step: "supabase_upsert_meta_insights",
@@ -644,23 +778,47 @@ export async function GET(req: Request) {
           const missingEntityIds = [...new Set(partCamp.map((r) => r.entity_id).filter(Boolean) as string[])].filter(
             (eid) => !entityIdToCampaignId.has(String(eid))
           );
-          if (missingEntityIds.length > 0) {
-            const campaignUpsertRows = missingEntityIds.map((eid) => {
-              const first = partCamp.find((r) => r.entity_id === eid);
-              return {
-                project_id: projectId,
-                meta_campaign_id: String(eid),
-                ad_account_id: adAccountId,
-                name: first?.entity_name ?? null,
-                status: null as string | null,
-                objective: null as string | null,
-                platform: "meta" as const,
-              };
+          if (!canonicalAdAccountId) {
+            console.warn("[CAMPAIGN_SKIP_NO_AD_ACCOUNT]", {
+              campaignIds: missingEntityIds,
+              platform: "meta",
             });
+          }
+          if (missingEntityIds.length > 0) {
+            const campaignUpsertRows = missingEntityIds
+              .map((eid) => {
+                const first = partCamp.find((r) => r.entity_id === eid);
+                return {
+                  project_id: projectId,
+                  meta_campaign_id: String(eid),
+                  ad_account_id: adAccountId,
+                  ad_accounts_id: canonicalAdAccountId,
+                  name: first?.entity_name ?? null,
+                  status: null as string | null,
+                  objective: null as string | null,
+                  platform: "meta" as const,
+                };
+              })
+              .filter((row) => {
+                if (!row.ad_accounts_id) {
+                  console.warn("[CAMPAIGN_SKIP_NO_AD_ACCOUNT]", {
+                    campaignId: row.meta_campaign_id,
+                    platform: "meta",
+                  });
+                  return false;
+                }
+                return true;
+              });
             const { error: campUpErr } = await admin
               .from("campaigns")
               .upsert(campaignUpsertRows, { onConflict: "project_id,meta_campaign_id" });
             if (campUpErr) {
+              console.log("[META_SYNC_500_CAMPAIGNS_UPSERT]", {
+                projectId,
+                ad_account_id: adAccountId,
+                page: pages,
+                error: campUpErr?.message ?? campUpErr,
+              });
               const body = {
                 success: false,
                 step: "campaigns_upsert_insights_sync",
@@ -719,6 +877,11 @@ export async function GET(req: Request) {
               .gte("date", chunkStart)
               .lte("date", chunkEnd);
             if (delErr) {
+              console.log("[META_SYNC_500_DAILY_METRICS_DELETE_CAMPAIGN]", {
+                projectId,
+                page: pages,
+                error: delErr?.message ?? delErr,
+              });
               const body = {
                 success: false,
                 step: "daily_ad_metrics_delete_campaign",
@@ -731,6 +894,12 @@ export async function GET(req: Request) {
             }
             const { error: insErr } = await admin.from("daily_ad_metrics").insert(campMetricsRows);
             if (insErr) {
+              console.log("[META_SYNC_500_DAILY_METRICS_INSERT_CAMPAIGN]", {
+                projectId,
+                page: pages,
+                error: insErr?.message ?? insErr,
+                chunk_size: campMetricsRows.length,
+              });
               const body = {
                 success: false,
                 step: "daily_ad_metrics_insert_campaign",
@@ -756,6 +925,7 @@ export async function GET(req: Request) {
     if (!nextUrl) break;
 
     if (pages > 300) {
+      console.log("[META_SYNC_500_PAGING_GUARD]", { projectId, ad_account_id: adAccountId, pages });
       const body = {
         success: false,
         step: "paging_guard",
@@ -833,6 +1003,11 @@ export async function GET(req: Request) {
         .is("campaign_id", null)
         .in("date", dates);
       if (delErr) {
+        console.log("[META_SYNC_500_DAILY_METRICS_DELETE_ACCOUNT_FALLBACK]", {
+          projectId,
+          canonical_ad_account_id: canonicalAdAccountId,
+          error: delErr?.message ?? delErr,
+        });
         const body = {
           success: false,
           step: "daily_ad_metrics_delete_account_fallback",
@@ -845,6 +1020,12 @@ export async function GET(req: Request) {
       }
       const { error: insErr } = await admin.from("daily_ad_metrics").insert(accFallbackRows);
       if (insErr) {
+        console.log("[META_SYNC_500_DAILY_METRICS_INSERT_ACCOUNT_FALLBACK]", {
+          projectId,
+          canonical_ad_account_id: canonicalAdAccountId,
+          error: insErr?.message ?? insErr,
+          rows: accFallbackRows.length,
+        });
         const body = {
           success: false,
           step: "daily_ad_metrics_insert_account_fallback",
@@ -856,13 +1037,18 @@ export async function GET(req: Request) {
         };
         return syncRunErrorAndReturn(admin, syncRunId, "daily_ad_metrics_insert_account_fallback", { rows: accFallbackRows.length }, body, 500);
       }
+      accountRowsInserted += accFallbackRows.length;
     }
   }
 
   const rowsWritten = totalSaved + accList.length;
-  await updateSyncRun(admin, syncRunId, {
-    status: "ok",
-    rows_written: rowsWritten,
+  const rowsInserted = totalSaved + accountRowsInserted;
+  await finishSyncRunSuccess(admin, syncRunId, {
+    rowsWritten,
+    rowsInserted,
+    campaignRowsInserted: totalSaved,
+    accountRowsInserted,
+    rowsDeleted: 0,
     meta: {
       since,
       until,
@@ -873,6 +1059,16 @@ export async function GET(req: Request) {
       ad_account_id_external: adAccountId,
     },
   });
+
+  if (canonicalAdAccountId) {
+    await runPostSyncInvariantChecks(admin, {
+      projectId,
+      adAccountId: canonicalAdAccountId,
+      platform: "meta",
+      dateStart: since,
+      dateEnd: until,
+    });
+  }
 
   const responseBody = {
     success: true,
@@ -893,4 +1089,5 @@ export async function GET(req: Request) {
   };
   console.log("[INSIGHTS_SYNC_COUNTS]", { meta_account_rows: accList.length, saved_campaign_rows: totalSaved, meta_campaign_rows: totalMetaRows, period: { since, until } });
   return NextResponse.json(responseBody);
+  });
 }
