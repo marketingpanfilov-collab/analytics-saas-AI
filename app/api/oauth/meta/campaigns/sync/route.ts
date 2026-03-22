@@ -88,7 +88,7 @@ export async function GET(req: Request) {
       platform: "meta" as const,
       ...(adAccountsId && { ad_accounts_id: adAccountsId }),
     }))
-    .filter((row) => {
+    .filter((row: any) => {
       if (!row.ad_accounts_id) {
         console.warn("[CAMPAIGN_SKIP_NO_AD_ACCOUNT]", {
           campaignId: row.meta_campaign_id,
