@@ -368,12 +368,13 @@ export async function GET(req: Request) {
   // ===========================
   // ✅ A) ACCOUNT-LEVEL SPEND (daily) — чтобы совпадало с Ads Manager totals
   // ===========================
+  // Align with Ads Manager default attribution: conversion time (not impression). Do not set
+  // use_account_attribution_setting together with action_report_time — Graph API rejects the combo.
   const accParams = new URLSearchParams({
     level: "account",
     time_increment: "1",
     time_range: JSON.stringify({ since, until }),
-    use_account_attribution_setting: "true",
-    action_report_time: "impression",
+    action_report_time: "conversion",
     include_deleted: "true",
     limit: "500",
     fields: "spend,impressions,clicks,date_start,date_stop",
@@ -408,6 +409,17 @@ export async function GET(req: Request) {
   }
 
   const accList = Array.isArray(accJson?.data) ? accJson.data : [];
+  const accSpendTotal = accList.reduce((s: number, i: any) => s + toNum(i?.spend), 0);
+  console.log("[META RAW COUNT]", { level: "account", count: accList.length });
+  console.log("[META DATE RANGE]", {
+    level: "account",
+    from: accList[0]?.date_start ?? null,
+    to: accList[accList.length - 1]?.date_start ?? null,
+    since,
+    until,
+  });
+  console.log("[META RAW SPEND TOTAL]", { level: "account", spend: accSpendTotal, rows: accList.length });
+
   if (accList.length) {
     const accRows = accList.map((i: any) => ({
       project_id: projectId,
@@ -616,13 +628,9 @@ export async function GET(req: Request) {
     level: "campaign",
     time_increment: "1",
     time_range: JSON.stringify({ since, until }),
-
-    use_account_attribution_setting: "true",
-    action_report_time: "impression",
+    action_report_time: "conversion",
     include_deleted: "true",
-
     limit: "500",
-
     fields:
       "campaign_id,campaign_name,spend,impressions,clicks,reach,cpm,cpc,ctr,actions,action_values,purchase_roas,date_start,date_stop",
     access_token: accessToken,
@@ -718,6 +726,18 @@ export async function GET(req: Request) {
 
     const list = Array.isArray(json?.data) ? json.data : [];
     totalMetaRows += list.length;
+
+    const pageSpendTotal = list.reduce((s: number, i: any) => s + toNum(i?.spend), 0);
+    console.log("[META RAW COUNT]", { level: "campaign", page: pages, count: list.length });
+    console.log("[META DATE RANGE]", {
+      level: "campaign",
+      page: pages,
+      from: list[0]?.date_start ?? null,
+      to: list[list.length - 1]?.date_start ?? null,
+      since,
+      until,
+    });
+    console.log("[META RAW SPEND TOTAL]", { level: "campaign", page: pages, spend: pageSpendTotal, rows: list.length });
 
     if (list.length) {
       const rows = list.map((i: any) => {
@@ -968,6 +988,16 @@ export async function GET(req: Request) {
     }
   }
 
+  const campaignInsightSpendSumRaw = allCampaignRows.reduce((s, r) => s + (Number(r.spend) || 0), 0);
+  console.log("[META_SYNC_CONTROL_PERIOD_RAW]", {
+    since,
+    until,
+    account_level_spend_sum: accSpendTotal,
+    campaign_insight_rows_spend_sum: campaignInsightSpendSumRaw,
+    campaign_insight_row_count: allCampaignRows.length,
+    note: "Full request range (not per chunk). Compare account_level_spend_sum to Ads Manager for same act + dates.",
+  });
+
   // Canonical fallback: when Meta returns no account-level insights (accList empty)
   // but we have campaign-level data, aggregate by date and write account-level rows.
   if (
@@ -1065,6 +1095,36 @@ export async function GET(req: Request) {
     }
   }
 
+  /** Sum campaign-level daily_ad_metrics for this sync window (paginated; matches dashboard canonical source). */
+  let dbCampaignSpendSum: number | null = null;
+  if (canonicalAdAccountId) {
+    dbCampaignSpendSum = 0;
+    let from = 0;
+    const pageSize = 1000;
+    for (;;) {
+      const { data: dam } = await admin
+        .from("daily_ad_metrics")
+        .select("spend")
+        .eq("ad_account_id", canonicalAdAccountId)
+        .eq("platform", "meta")
+        .not("campaign_id", "is", null)
+        .gte("date", since)
+        .lte("date", until)
+        .range(from, from + pageSize - 1);
+      const rows = dam ?? [];
+      if (!rows.length) break;
+      dbCampaignSpendSum += rows.reduce((s, r) => s + Number(r.spend ?? 0), 0);
+      if (rows.length < pageSize) break;
+      from += pageSize;
+    }
+    console.log("[META_SYNC_VERIFICATION_DB]", {
+      since,
+      until,
+      canonical_ad_account_id: canonicalAdAccountId,
+      db_campaign_daily_spend_sum: dbCampaignSpendSum,
+    });
+  }
+
   const rowsWritten = totalSaved + accList.length;
   const rowsInserted = totalSaved + accountRowsInserted;
   await finishSyncRunSuccess(admin, syncRunId, {
@@ -1104,6 +1164,15 @@ export async function GET(req: Request) {
     pages,
     tz: accountTz,
     period: { since, until },
+    verification: {
+      since,
+      until,
+      raw_account_level_spend_sum: accSpendTotal,
+      raw_campaign_insight_rows_spend_sum: campaignInsightSpendSumRaw,
+      db_campaign_daily_spend_sum: dbCampaignSpendSum,
+      /** Call GET /api/dashboard/summary?project_id&start&end with same dates to compare to BoardIQ UI. */
+      dashboard_summary_hint: "GET /api/dashboard/summary with same start=since end=until (and same sources/account filters as UI)",
+    },
     integration_debug: {
       id: null,
       token_source: null,

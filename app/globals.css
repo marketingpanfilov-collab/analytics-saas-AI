@@ -16,14 +16,28 @@ body {
   height: 100%;
 }
 
-body {
-  /* ТВОЙ ФОН (оставляем) */
-  background: radial-gradient(1200px 600px at 20% 10%, rgba(90, 120, 255, 0.22), transparent 60%),
-    radial-gradient(900px 500px at 90% 20%, rgba(90, 255, 190, 0.16), transparent 55%), #07070b;
+html {
+  scroll-behavior: smooth;
+}
 
+body {
+  background:
+    radial-gradient(1200px 600px at 20% 10%, rgba(90, 120, 255, 0.22), transparent 60%),
+    radial-gradient(900px 500px at 90% 20%, rgba(90, 255, 190, 0.16), transparent 55%),
+    #07070b;
   color: white;
-  font-family: var(--font-jakarta), Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
-    Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  overflow-x: hidden;
+  font-family:
+    var(--font-jakarta),
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    Segoe UI,
+    Roboto,
+    Arial,
+    "Apple Color Emoji",
+    "Segoe UI Emoji";
 }
 
 /* Чтобы Tailwind был предсказуемее по border */
@@ -35,6 +49,12 @@ body {
 
 a {
   color: inherit;
+}
+
+h1,
+h2,
+h3 {
+  letter-spacing: -0.02em;
 }
 
 /* Spinner for dashboard status button (unique name to avoid Tailwind conflict) */
@@ -54,10 +74,12 @@ a {
   width: 10px;
   height: 10px;
 }
+
 ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.1);
   border-radius: 999px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.16);
 }
@@ -97,10 +119,7 @@ button:not([class]):hover {
   background: rgba(255, 255, 255, 0.1);
 }
 
-/* ===== react-date-range: dark + “Meta-like” fixes =====
-   Цель: ничего не “едет”, две сетки месяцев, нормальные инпуты, аккуратный попап.
-   Важно: эти стили НЕ зависят от Tailwind и работают глобально.
-*/
+/* ===== react-date-range: dark + “Meta-like” fixes ===== */
 
 .rdrDateRangeWrapper {
   background: rgba(18, 18, 24, 0.92) !important;
@@ -125,12 +144,12 @@ button:not([class]):hover {
 .rdrMonths {
   width: 100% !important;
   display: flex !important;
-  gap: 12px !important; /* чтобы два месяца выглядели “как Meta” */
+  gap: 12px !important;
   align-items: stretch !important;
 }
 
 .rdrMonth {
-  width: 320px !important; /* фикс ширины = не едет */
+  width: 320px !important;
   padding: 10px 10px 12px !important;
 }
 
@@ -145,6 +164,7 @@ button:not([class]):hover {
 .rdrWeekDays {
   margin-top: 6px !important;
 }
+
 .rdrWeekDay {
   color: rgba(255, 255, 255, 0.6) !important;
   font-weight: 700 !important;
@@ -155,10 +175,12 @@ button:not([class]):hover {
 .rdrDays {
   width: 100% !important;
 }
+
 .rdrDay {
   height: 40px !important;
   line-height: 40px !important;
 }
+
 .rdrDayNumber span {
   color: rgba(255, 255, 255, 0.9) !important;
   font-weight: 650 !important;
@@ -178,22 +200,25 @@ button:not([class]):hover {
 .rdrInRange,
 .rdrStartEdge,
 .rdrEndEdge {
-  color: rgba(58, 124, 255, 1) !important; /* “meta-blue” */
+  color: rgba(58, 124, 255, 1) !important;
 }
+
 .rdrInRange {
   opacity: 0.28 !important;
 }
+
 .rdrStartEdge,
 .rdrEndEdge {
   opacity: 0.9 !important;
 }
 
-/* скругление краёв диапазона (как в Meta) */
+/* скругление краёв диапазона */
 .rdrDayStartPreview,
 .rdrDayEndPreview,
 .rdrDayInPreview {
   border-color: rgba(58, 124, 255, 0.85) !important;
 }
+
 .rdrDayStartPreview,
 .rdrDayEndPreview {
   border-radius: 999px !important;
@@ -206,7 +231,7 @@ button:not([class]):hover {
   font-weight: 800 !important;
 }
 
-/* верхние инпуты дат (которые у тебя “поехали”) */
+/* верхние инпуты дат */
 .rdrDateDisplayWrapper {
   background: rgba(255, 255, 255, 0.04) !important;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
@@ -241,6 +266,7 @@ button:not([class]):hover {
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
   border-radius: 12px !important;
 }
+
 .rdrNextPrevButton i {
   border-color: rgba(255, 255, 255, 0.75) !important;
 }
@@ -250,20 +276,22 @@ button:not([class]):hover {
 .rdrInputRanges {
   padding: 10px 10px 12px !important;
 }
+
 .rdrStaticRangeLabel {
   color: rgba(255, 255, 255, 0.9) !important;
   font-weight: 650 !important;
 }
+
 .rdrStaticRange:hover .rdrStaticRangeLabel {
   background: rgba(255, 255, 255, 0.06) !important;
 }
+
 .rdrStaticRangeSelected .rdrStaticRangeLabel {
   background: rgba(58, 124, 255, 0.22) !important;
   border-left: 3px solid rgba(58, 124, 255, 0.95) !important;
 }
 
-/* нижняя панель (Отмена / Готово) если ты её рисуешь сам — ок.
-   Но если используешь внутри календаря — чуть приводим к виду */
+/* нижняя панель */
 .rdrCalendarWrapper button {
   font-family: inherit !important;
 }
@@ -272,10 +300,12 @@ button:not([class]):hover {
 .rdrDateRangePickerWrapper {
   max-width: min(980px, calc(100vw - 40px)) !important;
 }
+
 @media (max-width: 1040px) {
   .rdrMonths {
-    flex-direction: column !important; /* на узких экранах 2 месяца в колонку */
+    flex-direction: column !important;
   }
+
   .rdrMonth {
     width: 100% !important;
   }
@@ -284,26 +314,26 @@ button:not([class]):hover {
 /* ===== УТИЛИТЫ ДЛЯ UI ===== */
 
 @layer utilities {
-  /* ===== ACCENT COLORS (основной mint) ===== */
   .text-mint {
     color: rgba(150, 255, 200, 0.95);
   }
+
   .bg-mint {
     background-color: rgba(150, 255, 200, 0.95);
   }
 
-  /* “темнее”, чтобы белый текст читался */
   .bg-mint-dim {
     background-color: rgba(150, 255, 200, 0.22);
   }
+
   .bg-mint-dim2 {
     background-color: rgba(150, 255, 200, 0.28);
   }
 
-  /* дополнительные (под гамму) */
   .text-blue {
     color: rgba(120, 170, 255, 0.95);
   }
+
   .bg-blue {
     background-color: rgba(120, 170, 255, 0.95);
   }
@@ -311,6 +341,7 @@ button:not([class]):hover {
   .text-yellow {
     color: rgba(255, 210, 130, 0.95);
   }
+
   .bg-yellow {
     background-color: rgba(255, 210, 130, 0.95);
   }
@@ -318,25 +349,27 @@ button:not([class]):hover {
   .text-red {
     color: rgba(255, 140, 160, 0.95);
   }
+
   .bg-red {
     background-color: rgba(255, 140, 160, 0.95);
   }
 
-  /* ===== GRADIENT BARS (прогресс/индикаторы) ===== */
   .bg-grad-mint {
     background: linear-gradient(90deg, rgba(150, 255, 200, 0.95), rgba(120, 170, 255, 0.85));
   }
+
   .bg-grad-blue {
     background: linear-gradient(90deg, rgba(120, 170, 255, 0.95), rgba(150, 255, 200, 0.75));
   }
+
   .bg-grad-yellow {
     background: linear-gradient(90deg, rgba(255, 210, 130, 0.95), rgba(150, 255, 200, 0.75));
   }
+
   .bg-grad-red {
     background: linear-gradient(90deg, rgba(255, 140, 160, 0.95), rgba(255, 210, 130, 0.65));
   }
 
-  /* ===== premium “glass” карточки ===== */
   .glass {
     background: rgba(18, 18, 24, 0.62);
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -344,14 +377,13 @@ button:not([class]):hover {
     -webkit-backdrop-filter: blur(12px);
   }
 
-  /* мягкое свечение (как “glow”) */
   .shadow-glow {
     box-shadow: 0 0 40px rgba(150, 255, 200, 0.1), 0 20px 70px rgba(0, 0, 0, 0.55);
   }
 
-  /* сетка (очень деликатно) */
   .grid-bg {
-    background-image: radial-gradient(circle at 20% 10%, rgba(150, 255, 200, 0.08), transparent 45%),
+    background-image:
+      radial-gradient(circle at 20% 10%, rgba(150, 255, 200, 0.08), transparent 45%),
       radial-gradient(circle at 80% 20%, rgba(120, 170, 255, 0.1), transparent 45%),
       linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
       linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
@@ -359,24 +391,25 @@ button:not([class]):hover {
     background-position: center;
   }
 
-  /* приятные края у “пилюль”/кнопок */
   .ring-soft {
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
   }
 
-  /* текст, который часто “чернеет” из-за наследования — фикс */
   .text-safe {
     color: rgba(255, 255, 255, 0.92);
   }
+
   .text-muted {
     color: rgba(255, 255, 255, 0.7);
   }
+
   .text-dim {
     color: rgba(255, 255, 255, 0.55);
   }
 }
 
 /* ===== HELP TOOLTIP (LTV and others) ===== */
+
 .help-tooltip-trigger:hover {
   background: rgba(255, 255, 255, 0.08) !important;
   color: rgba(255, 255, 255, 0.72) !important;
@@ -388,6 +421,7 @@ button:not([class]):hover {
   font-size: 13px;
   line-height: 1.5;
 }
+
 .help-tooltip-content strong {
   display: block;
   font-size: 13px;
@@ -395,11 +429,13 @@ button:not([class]):hover {
   color: rgba(255, 255, 255, 0.92);
   margin-bottom: 6px;
 }
+
 .help-tooltip-content br + br {
   content: "";
   display: block;
   margin-top: 6px;
 }
+
 .help-tooltip-content .help-formula {
   display: block;
   font-size: 12px;
@@ -408,11 +444,13 @@ button:not([class]):hover {
 }
 
 /* ===== LTV FILTER DROPDOWNS ===== */
+
 .filter-dropdown-wrap:hover .filter-dropdown-chevron {
   opacity: 0.9;
 }
 
 /* ===== LTV REVENUE COMPOSITION SEGMENTS ===== */
+
 @keyframes revenue-segment-enter {
   from {
     transform: scaleX(0);
@@ -421,7 +459,111 @@ button:not([class]):hover {
     transform: scaleX(1);
   }
 }
+
 .revenue-segment {
   transform-origin: left;
   animation: revenue-segment-enter 600ms ease-out forwards;
+}
+
+/* ===== HERO BACKGROUND ANIMATION ===== */
+
+@keyframes float-orb-1 {
+  0% {
+    transform: translate3d(-60px, -30px, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(120px, 60px, 0) scale(1.18);
+  }
+  100% {
+    transform: translate3d(-60px, -30px, 0) scale(1);
+  }
+}
+
+@keyframes float-orb-2 {
+  0% {
+    transform: translate3d(40px, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-140px, 80px, 0) scale(1.2);
+  }
+  100% {
+    transform: translate3d(40px, 0, 0) scale(1);
+  }
+}
+
+@keyframes float-orb-3 {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(80px, -90px, 0) scale(1.14);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes noise-drift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  25% {
+    transform: translate3d(-12px, 8px, 0);
+  }
+  50% {
+    transform: translate3d(10px, -10px, 0);
+  }
+  75% {
+    transform: translate3d(-8px, -6px, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.hero-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(120px);
+  will-change: transform;
+  mix-blend-mode: screen;
+}
+
+.hero-orb-1 {
+  width: 640px;
+  height: 640px;
+  left: -180px;
+  top: 60px;
+  background: rgba(255, 255, 255, 0.11);
+  animation: float-orb-1 14s ease-in-out infinite;
+}
+
+.hero-orb-2 {
+  width: 520px;
+  height: 520px;
+  right: -140px;
+  top: 120px;
+  background: rgba(255, 255, 255, 0.09);
+  animation: float-orb-2 17s ease-in-out infinite;
+}
+
+.hero-orb-3 {
+  width: 460px;
+  height: 460px;
+  left: 34%;
+  bottom: 120px;
+  background: rgba(255, 255, 255, 0.06);
+  animation: float-orb-3 16s ease-in-out infinite;
+}
+
+.hero-noise {
+  position: absolute;
+  inset: -40px;
+  opacity: 0.18;
+  background-image:
+    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.06) 0, transparent 22%),
+    radial-gradient(circle at 80% 30%, rgba(255, 255, 255, 0.04) 0, transparent 26%),
+    radial-gradient(circle at 40% 80%, rgba(255, 255, 255, 0.04) 0, transparent 24%);
+  filter: blur(30px);
+  animation: noise-drift 12s linear infinite;
 }
