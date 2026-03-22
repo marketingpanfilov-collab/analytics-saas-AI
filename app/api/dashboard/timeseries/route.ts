@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { getCanonicalTimeseries } from "@/app/lib/dashboardCanonical";
-import { ensureBackfill } from "@/app/lib/dashboardBackfill";
+import { applyBackfillMetadata, ensureBackfill } from "@/app/lib/dashboardBackfill";
 import {
   dashboardCacheKey,
   dashboardCacheGet,
@@ -77,8 +77,9 @@ export async function GET(req: Request) {
       const cached = dashboardCacheGet(cacheKey);
       if (cached != null) {
         const pts = (cached as { points?: unknown[] })?.points ?? [];
+        const merged = applyBackfillMetadata({ ...(cached as Record<string, unknown>) }, backfillResult);
         console.log("[TIMESERIES_RETURN]", { branch: "cache", pointsCount: pts.length, firstSpend: (pts[0] as { spend?: number })?.spend });
-        return NextResponse.json(cached);
+        return NextResponse.json(merged);
       }
     }
 
@@ -97,13 +98,7 @@ export async function GET(req: Request) {
         source: "daily_ad_metrics (canonical)",
         points,
       };
-      if (backfillResult.triggered && backfillResult.reason === "historical") {
-        body.backfill = {
-          range_partially_covered: true,
-          historical_sync_started: true,
-          intervals: backfillResult.historicalSyncIntervals,
-        };
-      }
+      applyBackfillMetadata(body, backfillResult);
       const isHistoricalPartial =
         body.backfill && (body.backfill as { historical_sync_started?: boolean }).historical_sync_started;
       if (!isHistoricalPartial) {
@@ -122,7 +117,7 @@ export async function GET(req: Request) {
       points: [] as { date: string; spend: number; clicks: number; sales: number; revenue: number; roas: number }[],
     };
     console.log("[TIMESERIES_RETURN]", { branch: "canonical", fallback_reason: "no_canonical_rows", pointsCount: 0 });
-    return NextResponse.json(emptyBody);
+    return NextResponse.json(applyBackfillMetadata({ ...emptyBody } as Record<string, unknown>, backfillResult));
   } catch (e: any) {
     return NextResponse.json(
       { success: false, error: e?.message ?? String(e) },

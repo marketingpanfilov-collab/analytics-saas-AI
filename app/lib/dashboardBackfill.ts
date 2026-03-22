@@ -488,3 +488,29 @@ export async function ensureBackfill(
     reason: triggered ? "fresh" : null,
   };
 }
+
+/**
+ * Merge current ensureBackfill() result into a cached or fresh JSON body.
+ * Cached responses can still carry stale `backfill` after coverage is complete — strip unless historical gaps remain.
+ */
+export function applyBackfillMetadata<T extends Record<string, unknown>>(
+  payload: T,
+  backfillResult: EnsureBackfillResult
+): T {
+  const next = { ...payload } as T & { backfill?: unknown };
+  if (
+    backfillResult.triggered &&
+    backfillResult.reason === "historical" &&
+    Array.isArray(backfillResult.historicalSyncIntervals) &&
+    backfillResult.historicalSyncIntervals.length > 0
+  ) {
+    (next as Record<string, unknown>).backfill = {
+      range_partially_covered: true,
+      historical_sync_started: true,
+      intervals: backfillResult.historicalSyncIntervals,
+    };
+  } else {
+    delete (next as Record<string, unknown>).backfill;
+  }
+  return next;
+}

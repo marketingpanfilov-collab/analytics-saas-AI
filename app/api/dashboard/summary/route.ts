@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { getCanonicalSummary } from "@/app/lib/dashboardCanonical";
-import { ensureBackfill } from "@/app/lib/dashboardBackfill";
+import { applyBackfillMetadata, ensureBackfill } from "@/app/lib/dashboardBackfill";
 import {
   dashboardCacheKey,
   dashboardCacheGet,
@@ -93,8 +93,9 @@ export async function GET(req: Request) {
       const hasData = Number(t?.spend ?? 0) !== 0 || Number(t?.impressions ?? 0) !== 0 || Number(t?.clicks ?? 0) !== 0;
       const fromCanonical = cached?.source === "daily_ad_metrics (canonical)";
       if (hasData && fromCanonical) {
+        const merged = applyBackfillMetadata({ ...cached } as Record<string, unknown>, backfillResult);
         console.log("[SUMMARY_RETURN]", { branch: "cache", totals: t, spend: t?.spend, impressions: t?.impressions, clicks: t?.clicks });
-        return NextResponse.json(cached);
+        return NextResponse.json(merged);
       }
       console.log("[SUMMARY_SKIP_CACHE]", { reason: !fromCanonical ? "non-canonical source" : "no data", source: cached?.source, totals: t });
     }
@@ -120,13 +121,7 @@ export async function GET(req: Request) {
       campaign_rows: canonical?.rowCount ?? 0,
     },
   };
-  if (backfillResult.triggered && backfillResult.reason === "historical") {
-    body.backfill = {
-      range_partially_covered: true,
-      historical_sync_started: true,
-      intervals: backfillResult.historicalSyncIntervals,
-    };
-  }
+  applyBackfillMetadata(body, backfillResult);
   const isHistoricalPartial =
     body.backfill && (body.backfill as { historical_sync_started?: boolean; range_partially_covered?: boolean }).historical_sync_started;
   if (!isHistoricalPartial) {
