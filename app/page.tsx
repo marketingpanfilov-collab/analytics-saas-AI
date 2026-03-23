@@ -285,48 +285,50 @@ export default function Page() {
         id="pricing"
         className="landing-mid-scope relative z-10 scroll-mt-24 border-t border-white/10"
       >
-        <div className="mx-auto max-w-6xl px-5 pb-24 pt-14 md:pb-32 md:pt-20">
+        <div className="mx-auto max-w-6xl px-5 pb-14 pt-14 md:pb-20 md:pt-20">
           <div className="mb-10 text-center md:mb-12">
             <h2 className="text-3xl font-semibold tracking-tight text-white/95 md:text-4xl">Тарифы</h2>
             <div className="mt-6 flex justify-center">
-              <div
-                className="grid w-[320px] grid-cols-2 gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/10 transition-[box-shadow,background-color] duration-300 ease-out sm:w-[360px]"
-                role="group"
-                aria-label="Период оплаты"
-              >
-                <button
-                  type="button"
-                  onClick={() => setBilling("monthly")}
-                  className={cn(
-                    "flex-1 cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-[color,background-color,transform] duration-300 ease-out",
-                    billing === "monthly"
-                      ? "bg-white/10 text-white"
-                      : "text-zinc-400 hover:text-zinc-200"
-                  )}
+              <div className="flex w-[320px] flex-col items-center sm:w-[360px]">
+                <div
+                  className="grid w-full grid-cols-2 gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/10 transition-[box-shadow,background-color] duration-300 ease-out"
+                  role="group"
+                  aria-label="Период оплаты"
                 >
-                  Ежемесячно
-                </button>
-                <span className="relative inline-flex">
                   <button
                     type="button"
-                    onClick={() => setBilling("yearly")}
+                    onClick={() => setBilling("monthly")}
                     className={cn(
-                      "w-full cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-[color,background-color,transform] duration-300 ease-out",
-                      billing === "yearly"
+                      "flex-1 cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-[color,background-color,transform] duration-300 ease-out",
+                      billing === "monthly"
                         ? "bg-white/10 text-white"
                         : "text-zinc-400 hover:text-zinc-200"
                     )}
                   >
-                    Ежегодно
+                    Ежемесячно
                   </button>
-                  {/* Вершина внешней рамки кнопки: центр круга в углу, половина снаружи блока */}
-                  <span
-                    className="pointer-events-none absolute right-0 top-0 z-10 flex h-6 w-6 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full bg-emerald-500/35 text-[11px] font-bold leading-none text-emerald-100 ring-1 ring-emerald-400/50"
-                    aria-hidden
-                  >
-                    %
+                  <span className="relative inline-flex">
+                    <button
+                      type="button"
+                      onClick={() => setBilling("yearly")}
+                      className={cn(
+                        "w-full cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-[color,background-color,transform] duration-300 ease-out",
+                        billing === "yearly"
+                          ? "bg-white/10 text-white"
+                          : "text-zinc-400 hover:text-zinc-200"
+                      )}
+                    >
+                      Ежегодно
+                    </button>
+                    {/* Вершина внешней рамки кнопки: центр круга в углу, половина снаружи блока */}
+                    <span
+                      className="pointer-events-none absolute right-0 top-0 z-10 flex h-6 w-6 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full bg-emerald-500/35 text-[11px] font-bold leading-none text-emerald-100 ring-1 ring-emerald-400/50"
+                      aria-hidden
+                    >
+                      %
+                    </span>
                   </span>
-                </span>
+                </div>
               </div>
             </div>
           </div>
@@ -344,6 +346,16 @@ export default function Page() {
                 yearlyDiscountPercent={plan.yearlyDiscountPercent}
               />
             ))}
+          </div>
+
+          <div className="mt-8 flex justify-center">
+            <Link
+              href="/pricing-comparison"
+              className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-xl border border-white/15 bg-zinc-500/10 px-6 text-sm font-medium text-zinc-300 transition hover:bg-zinc-500/20 hover:text-zinc-200"
+            >
+              Сравнить тарифы
+              <span aria-hidden>→</span>
+            </Link>
           </div>
         </div>
       </section>
