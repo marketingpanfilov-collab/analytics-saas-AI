@@ -10,9 +10,8 @@ export function buildLoginPurchaseHref(planId: PricingPlanId, billing: "monthly"
   const p = new URLSearchParams();
   p.set("plan", planId);
   p.set("billing", billing);
-  p.set("signup", "1");
-  return `/login?${p.toString()}`;
+  return `/register?${p.toString()}`;
 }
 
 /** Кнопка «Приобрести» в хедере героя — без выбранного тарифа, открываем регистрацию. */
-export const LOGIN_PURCHASE_NO_PLAN_HREF = "/login?signup=1";
+export const LOGIN_PURCHASE_NO_PLAN_HREF = "/register";
