@@ -28,6 +28,7 @@ export default function LoginPageClient() {
   const [msg, setMsg] = useState<string>("");
 
   const onSubmit = async () => {
+    if (loading) return;
     setMsg("");
 
     if (!email.trim()) return setMsg("Введите email");
@@ -43,9 +44,14 @@ export default function LoginPageClient() {
           email: email.trim(),
           password,
         });
-        if (error) return setMsg(error.message);
+        if (error) {
+          setMsg(error.message);
+          setLoading(false);
+          return;
+        }
 
         router.replace(nextPath);
+        // Оставляем loading=true до ухода со страницы после успешного перехода.
         return;
       }
 
@@ -55,16 +61,23 @@ export default function LoginPageClient() {
         password,
       });
 
-      if (error) return setMsg(error.message);
+      if (error) {
+        setMsg(error.message);
+        setLoading(false);
+        return;
+      }
 
       if (!data.session) {
         setMsg("✅ Аккаунт создан. Проверь почту и подтвердите email, затем войдите.");
         setMode("login");
+        setLoading(false);
         return;
       }
 
       router.replace(nextPath);
-    } finally {
+      // Оставляем loading=true до ухода со страницы после успешного перехода.
+    } catch {
+      setMsg("Не удалось выполнить запрос. Попробуйте ещё раз.");
       setLoading(false);
     }
   };
@@ -122,7 +135,7 @@ export default function LoginPageClient() {
                 type="button"
                 onClick={() => setMode("login")}
                 disabled={loading}
-                className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
+                className={`cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                   mode === "login"
                     ? "bg-white/10 text-white"
                     : "text-zinc-400 hover:text-zinc-200"
@@ -134,7 +147,7 @@ export default function LoginPageClient() {
                 type="button"
                 onClick={() => setMode("signup")}
                 disabled={loading}
-                className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
+                className={`cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                   mode === "signup"
                     ? "bg-white/10 text-white"
                     : "text-zinc-400 hover:text-zinc-200"
@@ -179,7 +192,7 @@ export default function LoginPageClient() {
               type="button"
               onClick={onSubmit}
               disabled={loading || signupBlocked}
-              className="h-11 w-full rounded-xl bg-white/10 px-6 text-sm font-medium text-white hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
+              className="h-11 w-full cursor-pointer rounded-xl bg-white/10 px-6 text-sm font-medium text-white hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? "Подождите..." : mode === "login" ? "Войти" : "Создать аккаунт"}
             </button>
@@ -194,7 +207,7 @@ export default function LoginPageClient() {
                   type="button"
                   onClick={resetPassword}
                   disabled={loading}
-                  className="text-left text-sm font-medium text-zinc-400 hover:text-zinc-200 disabled:opacity-50"
+                  className="cursor-pointer text-left text-sm font-medium text-zinc-400 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Забыли пароль?
                 </button>
@@ -205,13 +218,13 @@ export default function LoginPageClient() {
                     checked={acceptTerms}
                     onChange={(e) => setAcceptTerms(e.target.checked)}
                     disabled={loading}
-                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-white/20 bg-white/[0.04] text-emerald-500 focus:ring-emerald-500/40"
+                    className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border-white/20 bg-white/[0.04] text-emerald-500 focus:ring-emerald-500/40 disabled:cursor-not-allowed"
                   />
                   <span className="min-w-0">
                     Регистрируясь, вы соглашаетесь с{" "}
                     <Link
                       href="/terms"
-                      className="text-zinc-300 underline-offset-2 hover:text-white hover:underline"
+                      className="cursor-pointer text-zinc-300 underline-offset-2 hover:text-white hover:underline"
                     >
                       пользовательским соглашением
                     </Link>
@@ -233,7 +246,7 @@ export default function LoginPageClient() {
               </p>
             ) : null}
 
-            <p className="text-center text-xs text-zinc-500">© 2026 Analytics SaaS — Internal MVP</p>
+            <p className="text-center text-xs text-zinc-500">© 2026 Analytics SaaS — Все права защищены.</p>
           </div>
         </div>
       </div>
