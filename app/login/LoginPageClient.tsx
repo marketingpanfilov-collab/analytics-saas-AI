@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { isValidPricingPlanId } from "../lib/auth/loginPurchaseUrl";
+import { isValidPricingPlanId, type PricingPlanId } from "../lib/auth/loginPurchaseUrl";
+import { getPaddle, setPaddleEventHandler } from "../lib/paddle";
+import { getPaddlePriceId, type BillingPeriod } from "../lib/paddlePriceMap";
 import { supabase } from "../lib/supabaseClient";
 
 type Mode = "login" | "signup";
@@ -11,6 +13,9 @@ type Mode = "login" | "signup";
 export default function LoginPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const planParam = searchParams.get("plan");
+  const billingParam = searchParams.get("billing");
+  const billing: BillingPeriod = billingParam === "yearly" ? "yearly" : "monthly";
 
   // Post-login: project selection first; never default to /app (dashboard without project_id).
   // Если пользователь пришел с тарифа, сохраняем plan/billing в next-path.
@@ -41,6 +46,52 @@ export default function LoginPageClient() {
 
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string>("");
+  const [selectedPlan, setSelectedPlan] = useState<PricingPlanId | null>(
+    isValidPricingPlanId(planParam) ? planParam : null
+  );
+  const [showPlanModal, setShowPlanModal] = useState(false);
+  const [modalBilling, setModalBilling] = useState<BillingPeriod>(billing);
+
+  const checkoutStateRef = useRef<null | {
+    paid: boolean;
+    onPaid: () => void;
+    onNotPaid: () => void;
+  }>(null);
+  const checkoutTimeoutRef = useRef<number | null>(null);
+  const continueAfterPlanSelectRef = useRef(false);
+
+  const PLAN_LABELS: Record<PricingPlanId, string> = {
+    starter: "Starter",
+    growth: "Growth",
+    agency: "Agency",
+  };
+
+  const MONTHLY_USD: Record<PricingPlanId, number> = {
+    starter: 39,
+    growth: 99,
+    agency: 249,
+  };
+
+  const YEARLY_DISCOUNT_PERCENT: Record<PricingPlanId, number> = {
+    starter: 10,
+    growth: 15,
+    agency: 20,
+  };
+
+  const yearlyTotalDiscountedUsd = (plan: PricingPlanId) => {
+    const monthly = MONTHLY_USD[plan];
+    const discountPercent = YEARLY_DISCOUNT_PERCENT[plan];
+    return Math.round(monthly * 12 * (1 - discountPercent / 100));
+  };
+
+  const yearlySavingsUsd = (plan: PricingPlanId) => {
+    return MONTHLY_USD[plan] * 12 - yearlyTotalDiscountedUsd(plan);
+  };
+
+  const priceText = (plan: PricingPlanId) => {
+    if (modalBilling === "monthly") return `${MONTHLY_USD[plan]} $ / мес`;
+    return `${yearlyTotalDiscountedUsd(plan)} $ / год`;
+  };
 
   // С лендинга по кнопке «Приобрести»: открываем сразу вкладку «Регистрация».
   useEffect(() => {
@@ -48,11 +99,45 @@ export default function LoginPageClient() {
     const plan = searchParams.get("plan");
     const openSignup = signup === "1" || signup === "true" || isValidPricingPlanId(plan);
     if (openSignup) setMode("signup");
+    if (isValidPricingPlanId(plan)) setSelectedPlan(plan);
   }, [searchParams]);
 
-  const onSubmit = async () => {
+  useEffect(() => {
+    if (showPlanModal) setModalBilling(billing);
+  }, [billing, showPlanModal]);
+
+  useEffect(() => {
+    setPaddleEventHandler((event) => {
+      const ctx = checkoutStateRef.current;
+      if (!ctx) return;
+
+      const name = event?.name;
+      if (name === "checkout.completed") {
+        ctx.paid = true;
+        checkoutStateRef.current = null;
+        if (checkoutTimeoutRef.current) window.clearTimeout(checkoutTimeoutRef.current);
+        ctx.onPaid();
+        return;
+      }
+
+      if (name === "checkout.closed" || name === "checkout.failed" || name === "checkout.error") {
+        if (!ctx.paid) {
+          checkoutStateRef.current = null;
+          if (checkoutTimeoutRef.current) window.clearTimeout(checkoutTimeoutRef.current);
+          ctx.onNotPaid();
+        }
+      }
+    });
+
+    return () => setPaddleEventHandler(null);
+  }, []);
+
+  const submitWithPlan = async (plan: PricingPlanId, period: BillingPeriod) => {
     if (loading) return;
     setMsg("");
+
+    const effectivePlan = plan;
+    const effectiveBilling = period;
 
     if (!email.trim()) return setMsg("Введите email");
     if (!password.trim()) return setMsg("Введите пароль");
@@ -90,18 +175,96 @@ export default function LoginPageClient() {
         return;
       }
 
-      if (!data.session) {
-        setMsg("✅ Аккаунт создан. Проверь почту и подтвердите email, затем войдите.");
-        setMode("login");
+      const priceId = getPaddlePriceId(effectivePlan, effectiveBilling);
+      if (!priceId) {
+        setMsg("Не удалось определить цену тарифа. Попробуйте снова.");
         setLoading(false);
         return;
       }
 
-      router.replace(nextPath);
-      // Оставляем loading=true до ухода со страницы после успешного перехода.
-    } catch {
-      setMsg("Не удалось выполнить запрос. Попробуйте ещё раз.");
+      const paddle = await getPaddle();
+      if (!paddle) {
+        setMsg("Не удалось инициализировать оплату. Попробуйте позже.");
+        setLoading(false);
+        return;
+      }
+
+      const ctx = {
+        paid: false,
+        onPaid: () => {
+          setMsg(
+            "✅ Вы успешно зарегистрировались. Вам выслали письмо на email для подтверждения. Подтвердите письмо в почте и затем войдите."
+          );
+          setMode("login");
+          setLoading(false);
+        },
+        onNotPaid: () => {
+          setMsg("Регистрация возможна только после оплаты. Если вы отменили оплату — завершите её в Paddle и повторите попытку.");
+          setMode("signup");
+          setLoading(false);
+        },
+      };
+
+      checkoutStateRef.current = ctx;
+
+      if (checkoutTimeoutRef.current) window.clearTimeout(checkoutTimeoutRef.current);
+      checkoutTimeoutRef.current = window.setTimeout(() => {
+        const current = checkoutStateRef.current;
+        if (!current) return;
+        if (!current.paid) {
+          checkoutStateRef.current = null;
+          current.onNotPaid();
+        }
+      }, 20000);
+
+      paddle.Checkout.open({
+        items: [{ priceId, quantity: 1 }],
+        customer: { email: email.trim() },
+      });
+    } catch (e) {
+      console.error("[Login signup + Paddle] error", e);
+      setMsg(e instanceof Error ? e.message : "Не удалось выполнить запрос. Попробуйте ещё раз.");
       setLoading(false);
+    }
+  };
+
+  const onSubmit = async () => {
+    if (loading) return;
+    setMsg("");
+
+    if (mode === "signup" && !selectedPlan) {
+      continueAfterPlanSelectRef.current = true;
+      setShowPlanModal(true);
+      setLoading(false);
+      return;
+    }
+
+    if (mode === "login") {
+      if (!email.trim()) return setMsg("Введите email");
+      if (!password.trim()) return setMsg("Введите пароль");
+      setLoading(true);
+      try {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+        if (error) {
+          setMsg(error.message);
+          setLoading(false);
+          return;
+        }
+        router.replace(nextPath);
+        return;
+      } catch (e) {
+        console.error("[Login] error", e);
+        setMsg(e instanceof Error ? e.message : "Не удалось выполнить запрос. Попробуйте ещё раз.");
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (mode === "signup" && selectedPlan) {
+      await submitWithPlan(selectedPlan, billing);
     }
   };
 
@@ -143,7 +306,7 @@ export default function LoginPageClient() {
                   className="inline-flex shrink-0 items-center rounded-lg border-2 border-emerald-400/90 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-300 shadow-[0_0_16px_rgba(52,211,153,0.45)] animate-pulse"
                   aria-label="Board online"
                 >
-                  Board online
+                  {mode === "signup" && selectedPlan ? PLAN_LABELS[selectedPlan] : "Dashboard online"}
                 </span>
               </div>
               <p className="mt-1 text-sm text-zinc-400">
@@ -221,16 +384,14 @@ export default function LoginPageClient() {
             </button>
 
             <div
-              className={`flex min-h-[52px] ${
-                mode === "login" ? "items-center" : "items-start"
-              }`}
+              className="flex min-h-[52px] items-start"
             >
               {mode === "login" ? (
                 <button
                   type="button"
                   onClick={resetPassword}
                   disabled={loading}
-                  className="cursor-pointer text-left text-sm font-medium text-zinc-400 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="cursor-pointer mt-0.5 translate-x-[4px] text-left text-sm font-medium text-zinc-400 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Забыли пароль?
                 </button>
@@ -257,7 +418,11 @@ export default function LoginPageClient() {
               )}
             </div>
 
-            {msg ? (
+            {msg &&
+            !(
+              mode === "login" &&
+              msg.startsWith("Регистрация возможна только после оплаты")
+            ) ? (
               <p
                 className={
                   msg.startsWith("✅")
@@ -269,9 +434,142 @@ export default function LoginPageClient() {
               </p>
             ) : null}
 
+            <div
+              className={`text-center -mt-2 ${
+                mode === "signup" ? "" : "invisible pointer-events-none"
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => setShowPlanModal(true)}
+                disabled={loading}
+                className="cursor-pointer text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200 hover:drop-shadow-[0_0_14px_rgba(52,211,153,0.35)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Сменить тариф
+              </button>
+            </div>
+
             <p className="text-center text-xs text-zinc-500">© 2026 Analytics SaaS — Все права защищены.</p>
           </div>
         </div>
+
+        {showPlanModal ? (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/65 p-4">
+            <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0f0f14] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.65)]">
+              <h2 className="text-lg font-semibold text-white">Выберите тариф</h2>
+              <p className="mt-2 text-sm text-zinc-400">Сначала выберите тариф и период оплаты, затем продолжите регистрацию и оплату.</p>
+
+              {/* Период оплаты (как на главной) */}
+              <div className="mt-4 flex justify-center">
+                <div
+                  className="grid w-full grid-cols-2 gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/10"
+                  role="group"
+                  aria-label="Период оплаты"
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setModalBilling("monthly");
+                      const p = new URLSearchParams(searchParams.toString());
+                      p.set("billing", "monthly");
+                      p.set("signup", "1");
+                      router.replace(`/login?${p.toString()}`);
+                    }}
+                    className={`flex-1 cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-[color,background-color,transform] duration-300 ease-out ${
+                      modalBilling === "monthly"
+                        ? "bg-white/10 text-white"
+                        : "text-zinc-400 hover:text-zinc-200"
+                    }`}
+                  >
+                    1 месяц
+                  </button>
+                  <span className="relative inline-flex">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setModalBilling("yearly");
+                        const p = new URLSearchParams(searchParams.toString());
+                        p.set("billing", "yearly");
+                        p.set("signup", "1");
+                        router.replace(`/login?${p.toString()}`);
+                      }}
+                      className={`w-full cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-[color,background-color,transform] duration-300 ease-out ${
+                        modalBilling === "yearly"
+                          ? "bg-white/10 text-white"
+                          : "text-zinc-400 hover:text-zinc-200"
+                      }`}
+                    >
+                      1 год
+                    </button>
+                    <span
+                      className="pointer-events-none absolute right-0 top-0 z-10 flex h-6 w-6 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full bg-emerald-500/35 text-[11px] font-bold leading-none text-emerald-100 ring-1 ring-emerald-400/50"
+                      aria-hidden
+                    >
+                      %
+                    </span>
+                  </span>
+                </div>
+              </div>
+
+              {/* Тариф */}
+              <div className="mt-4 grid grid-cols-1 gap-2">
+                {(["starter", "growth", "agency"] as const).map((plan) => {
+                  const isActive = selectedPlan === plan;
+                  return (
+                    <button
+                      key={plan}
+                      type="button"
+                      onClick={() => {
+                        setSelectedPlan(plan);
+                        const p = new URLSearchParams(searchParams.toString());
+                        p.set("plan", plan);
+                        p.set("billing", modalBilling);
+                        p.set("signup", "1");
+                        router.replace(`/login?${p.toString()}`);
+                        setShowPlanModal(false);
+                        if (continueAfterPlanSelectRef.current) {
+                          continueAfterPlanSelectRef.current = false;
+                          void submitWithPlan(plan, modalBilling);
+                        }
+                      }}
+                      className={`h-11 cursor-pointer rounded-xl border px-4 text-sm font-semibold transition ${
+                        isActive
+                          ? "border-emerald-400/35 bg-emerald-500/[0.16] text-white"
+                          : "border-white/10 bg-white/[0.03] text-zinc-200 hover:bg-white/[0.06]"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <span>{PLAN_LABELS[plan]}</span>
+                          {plan === "growth" ? (
+                            <span className="rounded-md border border-red-400/60 bg-red-500/12 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-300">
+                              Рекомендуем
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs font-semibold text-white/70">{priceText(plan)}</div>
+                          {modalBilling === "yearly" ? (
+                            <div className="text-[11px] font-semibold text-red-400">
+                              Экономия ${yearlySavingsUsd(plan)}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPlanModal(false)}
+                className="mt-3 h-10 w-full cursor-pointer rounded-xl border border-white/12 bg-white/[0.04] text-sm text-zinc-300 transition hover:bg-white/[0.08]"
+              >
+                Закрыть
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </main>
   );
