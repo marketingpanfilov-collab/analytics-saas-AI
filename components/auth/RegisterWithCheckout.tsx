@@ -86,15 +86,6 @@ export default function RegisterWithCheckout({ plan, billing }: Props) {
           selectedPlan: normalizedPlan,
           selectedBilling: billing,
         },
-        // Paddle иногда показывает generic "Something went wrong" в UI,
-        // поэтому ловим деталь события для точной диагностики.
-        eventCallback: (event) => {
-          const e = event as { name?: string; data?: unknown };
-          if (e?.name === "checkout.error") {
-            console.error("[Paddle] checkout.error", e.data ?? e);
-            setError("Ошибка оплаты в Paddle. Проверьте настройки цен в live-окружении.");
-          }
-        },
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Неизвестная ошибка");
