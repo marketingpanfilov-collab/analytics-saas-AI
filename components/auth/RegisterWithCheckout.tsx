@@ -81,11 +81,6 @@ export default function RegisterWithCheckout({ plan, billing }: Props) {
       paddle.Checkout.open({
         items: [{ priceId, quantity: 1 }],
         customer: { email: email.trim() },
-        customData: {
-          app_user_id: registerData.user.id,
-          selected_plan: normalizedPlan,
-          selected_billing: billing,
-        },
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Неизвестная ошибка");
