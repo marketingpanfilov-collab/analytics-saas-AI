@@ -2,6 +2,7 @@
 
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { supabase } from "../../lib/supabaseClient";
 import DataHealthMini, {
   type DataHealthIssue,
@@ -104,6 +105,39 @@ export default function Topbar({ email }: { email?: string }) {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project_id")?.trim() ?? null;
 
+  // Статичный пример фрейма тарифа (пока без логики — позже подключим реальные данные).
+  // Визуальный фрейм тарифа (статичный UI пока без логики).
+  // Оставляем название "Agency", но делаем сам фрейм зелёным.
+  const CURRENT_PLAN: "starter" | "growth" | "agency" = "agency";
+  const CURRENT_PLAN_UNTIL = "31.12.2026";
+  const CURRENT_PLAN_UNTIL_SHORT = CURRENT_PLAN_UNTIL;
+  const isMaxPlan = CURRENT_PLAN === "agency";
+
+  const planTheme =
+    CURRENT_PLAN === "starter"
+      ? {
+          label: "Starter",
+          dot: "rgba(200,200,210,0.95)",
+          border: "rgba(255,255,255,0.16)",
+          bg: "rgba(255,255,255,0.06)",
+          dotGlow: "rgba(255,255,255,0.18)",
+        }
+      : CURRENT_PLAN === "growth"
+        ? {
+            label: "Growth",
+            dot: "rgba(52,211,153,0.95)",
+            border: "rgba(52,211,153,0.35)",
+            bg: "rgba(16,185,129,0.14)",
+            dotGlow: "rgba(16,185,129,0.25)",
+          }
+        : {
+            label: "Agency",
+            dot: "rgba(52,211,153,0.95)",
+            border: "rgba(52,211,153,0.35)",
+            bg: "rgba(16,185,129,0.14)",
+            dotGlow: "rgba(16,185,129,0.25)",
+          };
+
   type DataQualityPayload = {
     has_data: boolean;
     score: number | null;
@@ -145,6 +179,8 @@ export default function Topbar({ email }: { email?: string }) {
 
   const [notifOpen, setNotifOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [maxPlanHover, setMaxPlanHover] = useState(false);
+  const [maxPlanCursor, setMaxPlanCursor] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   const notices: Notice[] = useMemo(
     () => [
@@ -481,6 +517,113 @@ export default function Topbar({ email }: { email?: string }) {
               </div>
             </div>
           )}
+        </div>
+
+        {/* Тариф-фрейм слева от email (статичный UI) */}
+        <div className="relative group" style={{ flex: "0 0 auto" }}>
+          <div
+            className="flex cursor-default items-center gap-2 rounded-xl px-4 py-2"
+            style={{
+              border: `1px solid ${planTheme.border}`,
+              background: planTheme.bg,
+              boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.02)`,
+            }}
+          >
+            <span
+              aria-hidden
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 999,
+                background: planTheme.dot,
+                boxShadow: `0 0 0 4px ${planTheme.dotGlow}`,
+              }}
+            />
+            <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.05 }}>
+              <div style={{ fontWeight: 900, fontSize: 13, color: "white" }}>{planTheme.label}</div>
+            </div>
+          </div>
+
+          {/* tooltip (пока только UI, без функций) */}
+          <div
+            className="absolute left-0 top-full z-[1000] w-[330px] flex-col rounded-2xl border border-white/10 bg-[#0f0f14] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.65)] opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto"
+          >
+            <div style={{ fontWeight: 900, color: "white", fontSize: 14 }}>{planTheme.label}</div>
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 11,
+                opacity: 0.7,
+                color: "white",
+                lineHeight: 1.2,
+              }}
+            >
+              Тариф действует до {CURRENT_PLAN_UNTIL}
+            </div>
+
+            <div style={{ marginTop: 12, fontSize: 12, opacity: 0.85, color: "white" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <span style={{ width: 18, textAlign: "center", color: "rgba(52,211,153,0.95)" }}>✓</span>
+                <span>Рекомендуемая аналитика</span>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+                <span style={{ width: 18, textAlign: "center", color: "rgba(52,211,153,0.95)" }}>✓</span>
+                <span>Расширенные интеграции</span>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+                <span style={{ width: 18, textAlign: "center", color: "rgba(52,211,153,0.95)" }}>✓</span>
+                <span>Поддержка приоритетных задач</span>
+              </div>
+            </div>
+
+            <div className="relative">
+              <button
+                type="button"
+                className={
+                  isMaxPlan
+                    ? "mt-4 h-11 cursor-not-allowed rounded-xl border border-white/10 bg-white/[0.06] px-6 text-sm font-extrabold text-white/55 md:mt-5"
+                    : "pointer-events-auto mt-4 h-11 cursor-pointer rounded-xl border border-emerald-400/35 bg-emerald-500/[0.16] px-6 text-sm font-extrabold text-white transition hover:bg-emerald-500/[0.22] md:mt-5"
+                }
+                aria-disabled={isMaxPlan}
+                onClick={(e) => {
+                  if (isMaxPlan) e.preventDefault();
+                }}
+                onMouseEnter={(e) => {
+                  if (!isMaxPlan) return;
+                  setMaxPlanHover(true);
+                  setMaxPlanCursor({ x: e.clientX, y: e.clientY });
+                }}
+                onMouseMove={(e) => {
+                  if (!isMaxPlan || !maxPlanHover) return;
+                  setMaxPlanCursor({ x: e.clientX, y: e.clientY });
+                }}
+                onMouseLeave={() => {
+                  if (!isMaxPlan) return;
+                  setMaxPlanHover(false);
+                }}
+              >
+                Сменить тариф
+              </button>
+
+              {isMaxPlan &&
+                typeof document !== "undefined" &&
+                maxPlanHover &&
+                createPortal(
+                  <div
+                    role="tooltip"
+                    aria-live="polite"
+                    className="pointer-events-none fixed z-[99999] max-w-[260px] rounded-xl border border-white/10 bg-[#0f0f14] px-3 py-2 text-xs font-semibold text-white/90 shadow-[0_24px_80px_rgba(0,0,0,0.65)]"
+                    style={{
+                      left: maxPlanCursor.x + 12,
+                      top: maxPlanCursor.y + 1,
+                    }}
+                  >
+                    У вас максимальный тариф
+                  </div>,
+                  document.body
+                )}
+            </div>
+          </div>
         </div>
 
         <div style={{ opacity: 0.7, fontSize: 13 }}>{email || "—"}</div>
