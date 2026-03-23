@@ -100,6 +100,9 @@ function Dot({ color }: { color: string }) {
 }
 
 export default function Topbar({ email }: { email?: string }) {
+  type CurrentPlan = "starter" | "growth" | "agency";
+  const getCurrentPlan = (): CurrentPlan => "agency";
+
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -108,7 +111,7 @@ export default function Topbar({ email }: { email?: string }) {
   // Статичный пример фрейма тарифа (пока без логики — позже подключим реальные данные).
   // Визуальный фрейм тарифа (статичный UI пока без логики).
   // Оставляем название "Agency", но делаем сам фрейм зелёным.
-  const CURRENT_PLAN: "starter" | "growth" | "agency" = "agency";
+  const CURRENT_PLAN = getCurrentPlan();
   const CURRENT_PLAN_UNTIL = "31.12.2026";
   const CURRENT_PLAN_UNTIL_SHORT = CURRENT_PLAN_UNTIL;
   const isMaxPlan = CURRENT_PLAN === "agency";
