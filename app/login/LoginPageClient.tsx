@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { isValidPricingPlanId } from "../lib/auth/loginPurchaseUrl";
 import { supabase } from "../lib/supabaseClient";
 
 type Mode = "login" | "signup";
@@ -11,12 +12,26 @@ export default function LoginPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Post-login: project selection first; never default to /app (dashboard without project_id)
+  // Post-login: project selection first; never default to /app (dashboard without project_id).
+  // Если пользователь пришел с тарифа, сохраняем plan/billing в next-path.
   const nextPath = useMemo(() => {
     const n = searchParams.get("next");
-    if (!n || !n.startsWith("/")) return "/app/projects";
-    if (n === "/app" || n === "/app/") return "/app/projects";
-    return n;
+    let path = !n || !n.startsWith("/") ? "/app/projects" : n;
+    if (path === "/app" || path === "/app/") path = "/app/projects";
+
+    const plan = searchParams.get("plan");
+    const billing = searchParams.get("billing");
+    if (isValidPricingPlanId(plan) && (billing === "monthly" || billing === "yearly")) {
+      try {
+        const u = new URL(path.startsWith("/") ? path : `/${path}`, "http://localhost");
+        u.searchParams.set("plan", plan);
+        u.searchParams.set("billing", billing);
+        return `${u.pathname}${u.search}`;
+      } catch {
+        return path;
+      }
+    }
+    return path;
   }, [searchParams]);
 
   const [mode, setMode] = useState<Mode>("login");
@@ -26,6 +41,14 @@ export default function LoginPageClient() {
 
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string>("");
+
+  // С лендинга по кнопке «Приобрести»: открываем сразу вкладку «Регистрация».
+  useEffect(() => {
+    const signup = searchParams.get("signup");
+    const plan = searchParams.get("plan");
+    const openSignup = signup === "1" || signup === "true" || isValidPricingPlanId(plan);
+    if (openSignup) setMode("signup");
+  }, [searchParams]);
 
   const onSubmit = async () => {
     if (loading) return;

@@ -290,7 +290,7 @@ export default function Page() {
             <h2 className="text-3xl font-semibold tracking-tight text-white/95 md:text-4xl">Тарифы</h2>
             <div className="mt-6 flex justify-center">
               <div
-                className="inline-flex gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/10 transition-[box-shadow,background-color] duration-300 ease-out"
+                className="grid w-[320px] grid-cols-2 gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/10 transition-[box-shadow,background-color] duration-300 ease-out sm:w-[360px]"
                 role="group"
                 aria-label="Период оплаты"
               >
@@ -298,26 +298,26 @@ export default function Page() {
                   type="button"
                   onClick={() => setBilling("monthly")}
                   className={cn(
-                    "cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-[color,background-color,transform] duration-300 ease-out",
+                    "flex-1 cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-[color,background-color,transform] duration-300 ease-out",
                     billing === "monthly"
                       ? "bg-white/10 text-white"
                       : "text-zinc-400 hover:text-zinc-200"
                   )}
                 >
-                  Мес
+                  Ежемесячно
                 </button>
                 <span className="relative inline-flex">
                   <button
                     type="button"
                     onClick={() => setBilling("yearly")}
                     className={cn(
-                      "cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-[color,background-color,transform] duration-300 ease-out",
+                      "w-full cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-[color,background-color,transform] duration-300 ease-out",
                       billing === "yearly"
                         ? "bg-white/10 text-white"
                         : "text-zinc-400 hover:text-zinc-200"
                     )}
                   >
-                    Год
+                    Ежегодно
                   </button>
                   {/* Вершина внешней рамки кнопки: центр круга в углу, половина снаружи блока */}
                   <span
