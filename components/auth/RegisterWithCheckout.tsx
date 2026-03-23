@@ -70,6 +70,14 @@ export default function RegisterWithCheckout({ plan, billing }: Props) {
       const paddle = await getPaddle();
       if (!paddle) throw new Error("Paddle не инициализировался. Попробуйте позже.");
 
+      // Диагностика параметров checkout для прод-разбора ошибок Paddle.
+      console.info("[Paddle] opening checkout", {
+        plan: normalizedPlan,
+        billing,
+        priceId,
+        email: email.trim(),
+      });
+
       paddle.Checkout.open({
         items: [{ priceId, quantity: 1 }],
         customer: { email: email.trim() },
@@ -77,6 +85,15 @@ export default function RegisterWithCheckout({ plan, billing }: Props) {
           appUserId: registerData.user.id,
           selectedPlan: normalizedPlan,
           selectedBilling: billing,
+        },
+        // Paddle иногда показывает generic "Something went wrong" в UI,
+        // поэтому ловим деталь события для точной диагностики.
+        eventCallback: (event) => {
+          const e = event as { name?: string; data?: unknown };
+          if (e?.name === "checkout.error") {
+            console.error("[Paddle] checkout.error", e.data ?? e);
+            setError("Ошибка оплаты в Paddle. Проверьте настройки цен в live-окружении.");
+          }
         },
       });
     } catch (e) {
