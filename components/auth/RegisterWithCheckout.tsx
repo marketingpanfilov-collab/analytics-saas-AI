@@ -82,9 +82,9 @@ export default function RegisterWithCheckout({ plan, billing }: Props) {
         items: [{ priceId, quantity: 1 }],
         customer: { email: email.trim() },
         customData: {
-          appUserId: registerData.user.id,
-          selectedPlan: normalizedPlan,
-          selectedBilling: billing,
+          app_user_id: registerData.user.id,
+          selected_plan: normalizedPlan,
+          selected_billing: billing,
         },
       });
     } catch (e) {
