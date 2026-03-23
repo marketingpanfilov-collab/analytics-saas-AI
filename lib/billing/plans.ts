@@ -1,6 +1,7 @@
 export type BillingPeriod = "monthly" | "yearly";
+export type BillingPlanId = "starter" | "growth" | "agency";
 
-export const PLAN_PRICE_MAP: Record<string, Record<BillingPeriod, string>> = {
+export const PLAN_PRICE_MAP: Record<BillingPlanId, Record<BillingPeriod, string>> = {
   starter: {
     monthly: process.env.NEXT_PUBLIC_PADDLE_PRICE_STARTER ?? "",
     yearly: process.env.NEXT_PUBLIC_PADDLE_PRICE_STARTER_YEARLY ?? "",
@@ -15,7 +16,7 @@ export const PLAN_PRICE_MAP: Record<string, Record<BillingPeriod, string>> = {
   },
 };
 
-const PLAN_ALIASES: Record<string, keyof typeof PLAN_PRICE_MAP> = {
+const PLAN_ALIASES: Record<string, BillingPlanId> = {
   starter: "starter",
   growth: "growth",
   pro: "growth",
@@ -23,7 +24,7 @@ const PLAN_ALIASES: Record<string, keyof typeof PLAN_PRICE_MAP> = {
   business: "agency",
 };
 
-export function normalizePlanId(plan: string | null): keyof typeof PLAN_PRICE_MAP | null {
+export function normalizePlanId(plan: string | null): BillingPlanId | null {
   if (!plan) return null;
   return PLAN_ALIASES[plan.toLowerCase()] ?? null;
 }
