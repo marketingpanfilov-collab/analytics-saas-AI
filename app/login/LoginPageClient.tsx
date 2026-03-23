@@ -99,9 +99,17 @@ export default function LoginPageClient() {
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
-              <h1 className="text-2xl font-semibold tracking-tight text-white">
-                {mode === "login" ? "Вход в аккаунт" : "Регистрация"}
-              </h1>
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-2xl font-semibold tracking-tight text-white">
+                  {mode === "login" ? "Вход в аккаунт" : "Регистрация"}
+                </h1>
+                <span
+                  className="inline-flex shrink-0 items-center rounded-lg border-2 border-emerald-400/90 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-300 shadow-[0_0_16px_rgba(52,211,153,0.45)] animate-pulse"
+                  aria-label="Board online"
+                >
+                  Board online
+                </span>
+              </div>
               <p className="mt-1 text-sm text-zinc-400">
                 {mode === "login"
                   ? "Зайдите, чтобы открыть панель отчётности и подключить рекламные аккаунты."

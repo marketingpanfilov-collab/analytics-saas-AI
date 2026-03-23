@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { BaseButton } from "@/components/landing/BaseButton";
+import { PartnershipNavButton } from "@/components/landing/PartnershipLeadProvider";
 
 /* ! — глобальный `a { color: inherit }` в globals.css иначе даёт body white и глушит text-white/65 */
 const landingNavLinkClass =
@@ -41,9 +42,12 @@ export function LandingHeader() {
               <Link href="/#demo" className={landingNavLinkClass}>
                 Демо
               </Link>
+              <PartnershipNavButton className={landingNavLinkClass} />
             </nav>
 
-            <div className="flex shrink-0 items-center">
+            <div className="flex shrink-0 items-center gap-3 md:gap-4">
+              {/* На мобильных nav скрыт — «Партнёрам» только здесь; с md пункт внутри nav выше */}
+              <PartnershipNavButton className={`${landingNavLinkClass} md:hidden`} />
               <BaseButton href="/login" variant="secondary">
                 Войти
               </BaseButton>

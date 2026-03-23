@@ -79,6 +79,10 @@ export default function ProjectsListClient({
   const [transferSuccess, setTransferSuccess] = useState(false);
   const searchDropdownRef = useRef<HTMLDivElement>(null);
 
+  /** Пока идёт переход в дашборд — «Открыть» показывает «Подождите…» до конца навигации или ошибки */
+  const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
+  const [openError, setOpenError] = useState<string | null>(null);
+
   const displayProjects = tab === "active" ? projects : archivedProjects;
   const isArchivedTab = tab === "archived";
 
@@ -127,10 +131,22 @@ export default function ProjectsListClient({
     return () => document.removeEventListener("click", handle);
   }, [transferModalOpen]);
 
-  const handleOpen = (projectId: string) => {
+  const handleOpen = async (projectId: string) => {
     if (isArchivedTab) return;
+    if (openingProjectId) return;
+    setOpenError(null);
+    setOpeningProjectId(projectId);
     setActiveProjectId(projectId);
-    router.push(`/app?project_id=${encodeURIComponent(projectId)}`);
+    try {
+      // Промис завершается, когда навигация (включая загрузку сегментов) завершена.
+      // Состояние не сбрасываем при успехе — страница размонтируется; иначе «Подождите…» мигало бы «Открыть».
+      await router.push(`/app?project_id=${encodeURIComponent(projectId)}`);
+    } catch (err) {
+      setOpeningProjectId(null);
+      setOpenError(
+        err instanceof Error ? err.message : "Не удалось открыть проект. Попробуйте снова."
+      );
+    }
   };
 
   const openRename = (project: Project) => {
@@ -158,7 +174,7 @@ export default function ProjectsListClient({
   };
 
   const submitRename = async () => {
-    if (!renameProject) return;
+    if (!renameProject || renameLoading) return;
     const name = renameName.trim();
     if (!name) {
       setRenameError("Введите название проекта");
@@ -179,17 +195,20 @@ export default function ProjectsListClient({
       const json = await res.json();
       if (!res.ok) {
         setRenameError(json.error ?? "Ошибка сохранения");
+        setRenameLoading(false);
         return;
       }
+      await router.refresh();
       setRenameProject(null);
-      router.refresh();
-    } finally {
+      setRenameLoading(false);
+    } catch {
+      setRenameError("Не удалось сохранить. Попробуйте ещё раз.");
       setRenameLoading(false);
     }
   };
 
   const submitArchive = async () => {
-    if (!archiveProject) return;
+    if (!archiveProject || archiveLoading) return;
     setArchiveError(null);
     setArchiveLoading(true);
     try {
@@ -197,11 +216,14 @@ export default function ProjectsListClient({
       const json = await res.json();
       if (!res.ok) {
         setArchiveError(json.error ?? "Ошибка архивирования");
+        setArchiveLoading(false);
         return;
       }
+      await router.refresh();
       setArchiveProject(null);
-      router.refresh();
-    } finally {
+      setArchiveLoading(false);
+    } catch {
+      setArchiveError("Не удалось архивировать. Попробуйте ещё раз.");
       setArchiveLoading(false);
     }
   };
@@ -213,6 +235,7 @@ export default function ProjectsListClient({
       setTransferError(null);
       return;
     }
+    if (transferLoading) return;
     const password = transferPassword.trim();
     if (!password) {
       setTransferError("Введите текущий пароль");
@@ -234,6 +257,7 @@ export default function ProjectsListClient({
       const verifyJson = await verifyRes.json();
       if (!verifyRes.ok || !verifyJson.success || !verifyJson.reauth_token) {
         setTransferError(verifyJson.error ?? "Неверный пароль");
+        setTransferLoading(false);
         return;
       }
       const transferRes = await fetch("/api/org/transfer-ownership", {
@@ -248,14 +272,17 @@ export default function ProjectsListClient({
       const transferJson = await transferRes.json();
       if (!transferRes.ok) {
         setTransferError(transferJson.error ?? "Ошибка передачи прав");
+        setTransferLoading(false);
         return;
       }
       setTransferSuccess(true);
+      setTransferLoading(false);
       setTimeout(() => {
         setTransferModalOpen(false);
         router.refresh();
       }, 1800);
-    } finally {
+    } catch {
+      setTransferError("Не удалось выполнить передачу. Попробуйте ещё раз.");
       setTransferLoading(false);
     }
   };
@@ -290,7 +317,7 @@ export default function ProjectsListClient({
             <button
               type="button"
               onClick={openTransferModal}
-              className="inline-flex h-10 items-center rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 text-sm font-medium text-amber-200 hover:bg-amber-500/20"
+              className="inline-flex h-10 cursor-pointer items-center rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 text-sm font-medium text-amber-200 hover:bg-amber-500/20"
             >
               Передать управление организацией
             </button>
@@ -305,6 +332,15 @@ export default function ProjectsListClient({
           )}
         </div>
       </header>
+
+      {openError && (
+        <div
+          className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200"
+          role="alert"
+        >
+          {openError}
+        </div>
+      )}
 
       {/* Tabs: Active / Archived */}
       <div className="flex gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/10">
@@ -440,11 +476,16 @@ export default function ProjectsListClient({
                 </div>
                 <button
                   type="button"
-                  onClick={() => handleOpen(project.id)}
-                  disabled={isArchivedTab}
-                  className="mt-4 w-full rounded-xl border border-white/10 bg-white/[0.04] py-2.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => void handleOpen(project.id)}
+                  disabled={isArchivedTab || openingProjectId !== null}
+                  aria-busy={openingProjectId === project.id}
+                  className="mt-4 w-full cursor-pointer rounded-xl border border-white/10 bg-white/[0.04] py-2.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-white/[0.06] hover:text-white disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {isArchivedTab ? "Архив" : "Открыть"}
+                  {openingProjectId === project.id
+                    ? "Подождите…"
+                    : isArchivedTab
+                      ? "Архив"
+                      : "Открыть"}
                 </button>
               </div>
             );
@@ -497,9 +538,10 @@ export default function ProjectsListClient({
                 type="button"
                 onClick={submitRename}
                 disabled={renameLoading}
-                className="rounded-xl bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15 disabled:opacity-50"
+                aria-busy={renameLoading}
+                className="rounded-xl bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {renameLoading ? "Сохранение…" : "Save"}
+                {renameLoading ? "Подождите…" : "Save"}
               </button>
             </div>
           </div>
@@ -537,9 +579,10 @@ export default function ProjectsListClient({
                 type="button"
                 onClick={submitArchive}
                 disabled={archiveLoading}
-                className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+                aria-busy={archiveLoading}
+                className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {archiveLoading ? "Архивирование…" : "Archive"}
+                {archiveLoading ? "Подождите…" : "Archive"}
               </button>
             </div>
           </div>
@@ -688,10 +731,11 @@ export default function ProjectsListClient({
                       transferLoading ||
                       (transferStep === 1 && !transferSelectedMember)
                     }
-                    className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50"
+                    aria-busy={transferLoading}
+                    className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {transferLoading
-                      ? "Выполнение…"
+                      ? "Подождите…"
                       : transferStep === 1
                         ? "Продолжить"
                         : "Transfer ownership"}

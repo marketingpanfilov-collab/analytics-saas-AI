@@ -272,6 +272,9 @@ export default function DataDeletionPage() {
               <Link className="transition hover:text-white/70" href="/privacy">
                 Политика конфиденциальности
               </Link>
+              <Link className="transition hover:text-white/70" href="/refund-policy">
+                Политика возврата
+              </Link>
               <Link className="transition hover:text-white/70" href="/personal-data-agreement">
                 Соглашение об обработке персональных данных
               </Link>

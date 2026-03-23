@@ -395,7 +395,7 @@ function DataFrameSegmentedMiniChart({
                   aria-pressed={active}
                   aria-label={`${DATA_INSIGHTS_DAYS[i]}, значение ${v}`}
                   onMouseEnter={() => onDayHover(i, "right")}
-                  className="group flex h-full min-h-0 min-w-0 flex-col justify-end focus:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
+                  className="group flex h-full min-h-0 min-w-0 cursor-pointer flex-col justify-end focus:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
                 >
                   <div
                     className={cn(
@@ -544,7 +544,7 @@ function DataFrameLineMiniChart({
           >
             <svg
               viewBox={`0 0 ${w} ${h}`}
-              className="absolute inset-0 block h-full w-full"
+              className="absolute inset-0 block h-full w-full cursor-pointer"
               preserveAspectRatio="xMidYMid meet"
               role="img"
               aria-hidden
@@ -769,7 +769,7 @@ export function DataInsightsSection({ density = "default" }: { density?: Landing
                   type="button"
                   onClick={() => setMode(tab.id)}
                   className={cn(
-                    "rounded-full border px-3 py-1.5 text-xs font-semibold transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/25",
+                    "cursor-pointer rounded-full border px-3 py-1.5 text-xs font-semibold transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/25",
                     mode === tab.id
                       ? "border-white/25 bg-white/[0.12] text-white shadow-[0_0_20px_rgba(255,255,255,0.08)]"
                       : "border-white/10 bg-white/[0.02] text-white/50 hover:border-white/18 hover:bg-white/[0.06] hover:text-white/85 hover:shadow-[0_0_16px_rgba(255,255,255,0.06)]"

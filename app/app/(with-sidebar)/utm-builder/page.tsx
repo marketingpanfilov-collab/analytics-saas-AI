@@ -7,7 +7,7 @@ function UtmBuilderFallback() {
   return (
     <div className="flex min-h-[40vh] items-center justify-center p-6">
       <div className="h-10 w-64 rounded-xl bg-white/[0.06]" />
-    </div>
+      </div>
   );
 }
 
