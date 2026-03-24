@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { buildLoginPurchaseHref, type PricingPlanId } from "@/app/lib/auth/loginPurchaseUrl";
 import { BaseButton, cn } from "@/components/landing/BaseButton";
@@ -214,6 +214,21 @@ const PRICING_PLANS: {
 
 export default function Page() {
   const [billing, setBilling] = useState<BillingPeriod>("monthly");
+
+  useEffect(() => {
+    const target = window.sessionStorage.getItem("landing-scroll-target");
+    if (!target) return;
+    window.sessionStorage.removeItem("landing-scroll-target");
+
+    const section = document.getElementById(target);
+    if (!section) return;
+    const headingTarget = section.querySelector("h2, h1");
+    const targetEl = (headingTarget instanceof HTMLElement ? headingTarget : section) as HTMLElement;
+    const headerEl = document.querySelector("header");
+    const headerOffset = headerEl ? headerEl.getBoundingClientRect().height : 72;
+    const top = targetEl.getBoundingClientRect().top + window.scrollY - headerOffset - 30;
+    window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  }, []);
 
   return (
     <PartnershipLeadProvider>

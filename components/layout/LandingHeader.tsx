@@ -1,13 +1,37 @@
+ "use client";
+
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 
 import { BaseButton } from "@/components/landing/BaseButton";
 import { PartnershipNavButton } from "@/components/landing/PartnershipLeadProvider";
 
 /* ! — глобальный `a { color: inherit }` в globals.css иначе даёт body white и глушит text-white/65 */
 const landingNavLinkClass =
-  "rounded-md px-1 py-0.5 text-sm font-semibold !text-white/65 transition-colors duration-200 ease-out hover:!text-white hover:[text-shadow:0_0_20px_rgba(255,255,255,0.45),0_0_36px_rgba(200,230,255,0.2)]";
+  "cursor-pointer rounded-md px-1 py-0.5 text-sm font-semibold !text-white/65 transition-colors duration-200 ease-out hover:!text-white hover:[text-shadow:0_0_20px_rgba(255,255,255,0.45),0_0_36px_rgba(200,230,255,0.2)]";
 
 export function LandingHeader() {
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const scrollToSection = (sectionId: string) => {
+    if (pathname !== "/") {
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem("landing-scroll-target", sectionId);
+      }
+      router.push("/");
+      return;
+    }
+    const section = document.getElementById(sectionId);
+    if (!section) return;
+    const headingTarget = section.querySelector("h2, h1");
+    const targetEl = (headingTarget instanceof HTMLElement ? headingTarget : section) as HTMLElement;
+    const headerEl = document.querySelector("header");
+    const headerOffset = headerEl ? headerEl.getBoundingClientRect().height : 72;
+    const top = targetEl.getBoundingClientRect().top + window.scrollY - headerOffset - 30;
+    window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  };
+
   return (
     <>
       <header className="fixed left-0 right-0 top-0 z-50 w-full">
@@ -29,21 +53,21 @@ export function LandingHeader() {
               className="hidden min-w-0 flex-1 items-center justify-center gap-6 md:flex lg:gap-8"
               aria-label="Разделы лендинга"
             >
-              <Link href="/#advantages" className={landingNavLinkClass}>
+              <button type="button" onClick={() => scrollToSection("advantages")} className={landingNavLinkClass}>
                 Преимущества
-              </Link>
-              <Link href="/#data" className={landingNavLinkClass}>
+              </button>
+              <button type="button" onClick={() => scrollToSection("data")} className={landingNavLinkClass}>
                 Данные
-              </Link>
-              <Link href="/#dda" className={landingNavLinkClass}>
+              </button>
+              <button type="button" onClick={() => scrollToSection("dda")} className={landingNavLinkClass}>
                 DDA
-              </Link>
-              <Link href="/#pricing" className={landingNavLinkClass}>
+              </button>
+              <button type="button" onClick={() => scrollToSection("pricing")} className={landingNavLinkClass}>
                 Тарифы
-              </Link>
-              <Link href="/#demo" className={landingNavLinkClass}>
+              </button>
+              <button type="button" onClick={() => scrollToSection("demo")} className={landingNavLinkClass}>
                 Демо
-              </Link>
+              </button>
               <PartnershipNavButton className={landingNavLinkClass} />
             </nav>
 
