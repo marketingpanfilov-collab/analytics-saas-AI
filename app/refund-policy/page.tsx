@@ -6,7 +6,6 @@ import { RefundRequestForm } from "@/components/legal/RefundRequestForm";
 
 const p = "text-sm leading-relaxed text-white/60";
 const h2 = "mb-3 mt-8 text-lg font-semibold text-white/95 first:mt-0";
-const ul = "list-disc space-y-1.5 pl-5 text-sm leading-relaxed text-white/60";
 
 export default function RefundPolicyPage() {
   return (
@@ -27,22 +26,43 @@ export default function RefundPolicyPage() {
           <p className="text-xs font-bold uppercase tracking-[0.22em] text-white/45">Юридическая информация</p>
           <h1 className="mt-3 text-3xl font-extrabold leading-tight text-white md:text-4xl">Политика возврата</h1>
           <p className="mt-4 max-w-2xl text-base leading-relaxed text-white/58">
-            Настоящая Политика регулирует порядок возврата денежных средств по услугам BoardIQ и применяется с учетом
-            требований законодательства Республики Казахстан.
+            Оплата подписок и цифровых услуг BoardIQ обрабатывается платёжным провайдером Paddle. Настоящая политика
+            соответствует требованиям Paddle к политике возврата и дополняет условия, применимые к вашей сделке с Paddle.
           </p>
 
           <div className="mt-10 rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-md md:p-8">
             <h2 className={h2}>1. Общие положения</h2>
             <p className={p}>
-              1.1. Политика возврата определяет условия, основания, сроки и порядок рассмотрения обращений Пользователей
-              о возврате оплаты за доступ к сервису BoardIQ.
+              1.1. Paddle выступает продавцом записи (Merchant of Record) по платежам, совершённым через Paddle
+              Checkout. Условия покупки, подписок и возвратов в части платежа регулируются документами Paddle, в том числе{" "}
+              <a
+                className="text-white/80 underline underline-offset-2 hover:text-white"
+                href="https://www.paddle.com/legal/buyer-terms"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Paddle Buyer Terms
+              </a>{" "}
+              и{" "}
+              <a
+                className="text-white/80 underline underline-offset-2 hover:text-white"
+                href="https://www.paddle.com/legal/refund-policy"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Paddle Refund Policy
+              </a>
+              .
             </p>
             <p className={p}>
-              1.2. При рассмотрении обращений Исполнитель руководствуется Гражданским кодексом Республики Казахстан,
-              Законом Республики Казахстан "О защите прав потребителей" и иными применимыми нормами права.
+              1.2. Доступ к продукту BoardIQ после оплаты предоставляется Поставщиком (BoardIQ) в соответствии с{" "}
+              <Link className="text-white/80 underline underline-offset-2 hover:text-white" href="/terms">
+                Пользовательским соглашением
+              </Link>
+              .
             </p>
             <p className={p}>
-              1.3. Политика применяется совместно с{" "}
+              1.3. Настоящая страница применяется совместно с{" "}
               <Link className="text-white/80 underline underline-offset-2 hover:text-white" href="/terms">
                 Пользовательским соглашением
               </Link>{" "}
@@ -53,36 +73,73 @@ export default function RefundPolicyPage() {
               .
             </p>
 
-            <h2 className={h2}>2. Когда возврат возможен</h2>
-            <ul className={ul}>
-              <li>Возврат возможен, если Пользователь подал обращение о возврате в течение 14 (четырнадцати) календарных дней с даты оплаты.</li>
-              <li>Двойное списание или ошибочная оплата по вине платежной инфраструктуры;</li>
-              <li>Невозможность предоставить оплаченный доступ по вине Исполнителя;</li>
-              <li>Существенный технический сбой, из-за которого сервис недоступен длительное время;</li>
-              <li>Иные случаи, прямо предусмотренные законодательством Республики Казахстан.</li>
-            </ul>
-
-            <h2 className={h2}>3. Сроки и порядок рассмотрения</h2>
+            <h2 className={h2}>2. Срок на запрос возврата (refund window)</h2>
             <p className={p}>
-              3.1. Обращение рассматривается в срок до 10 (десяти) рабочих дней с даты получения полной
-              информации по заявке.
+              Вы вправе подать запрос на возврат средств в течение{" "}
+              <strong className="font-semibold text-white/85">14 (четырнадцати) календарных дней</strong> с даты
+              списания платежа за подписку или разовую покупку, оформленную через Paddle. Срок исчисляется с даты
+              подтверждённой транзакции в Paddle.
             </p>
             <p className={p}>
-              3.2. При необходимости Исполнитель вправе запросить дополнительные сведения: номер платежа, дату оплаты,
-              подтверждающие документы и контакты для связи.
-            </p>
-            <p className={p}>
-              3.3. При положительном решении возврат осуществляется тем же способом оплаты либо иным способом,
-              согласованным сторонами и допускаемым платежными правилами.
+              Запросы, поступившие после истечения указанного 14-дневного периода, рассматриваются только в рамках
+              правил Paddle и применимого права (включая отдельные положения для подписок и отмены в соответствии с{" "}
+              <a
+                className="text-white/80 underline underline-offset-2 hover:text-white"
+                href="https://www.paddle.com/legal/refund-policy"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Paddle Refund Policy
+              </a>
+              ).
             </p>
 
-            <h2 className={h2}>4. Форма обратной связи по возврату</h2>
+            <h2 className={h2}>3. Как запросить возврат</h2>
+            <p className={p}>
+              3.1. Основной способ — следовать инструкциям Paddle: раздел о возвратах и отмене в{" "}
+              <a
+                className="text-white/80 underline underline-offset-2 hover:text-white"
+                href="https://www.paddle.com/legal/refund-policy"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Paddle Refund Policy
+              </a>
+              , а также портал покупателя и письма с подтверждением заказа от Paddle.
+            </p>
+            <p className={p}>
+              3.2. Вы также можете обратиться в поддержку Paddle:{" "}
+              <a
+                className="text-white/80 underline underline-offset-2 hover:text-white"
+                href="mailto:help@paddle.com"
+              >
+                help@paddle.com
+              </a>
+              .
+            </p>
+            <p className={p}>
+              3.3. Дополнительно вы можете направить обращение через форму на этой странице — заявка будет обработана
+              службой поддержки BoardIQ для согласования с Paddle и ответа вам.
+            </p>
+
+            <h2 className={h2}>4. Сроки рассмотрения обращений BoardIQ</h2>
+            <p className={p}>
+              4.1. Обращения, полученные через форму на сайте, рассматриваются в срок до 10 (десяти) рабочих дней с даты
+              получения полных данных по заявке (email, идентификатор платежа Paddle при наличии, краткое описание
+              причины).
+            </p>
+            <p className={p}>
+              4.2. Фактическое зачисление средств при одобренном возврате выполняется Paddle в соответствии с сроками
+              банка и платёжной схемы.
+            </p>
+
+            <h2 className={h2}>5. Форма обратной связи по возврату</h2>
             <p className={p}>
               Заполните форму ниже. Заявка будет направлена в отдел обработки обращений.
             </p>
             <RefundRequestForm />
 
-            <h2 className={h2}>5. Реквизиты Исполнителя</h2>
+            <h2 className={h2}>6. Реквизиты Исполнителя</h2>
             <RequisitesBlock />
           </div>
         </div>
