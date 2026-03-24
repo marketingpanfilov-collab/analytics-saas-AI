@@ -59,16 +59,26 @@ const DEMO_CHART: { d: string; spend: number; reg: number; sales: number }[] = [
   { d: "Вс", spend: 1050, reg: 47, sales: 8 },
 ];
 
-const NAV_STATIC = [
-  ["📊", "Дашборд", true],
-  ["📑", "Отчёты", false],
-  ["📈", "LTV", false],
-  ["🔗", "UTM Builder", false],
-  ["🛜", "BQ Pixel", false],
-  ["—divider—", "", false],
-  ["🌎", "Аккаунты", false],
-  ["⚙️", "Настройки", false],
-] as const;
+type DemoView = "dashboard" | "ltv" | "pixel";
+type DemoNavItem = {
+  id: string;
+  emoji: string;
+  label: string;
+  enabled: boolean;
+  view?: DemoView;
+  divider?: boolean;
+};
+
+const NAV_ITEMS: DemoNavItem[] = [
+  { id: "dashboard", emoji: "📊", label: "Дашборд", enabled: true, view: "dashboard" },
+  { id: "ltv", emoji: "📈", label: "LTV", enabled: true, view: "ltv" },
+  { id: "pixel", emoji: "🛜", label: "BQ Pixel", enabled: true, view: "pixel" },
+  { id: "reports", emoji: "📑", label: "Отчёты", enabled: false },
+  { id: "utm", emoji: "🔗", label: "UTM Builder", enabled: false },
+  { id: "divider", emoji: "—divider—", label: "", enabled: false, divider: true },
+  { id: "accounts", emoji: "🌎", label: "Аккаунты", enabled: false },
+  { id: "settings", emoji: "⚙️", label: "Настройки", enabled: false },
+];
 
 const bigCard = {
   borderRadius: 16,
@@ -160,6 +170,7 @@ function fmtUsd2(n: number) {
 export function LandingDemoSection() {
   /** Как в Sidebar: по умолчанию блок «Сегодня» свёрнут (ROAS/CAC/CPR скрыты). */
   const [todayOpen, setTodayOpen] = useState(false);
+  const [activeView, setActiveView] = useState<DemoView>("dashboard");
 
   const spendDelta = DEMO_TODAY.spendPlan > 0 ? (DEMO_TODAY.spendFact - DEMO_TODAY.spendPlan) / DEMO_TODAY.spendPlan : 0;
   const spendPct = Math.round(spendDelta * 100);
@@ -181,7 +192,7 @@ export function LandingDemoSection() {
         </div>
 
         <div
-          className="flex h-[min(80vh,820px)] flex-col overflow-hidden rounded-2xl border border-white/10 shadow-[0_24px_80px_rgba(0,0,0,0.55)] ring-1 ring-white/[0.04]"
+          className="flex h-[min(84svh,920px)] flex-col overflow-hidden rounded-2xl border border-white/10 shadow-[0_24px_80px_rgba(0,0,0,0.55)] ring-1 ring-white/[0.04] md:h-[min(80vh,820px)]"
           style={{ background: DEMO_BG }}
         >
           <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(0,260px)_1fr]">
@@ -315,20 +326,28 @@ export function LandingDemoSection() {
 
                 {/* Навигация */}
                 <nav className="flex flex-col gap-2 pb-4 text-[13px]">
-                  {NAV_STATIC.map(([emoji, label, active]) =>
-                    emoji === "—divider—" ? (
+                  {NAV_ITEMS.map((item) =>
+                    item.divider ? (
                       <div key="sidebar-nav-divider" className="my-1 h-px bg-white/10 opacity-45" />
                     ) : (
-                      <div
-                        key={label}
-                        className="rounded-[10px] px-3 py-2.5 font-medium text-white"
+                      <button
+                        type="button"
+                        key={item.id}
+                        disabled={!item.enabled}
+                        onClick={() => item.view && setActiveView(item.view)}
+                        className="rounded-[10px] px-3 py-2.5 text-left font-medium text-white disabled:cursor-default"
                         style={{
-                          background: active ? "rgba(255,255,255,0.10)" : "transparent",
-                          border: active ? "1px solid rgba(255,255,255,0.10)" : "1px solid transparent",
+                          background:
+                            item.view === activeView ? "rgba(255,255,255,0.10)" : "transparent",
+                          border:
+                            item.view === activeView
+                              ? "1px solid rgba(255,255,255,0.10)"
+                              : "1px solid transparent",
+                          color: item.enabled ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.38)",
                         }}
                       >
-                        {emoji} {label}
-                      </div>
+                        {item.emoji} {item.label}
+                      </button>
                     )
                   )}
                 </nav>
@@ -356,12 +375,41 @@ export function LandingDemoSection() {
               </header>
 
               <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain [-webkit-overflow-scrolling:touch]">
-                <div className="p-4 md:p-5 lg:p-6">
-                  <div className="mb-1 text-[clamp(22px,4vw,30px)] font-black leading-tight text-white">Дашборд</div>
+                <div className="p-3.5 md:p-5 lg:p-6">
+                  {/* Мобильная навигация демо-борда (desktop-версия остается в сайдбаре) */}
+                  <div className="mb-3 md:hidden">
+                    <div className="mb-2 rounded-lg border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-[12px] font-semibold text-white/90">
+                      Демо-проект
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                      {NAV_ITEMS.filter((item) => !item.divider).map((item) => (
+                        <button
+                          type="button"
+                          disabled={!item.enabled}
+                          onClick={() => item.view && setActiveView(item.view)}
+                          key={`mobile-${item.id}`}
+                          className="shrink-0 rounded-[10px] border px-3 py-2 text-[12px] font-medium text-white disabled:cursor-default"
+                          style={{
+                            background:
+                              item.view === activeView ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.02)",
+                            borderColor:
+                              item.view === activeView ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.08)",
+                            color: item.enabled ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.42)",
+                          }}
+                        >
+                          {item.emoji} {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mb-1 text-[clamp(22px,4vw,30px)] font-black leading-tight text-white">
+                    {activeView === "dashboard" ? "Дашборд" : activeView === "ltv" ? "LTV отчёт" : "BQ Pixel"}
+                  </div>
                   <div className="mb-4 max-w-xl text-[13px] leading-relaxed text-white/55">
                     Обзор метрик по выбранному периоду и статус данных.
                   </div>
-
+                  <div className={activeView === "dashboard" ? "block" : "hidden"}>
                   <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2 text-[12px]">
                       <span
@@ -390,12 +438,14 @@ export function LandingDemoSection() {
                       </span>
                     </div>
                     <div className="flex flex-col items-end gap-1.5 text-[11px] text-white/55">
-                      <span className="rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 font-semibold text-white/70">
-                        Обновлено: 14:32
-                      </span>
-                      <span className="rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 font-semibold text-white/70">
-                        OK: 14:31
-                      </span>
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
+                        <span className="rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 font-semibold text-white/70">
+                          Обновлено: 14:32
+                        </span>
+                        <span className="rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 font-semibold text-white/70">
+                          OK: 14:31
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -422,16 +472,7 @@ export function LandingDemoSection() {
                     ))}
                   </div>
 
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "2fr 1fr",
-                      gap: 16,
-                      marginBottom: 20,
-                      alignItems: "stretch",
-                    }}
-                    className="max-lg:grid-cols-1"
-                  >
+                  <div className="mb-5 grid grid-cols-1 items-stretch gap-4 lg:grid-cols-[2fr_1fr]">
                     <div style={{ ...card, padding: 20 }}>
                       <div className="mb-2.5 text-lg font-black text-white">Динамика расхода</div>
                       <div className="mb-3.5 text-[13px] text-white/70">
@@ -511,16 +552,7 @@ export function LandingDemoSection() {
                   </div>
 
                   {/* Ряд как в борде: Роль каналов | Топ путей */}
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: 20,
-                      marginBottom: 20,
-                      alignItems: "stretch",
-                    }}
-                    className="max-lg:grid-cols-1"
-                  >
+                  <div className="mb-5 grid grid-cols-1 items-stretch gap-5 lg:grid-cols-2">
                     <div style={bigCard}>
                       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                         <h3 className="text-[17px] font-bold text-white/95">Роль каналов в пути к покупке</h3>
@@ -679,6 +711,204 @@ export function LandingDemoSection() {
                               />
                             </div>
                             <span className="w-8 tabular-nums text-white/45">{b.p}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  </div>
+
+                  <div className={activeView === "ltv" ? "block" : "hidden"}>
+                    <div className="mb-4 flex flex-wrap items-center gap-2 text-[12px]">
+                      <span
+                        className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 font-semibold text-white/75"
+                        style={{ borderRadius: 10 }}
+                      >
+                        Sources: Все источники ▼
+                      </span>
+                      <span
+                        className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 font-semibold text-white/75"
+                        style={{ borderRadius: 10 }}
+                      >
+                        Cohort: Mar 2026 ▼
+                      </span>
+                    </div>
+                    <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      {[
+                        { label: "Users", value: "1 240", sub: "First: 820 · Repeat: 420" },
+                        { label: "Cohort month activity", value: "38.4%", sub: "Active in M0 / users(M0)" },
+                        { label: "Paying share", value: "7.2%", sub: "LTV (накоп.): $150" },
+                      ].map((k) => (
+                        <div key={k.label} style={{ ...card, padding: "14px 16px" }}>
+                          <div className="text-[11px] text-white/55">{k.label}</div>
+                          <div className="mt-2 text-[28px] font-black tabular-nums text-white/95">{k.value}</div>
+                          <div className="mt-2 text-[11px] leading-snug text-white/45">{k.sub}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-[1.35fr_1fr]">
+                      <div style={{ ...bigCard, minHeight: 240 }}>
+                        <div className="mb-2 text-lg font-black text-white">LTV Dynamics</div>
+                        <div className="mb-3 text-[13px] text-white/65">Кривая LTV и ARPU по когорте (demo data)</div>
+                        <MiniDemoChart />
+                      </div>
+                      <div style={{ ...bigCard, minHeight: 240 }}>
+                        <div className="mb-2 text-lg font-black text-white">Revenue composition</div>
+                        <div className="mb-4 text-[13px] text-white/65">First / Repeat / Retention campaign</div>
+                        <div className="mb-3 flex h-8 overflow-hidden rounded-md bg-white/[0.06]">
+                          <div className="h-full bg-[rgba(47,143,102,0.9)]" style={{ width: "59%" }} />
+                          <div className="h-full bg-[rgba(58,95,168,0.9)]" style={{ width: "25%" }} />
+                          <div className="h-full bg-[rgba(90,58,122,0.9)]" style={{ width: "16%" }} />
+                        </div>
+                        <div className="space-y-1.5 text-[12px]">
+                          <div className="flex justify-between"><span className="text-white/55">First</span><span className="text-white/90">$76 000</span></div>
+                          <div className="flex justify-between"><span className="text-white/55">Repeat</span><span className="text-white/90">$32 000</span></div>
+                          <div className="flex justify-between"><span className="text-white/55">Retention</span><span className="text-white/90">$20 000</span></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+                      <div style={{ ...bigCard, minHeight: 220 }}>
+                        <div className="mb-2 text-base font-black text-white">CPR</div>
+                        <div className="space-y-2.5 text-[13px]">
+                          <div className="flex justify-between"><span className="text-white/55">CPR (plan)</span><span className="text-white/90">$7.14</span></div>
+                          <div className="flex justify-between"><span className="text-white/55">CPR (actual)</span><span className="text-white/90">$5.14</span></div>
+                        </div>
+                        <div className="mt-3 text-[11px] leading-relaxed text-white/45">Cost per repeat purchase на базе retention campaign spend.</div>
+                      </div>
+                      <div style={{ ...bigCard, minHeight: 220 }}>
+                        <div className="mb-2 text-base font-black text-white">Unit Economics</div>
+                        <div className="space-y-2.5 text-[13px]">
+                          <div className="flex justify-between"><span className="text-white/55">True CAC</span><span className="text-white/90">$26.1</span></div>
+                          <div className="flex justify-between"><span className="text-white/55">LTV D90</span><span className="text-white/90">$150</span></div>
+                          <div className="flex justify-between"><span className="text-white/55">Profit</span><span className="text-emerald-300">+$123.9</span></div>
+                          <div className="flex justify-between"><span className="text-white/55">LTV/CAC</span><span className="text-white/90">5.74x</span></div>
+                        </div>
+                      </div>
+                      <div style={{ ...bigCard, minHeight: 220 }}>
+                        <div className="mb-2 text-base font-black text-white">Retention Economics</div>
+                        <div className="space-y-2.5 text-[13px]">
+                          <div className="flex justify-between"><span className="text-white/55">Plan budget</span><span className="text-white/90">$3 000</span></div>
+                          <div className="flex justify-between"><span className="text-white/55">Actual spend</span><span className="text-white/90">$2 160</span></div>
+                          <div className="flex justify-between"><span className="text-white/55">Difference</span><span className="text-emerald-300">+$840</span></div>
+                          <div className="flex justify-between"><span className="text-white/55">Retention ROAS</span><span className="text-white/90">18.4</span></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ ...bigCard, minHeight: 260 }}>
+                      <div className="mb-2 text-lg font-black text-white">Cohort Analysis</div>
+                      <div className="mb-4 text-[13px] text-white/65">Retention и выручка по когортам (мобильный demo отчёт).</div>
+                      <div className="mb-3 flex w-full flex-wrap gap-1 rounded-lg bg-white/[0.03] p-1 sm:w-fit">
+                        <button type="button" className="rounded-md bg-white/10 px-3 py-1.5 text-xs font-medium text-white">Выручка</button>
+                        <button type="button" className="rounded-md px-3 py-1.5 text-xs font-medium text-white/60">Пользователи</button>
+                        <button type="button" className="rounded-md px-3 py-1.5 text-xs font-medium text-white/60">Retention %</button>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="min-w-[620px] w-full text-left text-[12px]">
+                          <thead className="text-white/55">
+                            <tr className="border-b border-white/10">
+                              <th className="py-2 pr-3">Когорта</th>
+                              <th className="py-2 pr-3">Польз.</th>
+                              <th className="py-2 pr-3">Retention %</th>
+                              <th className="py-2 pr-3">LTV D90</th>
+                              <th className="py-2 pr-3">CAC</th>
+                              <th className="py-2">Окупаемость</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-white/90">
+                            {[
+                              ["Jan 2026", "980", "36%", "$139", "$24", "5.8x"],
+                              ["Feb 2026", "1 110", "37%", "$152", "$21", "7.2x"],
+                              ["Mar 2026", "1 240", "38.4%", "$161", "$20", "8.0x"],
+                            ].map((r) => (
+                              <tr key={r[0]} className="border-b border-white/[0.06]">
+                                <td className="py-2 pr-3">{r[0]}</td>
+                                <td className="py-2 pr-3">{r[1]}</td>
+                                <td className="py-2 pr-3">{r[2]}</td>
+                                <td className="py-2 pr-3">{r[3]}</td>
+                                <td className="py-2 pr-3">{r[4]}</td>
+                                <td className="py-2 text-emerald-300">{r[5]}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className={activeView === "pixel" ? "block" : "hidden"}>
+                    <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      {[
+                        { label: "Pixel script", status: "Works", color: "text-emerald-300" },
+                        { label: "Visit tracking", status: "Works", color: "text-emerald-300" },
+                        { label: "Conversion tracking", status: "Partial", color: "text-amber-300" },
+                      ].map((k) => (
+                        <div key={k.label} style={{ ...card, padding: "12px 14px" }}>
+                          <div className="text-[10px] uppercase tracking-[0.06em] text-white/50">{k.label}</div>
+                          <div className={`mt-1 text-[14px] font-semibold ${k.color}`}>{k.status}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      {[
+                        { label: "Событий за 24ч", value: "4 281", sub: "Last visit: только что" },
+                        { label: "Last registration", value: "12 мин назад", sub: "Active now" },
+                        { label: "Last purchase", value: "43 мин назад", sub: "Active now" },
+                      ].map((k) => (
+                        <div key={k.label} style={{ ...card, padding: "14px 16px" }}>
+                          <div className="text-[11px] text-white/55">{k.label}</div>
+                          <div className="mt-2 text-[26px] font-black tabular-nums text-white/95">{k.value}</div>
+                          <div className="mt-1 text-[11px] text-white/45">{k.sub}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mb-4" style={{ ...bigCard, minHeight: 180 }}>
+                      <div className="mb-2 text-lg font-black text-white">Установка пикселя</div>
+                      <div className="mb-3 text-[13px] text-white/65">Скрипт перед &lt;/body&gt; (demo snippet)</div>
+                      <pre className="overflow-x-auto rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-[11px] leading-relaxed text-white/70">
+{`<script
+  defer
+  src="https://boardiq.kz/tracker.js"
+  data-project-id="PROJECT_ID">
+</script>`}
+                      </pre>
+                    </div>
+
+                    <div className="mb-4 rounded-xl border border-white/[0.08] bg-white/[0.02] p-4">
+                      <div className="mb-2 text-sm font-semibold text-white/90">Conversion events</div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-[12px] text-white/75">
+                          <div className="text-[11px] font-semibold uppercase text-emerald-300">Required</div>
+                          <div className="mt-1">project_id, event_name, user_external_id, visitor_id, session_id, click_id</div>
+                        </div>
+                        <div className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2 text-[12px] text-white/75">
+                          <div className="text-[11px] font-semibold uppercase text-white/55">Optional</div>
+                          <div className="mt-1">email, phone, metadata</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ ...bigCard, minHeight: 240 }}>
+                      <div className="mb-2 text-lg font-black text-white">Recent pixel events</div>
+                      <div className="mb-4 text-[13px] text-white/65">Тестовые данные для мобильного просмотра событий.</div>
+                      <div className="space-y-2.5 text-[13px]">
+                        {[
+                          ["page_view", "14:32:04", "visitor_9f1...", "google", "—"],
+                          ["registration", "14:25:11", "visitor_9f1...", "meta", "—"],
+                          ["purchase", "14:18:02", "visitor_8a2...", "direct", "$120"],
+                          ["add_to_cart", "14:11:34", "visitor_8a2...", "tiktok", "—"],
+                        ].map(([event, time, visitor, utm, value]) => (
+                          <div key={event} className="flex items-center justify-between rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2">
+                            <span className="min-w-0 flex-1 text-white/85">{event}</span>
+                            <span className="w-20 text-right text-white/55">{time}</span>
+                            <span className="hidden w-28 truncate text-right text-white/45 sm:inline">{visitor}</span>
+                            <span className="hidden w-16 text-right text-white/45 sm:inline">{utm}</span>
+                            <span className="w-16 text-right tabular-nums text-white/65">{value}</span>
                           </div>
                         ))}
                       </div>
