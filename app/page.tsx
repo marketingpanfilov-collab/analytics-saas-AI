@@ -213,7 +213,7 @@ const PRICING_PLANS: {
 ];
 
 export default function Page() {
-  const [billing, setBilling] = useState<BillingPeriod>("monthly");
+  const [billing, setBilling] = useState<BillingPeriod>("yearly");
 
   const scrollToPricing = () => {
     const section = document.getElementById("pricing");
