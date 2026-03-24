@@ -235,6 +235,23 @@ export default function Page() {
           <div className="text-center">
             <div className="relative mx-auto inline-block max-w-4xl">
               <div
+                className="mb-3 flex flex-wrap items-center justify-center gap-2 sm:mb-4 lg:hidden"
+                aria-hidden
+              >
+                <span className="hero-badge hero-badge--realtime">
+                  <span className="hero-badge-dot" />
+                  <span className="hero-badge-label">Real time</span>
+                </span>
+                <span className="hero-badge hero-badge--control">
+                  <span className="hero-badge-dot" />
+                  <span className="hero-badge-label">Control</span>
+                </span>
+                <span className="hero-badge hero-badge--alert">
+                  <span className="hero-badge-dot" />
+                  <span className="hero-badge-label">Alert</span>
+                </span>
+              </div>
+              <div
                 className="pointer-events-none absolute bottom-full right-0 z-10 mb-2 hidden max-w-[min(100%,calc(100vw-2.5rem))] flex-row flex-nowrap items-center justify-end gap-2 sm:gap-2.5 lg:mb-2.5 lg:flex"
                 aria-hidden
               >
@@ -251,14 +268,14 @@ export default function Page() {
                   <span className="hero-badge-label">Alert</span>
                 </span>
               </div>
-              <h1 className="hero-title-gradient mx-auto max-w-4xl overflow-visible pb-[0.12em] text-4xl font-extrabold leading-[1.12] md:text-6xl md:leading-[1.1] xl:text-[72px] xl:leading-[1.08]">
+              <h1 className="hero-title-gradient mx-auto max-w-4xl overflow-visible pb-[0.12em] text-[2.55rem] font-extrabold leading-[1.1] md:text-6xl md:leading-[1.1] xl:text-[72px] xl:leading-[1.08]">
                 Управляйте маркетингом
                 <br />
                 через прибыль
               </h1>
             </div>
 
-            <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-white/58 md:text-lg">
+            <p className="mx-auto mt-5 max-w-xl text-[1.08rem] leading-relaxed text-white/58 md:text-lg">
               Единая прозрачная аналитика, которая помогает принимать решения и управлять прибылью
             </p>
 

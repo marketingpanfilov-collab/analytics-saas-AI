@@ -9,12 +9,14 @@ export function BaseButton({
   href,
   variant = "outline",
   full = false,
+  className,
 }: {
   children: React.ReactNode;
   href: string;
   /** Как primary, но emerald — в одном тоне с карточками BoardIQ / выделенным тарифом */
   variant?: "primary" | "primaryEmerald" | "secondary" | "outline";
   full?: boolean;
+  className?: string;
 }) {
   return (
     <Link
@@ -31,6 +33,7 @@ export function BaseButton({
           "border border-white/12 bg-white/8 text-white/92 hover:bg-white/12",
         variant === "outline" &&
           "border border-white/12 bg-transparent text-white/78 hover:bg-white/6",
+        className
       )}
     >
       {children}
