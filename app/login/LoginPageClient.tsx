@@ -306,7 +306,7 @@ export default function LoginPageClient() {
         <button
           type="button"
           onClick={handleBack}
-          className="mb-4 inline-flex h-11 items-center self-start gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 text-[14px] font-medium text-white/75 transition hover:bg-white/[0.06] hover:text-white"
+          className="mb-4 inline-flex h-11 cursor-pointer items-center self-start gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 text-[14px] font-medium text-white/75 transition hover:bg-white/[0.06] hover:text-white"
         >
           <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-4 w-4 shrink-0">
             <path d="M11.5 5.5L7 10l4.5 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
