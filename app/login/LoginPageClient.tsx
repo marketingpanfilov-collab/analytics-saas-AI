@@ -325,7 +325,7 @@ export default function LoginPageClient() {
                   className="inline-flex shrink-0 items-center rounded-lg border-2 border-emerald-400/90 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-300 shadow-[0_0_16px_rgba(52,211,153,0.45)] animate-pulse"
                   aria-label="Board online"
                 >
-                  {mode === "signup" && selectedPlan ? PLAN_LABELS[selectedPlan] : "Dashboard online"}
+                  {mode === "signup" && selectedPlan ? `ТАРИФ: ${PLAN_LABELS[selectedPlan]}` : "Dashboard online"}
                 </span>
               </div>
               <p className="mt-1 text-sm text-zinc-400">
@@ -561,7 +561,7 @@ export default function LoginPageClient() {
                         <div className="flex items-center gap-2">
                           <span>{PLAN_LABELS[plan]}</span>
                           {plan === "growth" ? (
-                            <span className="rounded-md border border-red-400/60 bg-red-500/12 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-300">
+                            <span className="rounded-md border border-emerald-400/60 bg-emerald-500/12 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-300">
                               Рекомендуем
                             </span>
                           ) : null}
