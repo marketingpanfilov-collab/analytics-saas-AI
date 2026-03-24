@@ -199,12 +199,12 @@ function PartnershipModal({
           phone_required: "Укажите телефон.",
           collaboration_required: "Выберите вид сотрудничества.",
           collaboration_invalid: "Выберите вид сотрудничества из списка.",
-          smtp_not_configured: "Отправка временно недоступна. Напишите нам на marketing.panfilov@gmail.com",
-          send_failed: "Не удалось отправить письмо. Попробуйте позже или напишите на marketing.panfilov@gmail.com",
+          smtp_not_configured: "Не удалось отправить заявку. Напишите нам на marketing.panfilov@gmail.com",
+          send_failed: "Не удалось отправить заявку. Напишите нам на marketing.panfilov@gmail.com",
         };
         setMsg({
           kind: "err",
-          text: map[data.error ?? ""] ?? "Не удалось отправить заявку. Попробуйте позже.",
+          text: map[data.error ?? ""] ?? "Не удалось отправить заявку. Напишите нам на marketing.panfilov@gmail.com",
         });
         return;
       }

@@ -43,6 +43,39 @@ function getTransporter() {
   });
 }
 
+async function sendViaResend(params: {
+  to: string;
+  subject: string;
+  text: string;
+  html: string;
+  replyTo?: string;
+}) {
+  const key = process.env.RESEND_API_KEY?.trim();
+  if (!key) return false;
+  const from = process.env.RESEND_FROM_EMAIL?.trim() || "BoardIQ <onboarding@resend.dev>";
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: [params.to],
+      subject: params.subject,
+      text: params.text,
+      html: params.html,
+      reply_to: params.replyTo,
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Resend API error: ${res.status} ${errText}`);
+  }
+  return true;
+}
+
 /**
  * Заявка партнёра с лендинга — письмо на PARTNERSHIP_LEAD_TO (по умолчанию marketing.panfilov@gmail.com).
  * Нужны SMTP_* в .env (например Gmail с паролем приложения).
@@ -94,18 +127,7 @@ export async function POST(req: Request) {
   const to = (process.env.PARTNERSHIP_LEAD_TO || DEFAULT_TO).trim();
 
   const transporter = getTransporter();
-  if (!transporter) {
-    if (process.env.NODE_ENV === "development") {
-      console.warn(
-        "[partnership-lead] SMTP не настроен — письмо не отправлено. Добавьте SMTP_HOST, SMTP_USER, SMTP_PASS в .env. Заявка:",
-        payload
-      );
-      return NextResponse.json({ ok: true, dev: true });
-    }
-    return NextResponse.json({ ok: false, error: "smtp_not_configured" }, { status: 503 });
-  }
-
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER || "noreply@localhost";
+  const smtpFrom = process.env.SMTP_FROM || process.env.SMTP_USER || "noreply@localhost";
   const subject = `BoardIQ — партнёрская заявка: ${collabLabel} (${payload.company})`;
 
   const text = [
@@ -136,16 +158,41 @@ export async function POST(req: Request) {
   </div>`;
 
   try {
-    await transporter.sendMail({
-      from: `"BoardIQ" <${from}>`,
-      to,
-      replyTo: payload.email,
-      subject,
-      text,
-      html,
-    });
+    if (transporter) {
+      await transporter.sendMail({
+        from: `"BoardIQ" <${smtpFrom}>`,
+        to,
+        replyTo: payload.email,
+        subject,
+        text,
+        html,
+      });
+    } else {
+      const sent = await sendViaResend({
+        to,
+        subject,
+        text,
+        html,
+        replyTo: payload.email,
+      });
+      if (!sent) {
+        return NextResponse.json({ ok: false, error: "smtp_not_configured" }, { status: 503 });
+      }
+    }
   } catch (e) {
     console.error("[partnership-lead] sendMail", e);
+    try {
+      const sentViaResend = await sendViaResend({
+        to,
+        subject,
+        text,
+        html,
+        replyTo: payload.email,
+      });
+      if (sentViaResend) return NextResponse.json({ ok: true, provider: "resend_fallback" });
+    } catch (fallbackErr) {
+      console.error("[partnership-lead] resend fallback", fallbackErr);
+    }
     return NextResponse.json({ ok: false, error: "send_failed" }, { status: 502 });
   }
 
