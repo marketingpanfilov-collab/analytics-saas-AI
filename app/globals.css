@@ -108,6 +108,18 @@ h3 {
   background: rgba(255, 255, 255, 0.16);
 }
 
+/* Локально скрыть скроллбар, но сохранить прокрутку */
+.scrollbar-hidden {
+  -ms-overflow-style: none; /* IE/Edge legacy */
+  scrollbar-width: none; /* Firefox */
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
 /* ===== ДЕФОЛТНЫЕ СТИЛИ ДЛЯ INPUT/BUTTON (НЕ ЛОМАЮТ TAILWIND) =====
    ВАЖНО: применяются только к элементам БЕЗ class="".
 */

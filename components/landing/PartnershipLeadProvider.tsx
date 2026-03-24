@@ -252,7 +252,7 @@ function PartnershipModal({
         aria-modal="true"
         aria-labelledby={titleId}
         className={cn(
-          "relative z-10 flex w-full max-w-lg flex-col overflow-y-auto overscroll-y-contain rounded-2xl border border-white/10 bg-[#0f0f14] shadow-[0_24px_80px_rgba(0,0,0,0.65)] ring-1 ring-white/[0.06] will-change-transform [-webkit-overflow-scrolling:touch]",
+          "scrollbar-hidden relative z-10 flex w-full max-w-lg flex-col overflow-y-auto overscroll-y-contain rounded-2xl border border-white/10 bg-[#0f0f14] shadow-[0_24px_80px_rgba(0,0,0,0.65)] ring-1 ring-white/[0.06] will-change-transform [-webkit-overflow-scrolling:touch]",
           "max-h-[calc(100svh-40px)]",
           "px-8 pb-10 pt-9 md:px-12 md:pb-12 md:pt-10",
           "transition-[opacity,transform]",
