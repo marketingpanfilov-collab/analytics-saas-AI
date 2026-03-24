@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 
-import { buildLoginPurchaseHref, LOGIN_PURCHASE_NO_PLAN_HREF, type PricingPlanId } from "@/app/lib/auth/loginPurchaseUrl";
+import { buildLoginPurchaseHref, type PricingPlanId } from "@/app/lib/auth/loginPurchaseUrl";
 import { BaseButton, cn } from "@/components/landing/BaseButton";
 import { LandingDemoSection } from "@/components/landing/LandingDemoBoard";
 import { LandingPartnershipCta } from "@/components/landing/LandingPartnershipCta";
@@ -280,7 +280,7 @@ export default function Page() {
             </p>
 
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-              <BaseButton href={LOGIN_PURCHASE_NO_PLAN_HREF} variant="primary">
+              <BaseButton href="#pricing" variant="primary">
                 Приобрести
               </BaseButton>
               <BaseButton href="#demo" variant="secondary">
