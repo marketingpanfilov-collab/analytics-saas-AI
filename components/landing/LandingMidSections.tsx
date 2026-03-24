@@ -384,7 +384,7 @@ function DataFrameSegmentedMiniChart({
         onMouseLeave={() => onDayHover(null, "right")}
       >
         <div className="flex min-h-0 flex-1 flex-col justify-end gap-1">
-          <div className="grid min-h-0 flex-1 grid-cols-7 gap-1 sm:gap-1.5">
+          <div className="grid min-h-[2.75rem] flex-1 grid-cols-7 gap-1 sm:gap-1.5">
             {series.map((v, i) => {
               const h = Math.max((v / max) * 100, 10);
               const active = selectedDay === i;
