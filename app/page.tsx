@@ -215,6 +215,17 @@ const PRICING_PLANS: {
 export default function Page() {
   const [billing, setBilling] = useState<BillingPeriod>("monthly");
 
+  const scrollToPricing = () => {
+    const section = document.getElementById("pricing");
+    if (!section) return;
+    const headingTarget = section.querySelector("h2, h1");
+    const targetEl = (headingTarget instanceof HTMLElement ? headingTarget : section) as HTMLElement;
+    const headerEl = document.querySelector("header");
+    const headerOffset = headerEl ? headerEl.getBoundingClientRect().height : 72;
+    const top = targetEl.getBoundingClientRect().top + window.scrollY - headerOffset - 30;
+    window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+  };
+
   useEffect(() => {
     const target = window.sessionStorage.getItem("landing-scroll-target");
     if (!target) return;
@@ -295,9 +306,16 @@ export default function Page() {
             </p>
 
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-              <BaseButton href="#pricing" variant="primary">
+              <button
+                type="button"
+                onClick={scrollToPricing}
+                className={cn(
+                  "inline-flex h-12 min-w-[148px] cursor-pointer items-center justify-center rounded-xl px-6",
+                  "border border-[rgba(34,197,94,0.36)] bg-[rgba(34,197,94,0.18)] text-sm font-extrabold text-white shadow-[0_10px_30px_rgba(34,197,94,0.14)] transition hover:bg-[rgba(34,197,94,0.26)] hover:shadow-[0_0_30px_rgba(34,197,94,0.18)]"
+                )}
+              >
                 Приобрести
-              </BaseButton>
+              </button>
               <BaseButton href="#demo" variant="secondary">
                 Демо
               </BaseButton>
