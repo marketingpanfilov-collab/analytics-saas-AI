@@ -14,8 +14,10 @@ export function LandingHeader() {
         <div className="border-b border-white/8 bg-black/40 backdrop-blur-xl supports-[backdrop-filter]:bg-black/30">
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-3">
             <Link href="/" className="flex shrink-0 items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/6 font-black">
-                BIQ
+              <div className="relative h-10 w-10 rounded-xl border border-white/10 bg-white/6">
+                <span className="absolute inset-0 grid place-items-center text-[13px] font-black leading-none">
+                  BIQ
+                </span>
               </div>
               <div className="leading-tight">
                 <div className="text-sm font-extrabold text-white/95">BoardIQ</div>
