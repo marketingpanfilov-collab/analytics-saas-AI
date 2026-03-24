@@ -335,12 +335,12 @@ export default function LoginPageClient() {
               </p>
             </div>
 
-            <div className="flex shrink-0 gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/10">
+            <div className="flex w-full shrink-0 gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/10 sm:w-auto">
               <button
                 type="button"
                 onClick={() => setMode("login")}
                 disabled={loading}
-                className={`cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                className={`w-1/2 cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto ${
                   mode === "login"
                     ? "bg-white/10 text-white"
                     : "text-zinc-400 hover:text-zinc-200"
@@ -352,7 +352,7 @@ export default function LoginPageClient() {
                 type="button"
                 onClick={() => setMode("signup")}
                 disabled={loading}
-                className={`cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                className={`w-1/2 cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto ${
                   mode === "signup"
                     ? "bg-white/10 text-white"
                     : "text-zinc-400 hover:text-zinc-200"

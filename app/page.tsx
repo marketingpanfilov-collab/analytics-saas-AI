@@ -258,8 +258,8 @@ export default function Page() {
       {/* Остаток экрана под спейсером хедера (h-16 / md:h-[4.25rem]); grid + place-content-center — стабильнее вертикального центра, чем flex + dvh */}
       <section className="hero-scope relative z-10 grid min-h-[calc(100svh-4rem)] w-full place-content-center md:min-h-[calc(100svh-4.25rem)]">
         <div className="mx-auto w-full max-w-5xl px-5 py-10 md:py-12">
-          <div className="text-center">
-            <div className="relative mx-auto inline-block max-w-4xl">
+          <div className="flex flex-col items-center text-center md:block">
+            <div className="relative mx-auto flex w-full max-w-4xl flex-col items-center md:inline-block">
               <div
                 className="mb-3 flex flex-wrap items-center justify-center gap-2 sm:mb-4 lg:hidden"
                 aria-hidden
@@ -305,7 +305,7 @@ export default function Page() {
               Единая прозрачная аналитика, которая помогает принимать решения и управлять прибылью
             </p>
 
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-3 md:justify-center">
               <button
                 type="button"
                 onClick={scrollToPricing}
