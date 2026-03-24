@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { buildLoginPurchaseHref, type PricingPlanId } from "@/app/lib/auth/loginPurchaseUrl";
 import { LandingHeader } from "@/components/layout/LandingHeader";
@@ -70,6 +71,7 @@ function formatUsd(n: number) {
 }
 
 export default function PricingComparisonPage() {
+  const router = useRouter();
   const [starterBilling, setStarterBilling] = useState<BillingPeriod>("monthly");
   const [growthBilling, setGrowthBilling] = useState<BillingPeriod>("monthly");
   const [agencyBilling, setAgencyBilling] = useState<BillingPeriod>("monthly");
@@ -89,6 +91,14 @@ export default function PricingComparisonPage() {
 
   const groups = useMemo(() => [...new Set(FEATURES.map((f) => f.group))], []);
 
+  const handleBack = () => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.push("/#pricing");
+  };
+
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#030303] text-white">
       <div className="pointer-events-none absolute inset-0">
@@ -105,13 +115,16 @@ export default function PricingComparisonPage() {
       <section className="relative z-10">
         <div className="mx-auto max-w-7xl px-5 pb-14 pt-12 md:pb-20 md:pt-16">
           <div className="grid grid-cols-[1fr_auto_1fr] items-center">
-            <Link
-              href="/#pricing"
-              className="inline-flex items-center justify-self-start gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-medium text-white/70 transition hover:bg-white/[0.06] hover:text-white"
+            <button
+              type="button"
+              onClick={handleBack}
+              className="inline-flex h-11 items-center justify-self-start gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 text-[14px] font-medium text-white/75 transition hover:bg-white/[0.06] hover:text-white"
             >
-              <span aria-hidden>←</span>
-              Вернуться назад
-            </Link>
+              <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-4 w-4 shrink-0">
+                <path d="M11.5 5.5L7 10l4.5 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span className="inline-block -translate-y-[1px] leading-none">Вернуться назад</span>
+            </button>
 
             <h1 className="text-center text-3xl font-semibold tracking-tight text-white/95 md:text-4xl">
               Сравнение тарифов BoardIQ

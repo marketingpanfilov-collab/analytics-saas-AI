@@ -292,9 +292,28 @@ export default function LoginPageClient() {
   const inputClass =
     "mt-2 w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-white/20 focus:outline-none";
 
+  const handleBack = () => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.push("/#pricing");
+  };
+
   return (
     <main className="min-h-screen bg-[#0b0b10] text-white">
       <div className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center px-6 py-10">
+        <button
+          type="button"
+          onClick={handleBack}
+          className="mb-4 inline-flex h-11 items-center self-start gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 text-[14px] font-medium text-white/75 transition hover:bg-white/[0.06] hover:text-white"
+        >
+          <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-4 w-4 shrink-0">
+            <path d="M11.5 5.5L7 10l4.5 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span className="inline-block -translate-y-[1px] leading-none">Вернуться назад</span>
+        </button>
+
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
