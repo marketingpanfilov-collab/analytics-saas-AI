@@ -464,7 +464,7 @@ export default function LoginPageClient() {
                 disabled={loading}
                 className="cursor-pointer text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200 hover:drop-shadow-[0_0_14px_rgba(52,211,153,0.35)] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Сменить тариф
+                {selectedPlan ? "Сменить тариф" : "Выбрать тариф"}
               </button>
             </div>
 
