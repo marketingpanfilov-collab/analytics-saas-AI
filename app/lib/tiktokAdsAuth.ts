@@ -12,10 +12,30 @@ type TikTokTokenResponse = {
   access_token?: string;
   refresh_token?: string;
   expires_in?: number;
+  data?: {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+  };
   error?: string;
   error_description?: string;
   message?: string;
 };
+
+function normalizeTokenPayload(payload: TikTokTokenResponse): {
+  access_token: string | null;
+  refresh_token: string | null;
+  expires_in: number;
+} {
+  const accessToken = payload.access_token ?? payload.data?.access_token ?? null;
+  const refreshToken = payload.refresh_token ?? payload.data?.refresh_token ?? null;
+  const expiresIn = Number(payload.expires_in ?? payload.data?.expires_in ?? 86400);
+  return {
+    access_token: accessToken?.trim() || null,
+    refresh_token: refreshToken?.trim() || null,
+    expires_in: Number.isFinite(expiresIn) ? expiresIn : 86400,
+  };
+}
 
 export async function getValidTikTokAccessToken(
   admin: SupabaseClient,
@@ -47,6 +67,7 @@ export async function getValidTikTokAccessToken(
   if (!refreshToken) return null;
 
   let tokenJson: TikTokTokenResponse | null = null;
+  let normalized: { access_token: string | null; refresh_token: string | null; expires_in: number } | null = null;
 
   // Primary: Marketing API v1.3 refresh.
   const primaryRes = await fetch("https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/", {
@@ -60,8 +81,10 @@ export async function getValidTikTokAccessToken(
     }),
   });
   const primaryJson = (await primaryRes.json().catch(() => ({}))) as TikTokTokenResponse;
-  if (primaryRes.ok && primaryJson.access_token) {
+  const primaryNormalized = normalizeTokenPayload(primaryJson);
+  if (primaryRes.ok && primaryNormalized.access_token) {
     tokenJson = primaryJson;
+    normalized = primaryNormalized;
   } else {
     // Fallback: OAuth v2 refresh.
     const fallbackBody = new URLSearchParams({
@@ -76,15 +99,19 @@ export async function getValidTikTokAccessToken(
       body: fallbackBody.toString(),
     });
     const fallbackJson = (await fallbackRes.json().catch(() => ({}))) as TikTokTokenResponse;
-    if (fallbackRes.ok && fallbackJson.access_token) tokenJson = fallbackJson;
+    const fallbackNormalized = normalizeTokenPayload(fallbackJson);
+    if (fallbackRes.ok && fallbackNormalized.access_token) {
+      tokenJson = fallbackJson;
+      normalized = fallbackNormalized;
+    }
   }
 
-  if (!tokenJson?.access_token) return null;
+  if (!normalized?.access_token) return null;
 
-  const newAccessToken = tokenJson.access_token.trim();
-  const expiresIn = Number(tokenJson.expires_in ?? 86400);
+  const newAccessToken = normalized.access_token;
+  const expiresIn = normalized.expires_in;
   const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
-  const newRefreshToken = tokenJson.refresh_token?.trim() || refreshToken;
+  const newRefreshToken = normalized.refresh_token || refreshToken;
 
   await admin
     .from("integrations_auth")

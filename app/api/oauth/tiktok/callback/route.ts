@@ -7,10 +7,34 @@ type TikTokTokenResponse = {
   refresh_token?: string;
   expires_in?: number;
   scope?: string;
+  data?: {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    scope?: string;
+  };
   message?: string;
   error?: string;
   error_description?: string;
 };
+
+function normalizeTokenPayload(payload: TikTokTokenResponse): {
+  access_token: string | null;
+  refresh_token: string | null;
+  expires_in: number;
+  scope: string | null;
+} {
+  const accessToken = payload.access_token ?? payload.data?.access_token ?? null;
+  const refreshToken = payload.refresh_token ?? payload.data?.refresh_token ?? null;
+  const expiresIn = Number(payload.expires_in ?? payload.data?.expires_in ?? 86400);
+  const scope = payload.scope ?? payload.data?.scope ?? null;
+  return {
+    access_token: accessToken?.trim() || null,
+    refresh_token: refreshToken?.trim() || null,
+    expires_in: Number.isFinite(expiresIn) ? expiresIn : 86400,
+    scope,
+  };
+}
 
 function parseState(state: string | null): { project_id?: string; return_to?: string } | null {
   if (!state || !state.trim()) return null;
@@ -94,9 +118,10 @@ export async function GET(req: NextRequest) {
     }),
   });
   let tokenJson = (await primaryRes.json().catch(() => ({}))) as TikTokTokenResponse;
+  let normalized = normalizeTokenPayload(tokenJson);
 
   // Fallback: OAuth v2 exchange for apps configured with Login Kit style callback.
-  if (!primaryRes.ok || !tokenJson.access_token) {
+  if (!primaryRes.ok || !normalized.access_token) {
     const fallbackBody = new URLSearchParams({
       client_key: appId,
       client_secret: clientSecret,
@@ -110,7 +135,8 @@ export async function GET(req: NextRequest) {
       body: fallbackBody.toString(),
     });
     tokenJson = (await fallbackRes.json().catch(() => ({}))) as TikTokTokenResponse;
-    if (!fallbackRes.ok || !tokenJson.access_token) {
+    normalized = normalizeTokenPayload(tokenJson);
+    if (!fallbackRes.ok || !normalized.access_token) {
       const back = new URL(returnTo, req.nextUrl.origin);
       back.searchParams.set("connected", "tiktok_error");
       back.searchParams.set("reason", tokenJson.error_description || tokenJson.error || tokenJson.message || "token_exchange_failed");
@@ -118,18 +144,18 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  if (!tokenJson.access_token) {
+  if (!normalized.access_token) {
     const back = new URL(returnTo, req.nextUrl.origin);
     back.searchParams.set("connected", "tiktok_error");
     back.searchParams.set("reason", tokenJson.error_description || tokenJson.error || tokenJson.message || "token_exchange_failed");
     return NextResponse.redirect(back, { status: 302 });
   }
 
-  const accessToken = tokenJson.access_token.trim();
-  const refreshTokenFromTikTok = tokenJson.refresh_token?.trim() || null;
-  const expiresIn = Number(tokenJson.expires_in ?? 86400);
+  const accessToken = normalized.access_token;
+  const refreshTokenFromTikTok = normalized.refresh_token;
+  const expiresIn = normalized.expires_in;
   const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
-  const scopes = tokenJson.scope ?? null;
+  const scopes = normalized.scope;
   const nowIso = new Date().toISOString();
 
   const { data: canonicalInt, error: intUpsertErr } = await admin
