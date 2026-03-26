@@ -84,7 +84,15 @@ export async function POST(req: Request) {
   const secret = process.env.TIKTOK_CLIENT_SECRET;
   if (!appId || !secret) {
     return NextResponse.json(
-      { success: false, error: "TIKTOK_APP_ID/TIKTOK_CLIENT_KEY or TIKTOK_CLIENT_SECRET not set" },
+      {
+        success: false,
+        error: "TIKTOK_APP_ID/TIKTOK_CLIENT_KEY or TIKTOK_CLIENT_SECRET not set",
+        debug: {
+          has_tiktok_app_id: Boolean(process.env.TIKTOK_APP_ID),
+          has_tiktok_client_key: Boolean(process.env.TIKTOK_CLIENT_KEY),
+          has_tiktok_client_secret: Boolean(process.env.TIKTOK_CLIENT_SECRET),
+        },
+      },
       { status: 500 }
     );
   }
@@ -120,6 +128,10 @@ export async function POST(req: Request) {
         success: false,
         error: listJson.message || `TikTok advertiser list error: ${listResult.status}`,
         tiktok_code: listJson.code ?? null,
+        debug: {
+          app_id_len: String(appId).trim().length,
+          app_id_is_numeric: /^\d+$/.test(String(appId).trim()),
+        },
       },
       { status: listResult.status >= 400 ? listResult.status : 500 }
     );
