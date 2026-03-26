@@ -1,0 +1,148 @@
+import { NextResponse } from "next/server";
+import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { getValidTikTokAccessToken } from "@/app/lib/tiktokAdsAuth";
+
+function isUuid(v: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
+
+type TikTokAdvertiser = {
+  advertiser_id?: string | number;
+  advertiser_name?: string;
+  name?: string;
+};
+
+type TikTokAdvertiserResponse = {
+  data?: {
+    list?: TikTokAdvertiser[];
+  };
+  message?: string;
+  code?: number;
+};
+
+export async function POST(req: Request) {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ success: false, error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const projectId =
+    typeof (body as Record<string, unknown>)?.project_id === "string"
+      ? ((body as Record<string, unknown>).project_id as string).trim()
+      : "";
+
+  if (!projectId || !isUuid(projectId)) {
+    return NextResponse.json(
+      { success: false, error: "project_id is required and must be a valid UUID" },
+      { status: 400 }
+    );
+  }
+
+  const admin = supabaseAdmin();
+  const appId = process.env.TIKTOK_APP_ID || process.env.TIKTOK_CLIENT_KEY;
+  const secret = process.env.TIKTOK_CLIENT_SECRET;
+  if (!appId || !secret) {
+    return NextResponse.json(
+      { success: false, error: "TIKTOK_APP_ID/TIKTOK_CLIENT_KEY or TIKTOK_CLIENT_SECRET not set" },
+      { status: 500 }
+    );
+  }
+  const { data: proj } = await admin
+    .from("projects")
+    .select("id, owner_id")
+    .eq("id", projectId)
+    .maybeSingle();
+  if (!proj) return NextResponse.json({ success: false, error: "Project not found" }, { status: 404 });
+
+  const { data: integration } = await admin
+    .from("integrations")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("platform", "tiktok")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!integration?.id) {
+    return NextResponse.json({ success: false, error: "TikTok integration not found; connect OAuth first" }, { status: 404 });
+  }
+
+  const token = await getValidTikTokAccessToken(admin, integration.id);
+  if (!token) {
+    return NextResponse.json({ success: false, error: "TikTok auth token not found or expired; reconnect TikTok OAuth" }, { status: 401 });
+  }
+
+  const query = new URLSearchParams({
+    app_id: appId,
+    secret,
+    access_token: token.access_token,
+  });
+  const listRes = await fetch(`https://business-api.tiktok.com/open_api/v1.3/oauth2/advertiser/get/?${query.toString()}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+
+  const listJson = (await listRes.json().catch(() => ({}))) as TikTokAdvertiserResponse;
+  if (!listRes.ok || Number(listJson.code ?? 0) !== 0) {
+    return NextResponse.json(
+      { success: false, error: listJson.message || `TikTok advertiser list error: ${listRes.status}` },
+      { status: listRes.status >= 400 ? listRes.status : 500 }
+    );
+  }
+
+  const advertisers = (listJson.data?.list ?? [])
+    .map((row) => {
+      const externalId = String(row.advertiser_id ?? "").trim();
+      if (!externalId) return null;
+      return {
+        externalId,
+        name: row.advertiser_name?.trim() || row.name?.trim() || externalId,
+      };
+    })
+    .filter((x): x is { externalId: string; name: string } => !!x);
+
+  if (!proj.owner_id) {
+    return NextResponse.json({ success: false, error: "Project has no owner_id; required for ad_accounts" }, { status: 500 });
+  }
+
+  const adAccountRows = advertisers.map((a) => ({
+    owner_id: proj.owner_id,
+    integration_id: integration.id,
+    project_id: projectId,
+    provider: "tiktok" as const,
+    external_account_id: a.externalId,
+    account_name: a.name,
+  }));
+
+  if (adAccountRows.length > 0) {
+    const { error: adErr } = await admin
+      .from("ad_accounts")
+      .upsert(adAccountRows, { onConflict: "integration_id,external_account_id" });
+    if (adErr) return NextResponse.json({ success: false, error: adErr.message ?? "ad_accounts upsert failed" }, { status: 500 });
+
+    const { data: insertedAccounts } = await admin
+      .from("ad_accounts")
+      .select("id")
+      .eq("integration_id", integration.id);
+    const settingsRows = (insertedAccounts ?? []).map(({ id }: { id: string }) => ({
+      ad_account_id: id,
+      project_id: projectId,
+      is_enabled: false,
+      selected_for_reporting: false,
+      sync_enabled: false,
+      updated_at: new Date().toISOString(),
+    }));
+    if (settingsRows.length > 0) {
+      await admin.from("ad_account_settings").upsert(settingsRows, { onConflict: "ad_account_id" });
+    }
+  }
+
+  return NextResponse.json({
+    success: true,
+    discovered: advertisers.length,
+    advertiser_ids: advertisers.map((a) => a.externalId),
+  });
+}

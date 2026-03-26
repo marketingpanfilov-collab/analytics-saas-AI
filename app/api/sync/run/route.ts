@@ -14,6 +14,10 @@ function isGoogleCustomerId(v: string) {
   return /^\d+(-?\d*)$/.test(String(v).trim());
 }
 
+function isTikTokAdvertiserId(v: string) {
+  return /^\d+$/.test(String(v).trim());
+}
+
 /** Forward browser session to delegated route handlers (server-side fetch does not inherit cookies). */
 function forwardAuthHeaders(req: Request): HeadersInit {
   const h: Record<string, string> = {};
@@ -112,6 +116,21 @@ export async function POST(req: Request) {
     }
   }
 
+  if (platform === "tiktok" && sync_type === "insights") {
+    if (ad_account_id === undefined || ad_account_id === null || ad_account_id === "") {
+      return NextResponse.json(
+        { success: false, error: "ad_account_id is required for tiktok/insights sync" },
+        { status: 400 }
+      );
+    }
+    if (!isTikTokAdvertiserId(ad_account_id)) {
+      return NextResponse.json(
+        { success: false, error: "ad_account_id must be a numeric TikTok advertiser id" },
+        { status: 400 }
+      );
+    }
+  }
+
   // Dispatch: meta + insights → delegate to existing GET Meta insights sync
   if (platform === "meta" && sync_type === "insights") {
     const baseUrl = new URL(req.url).origin;
@@ -183,6 +202,39 @@ export async function POST(req: Request) {
     const normalized = {
       success,
       platform: "google" as const,
+      sync_type: "insights" as const,
+      ad_account_id: ad_account_id as string,
+      rows_written,
+      period,
+      error: error ?? null,
+      details: success ? { saved: json?.saved } : { step: json?.step },
+    };
+
+    return NextResponse.json(normalized, {
+      status: success ? 200 : (res.status >= 400 ? res.status : 500),
+    });
+  }
+
+  if (platform === "tiktok" && sync_type === "insights") {
+    const baseUrl = new URL(req.url).origin;
+    const url = new URL("/api/oauth/tiktok/insights/sync", baseUrl);
+    url.searchParams.set("project_id", project_id);
+    url.searchParams.set("ad_account_id", ad_account_id as string);
+
+    const res = await fetch(url.toString(), { method: "GET", headers: forwardAuthHeaders(req) });
+    const json = await res.json().catch(() => ({}));
+
+    const success = res.ok && json?.success === true;
+    const rows_written = success ? Number(json?.saved ?? 0) : undefined;
+    const period =
+      json?.period && typeof json.period === "object"
+        ? { since: json.period.since ?? null, until: json.period.until ?? null }
+        : undefined;
+    const error = success ? undefined : (json?.error ?? json?.step ?? "Sync failed");
+
+    const normalized = {
+      success,
+      platform: "tiktok" as const,
       sync_type: "insights" as const,
       ad_account_id: ad_account_id as string,
       rows_written,

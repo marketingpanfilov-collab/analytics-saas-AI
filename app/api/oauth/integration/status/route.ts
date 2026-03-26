@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { getMetaIntegrationForProject } from "@/app/lib/metaIntegration";
 import { getValidGoogleAccessToken } from "@/app/lib/googleAdsAuth";
+import { getValidTikTokAccessToken } from "@/app/lib/tiktokAdsAuth";
 
 export type IntegrationStatusValue = "healthy" | "error" | "stale" | "disconnected" | "no_accounts" | "not_connected";
 
@@ -458,6 +459,7 @@ export async function GET(req: Request) {
       }
 
       if (platform === "tiktok") {
+        let reason: string | null = null;
         const { data: rows } = await admin
           .from("integrations")
           .select("id")
@@ -467,14 +469,73 @@ export async function GET(req: Request) {
           .limit(1);
         const row = (rows ?? [])[0] as { id?: string } | undefined;
         const connected = !!row?.id;
+
+        if (!connected) {
+          safePush(integrations, {
+            platform: "tiktok",
+            connected: false,
+            oauth_valid: false,
+            enabled_accounts: 0,
+            status: "not_connected",
+            reason: null,
+            integration_id: null,
+          });
+          continue;
+        }
+
+        let oauth_valid = false;
+        if (row?.id) {
+          try {
+            const token = await getValidTikTokAccessToken(admin, row.id);
+            oauth_valid = !!token;
+            if (!oauth_valid) reason = "disconnected";
+          } catch {
+            oauth_valid = false;
+            reason = "disconnected";
+          }
+        }
+
+        const canonicalId = await getCanonicalIntegrationId(admin, projectId, "tiktok");
+        const enabled_accounts = canonicalId ? await countEnabledAccounts(admin, projectId, canonicalId) : 0;
+
+        let status: IntegrationStatusValue = "not_connected";
+        let last_sync_status: string | null = null;
+        let last_sync_at: string | null = null;
+        let last_sync_error: string | null = null;
+        let data_max_date: string | null = null;
+
+        if (!oauth_valid) {
+          status = "disconnected";
+        } else if (enabled_accounts === 0) {
+          status = "no_accounts";
+        } else {
+          const syncAndFreshness = await getSyncAndFreshness(admin, projectId, "tiktok");
+          last_sync_status = syncAndFreshness.last_sync_status;
+          last_sync_at = syncAndFreshness.last_sync_at;
+          last_sync_error = syncAndFreshness.last_sync_error;
+          data_max_date = syncAndFreshness.data_max_date;
+          const resolved = resolveDataStatus(
+            enabled_accounts,
+            last_sync_status,
+            last_sync_at,
+            data_max_date
+          );
+          status = resolved.status;
+          reason = resolved.reason ?? reason;
+        }
+
         safePush(integrations, {
           platform: "tiktok",
           connected,
-          oauth_valid: false,
-          enabled_accounts: 0,
-          status: "not_connected",
-          reason: null,
+          oauth_valid,
+          enabled_accounts,
+          status,
+          reason,
           integration_id: row?.id ?? null,
+          last_sync_status,
+          last_sync_at,
+          last_sync_error,
+          data_max_date,
         });
       }
     } catch (e) {

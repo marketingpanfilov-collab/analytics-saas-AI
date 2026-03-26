@@ -247,8 +247,11 @@ export default function AccountsPageClient() {
   const [integrations, setIntegrations] = useState<IntegrationStatusRow[]>([]);
   /** Google: platform_account_id (external_account_id) of selected accounts; synced from is_enabled on refresh. */
   const [selectedGoogleIds, setSelectedGoogleIds] = useState<string[]>([]);
+  const [selectedTikTokIds, setSelectedTikTokIds] = useState<string[]>([]);
   const [showGoogleDisconnectConfirm, setShowGoogleDisconnectConfirm] = useState(false);
   const [googleDisconnectLoading, setGoogleDisconnectLoading] = useState(false);
+  const [showTikTokDisconnectConfirm, setShowTikTokDisconnectConfirm] = useState(false);
+  const [tiktokDisconnectLoading, setTikTokDisconnectLoading] = useState(false);
 
   /** Meta only: platform_account_id (act_*) of accounts currently enabled (saved). Derived from canonical is_enabled after fetch. */
   const [activeIds, setActiveIds] = useState<string[]>([]);
@@ -307,6 +310,21 @@ export default function AccountsPageClient() {
       setToast({ type: "success", text: "Google Ads подключён." });
       if (projectId) router.replace(`/app/accounts?project_id=${encodeURIComponent(projectId)}`);
       else router.replace(`/app/accounts`);
+      return;
+    }
+
+    if (connectedParam === "tiktok_error") {
+      const suffix = reasonParam ? ` (${reasonParam})` : "";
+      setToast({ type: "error", text: `TikTok OAuth не завершился. Попробуй ещё раз${suffix}.` });
+      if (projectId) router.replace(`/app/accounts?project_id=${encodeURIComponent(projectId)}`);
+      else router.replace(`/app/accounts`);
+      return;
+    }
+
+    if (connectedParam === "tiktok") {
+      setToast({ type: "success", text: "TikTok Ads подключён." });
+      if (projectId) router.replace(`/app/accounts?project_id=${encodeURIComponent(projectId)}`);
+      else router.replace(`/app/accounts`);
     }
   }, [connectedParam, reasonParam, projectId, urlProjectId, router]);
 
@@ -319,19 +337,25 @@ export default function AccountsPageClient() {
 
   const metaRow = useMemo(() => integrations.find((i) => i.platform === "meta"), [integrations]);
   const googleRow = useMemo(() => integrations.find((i) => i.platform === "google"), [integrations]);
+  const tiktokRow = useMemo(() => integrations.find((i) => i.platform === "tiktok"), [integrations]);
   const metaStatus = (metaRow?.status ?? "not_connected") as IntegrationStatusValue;
   const googleStatus = (googleRow?.status ?? "not_connected") as IntegrationStatusValue;
+  const tiktokStatus = (tiktokRow?.status ?? "not_connected") as IntegrationStatusValue;
 
   const metaSyncEnabled = metaStatus === "healthy" || metaStatus === "stale" || metaStatus === "error";
   const googleSyncEnabled = googleStatus === "healthy" || googleStatus === "stale" || googleStatus === "error";
+  const tiktokSyncEnabled = tiktokStatus === "healthy" || tiktokStatus === "stale" || tiktokStatus === "error";
 
   const metaCanShowAccountSelection =
     metaStatus === "healthy" || metaStatus === "stale" || metaStatus === "no_accounts" || metaStatus === "error";
   const googleCanShowAccountSelection =
     googleStatus === "healthy" || googleStatus === "stale" || googleStatus === "no_accounts" || googleStatus === "error";
+  const tiktokCanShowAccountSelection =
+    tiktokStatus === "healthy" || tiktokStatus === "stale" || tiktokStatus === "no_accounts" || tiktokStatus === "error";
 
   const metaConnectedLike = metaCanShowAccountSelection;
   const googleConnectedLike = googleCanShowAccountSelection;
+  const tiktokConnectedLike = tiktokCanShowAccountSelection;
 
   /** Enabled ids from last accounts fetch (DB / is_enabled), not local checkbox state. */
   const enabledMetaIds = useMemo(
@@ -342,18 +366,26 @@ export default function AccountsPageClient() {
     () => accounts.filter((a) => a.platform === "google" && a.is_enabled).map((a) => a.platform_account_id),
     [accounts]
   );
+  const enabledTikTokIds = useMemo(
+    () => accounts.filter((a) => a.platform === "tiktok" && a.is_enabled).map((a) => a.platform_account_id),
+    [accounts]
+  );
 
   const metaSelectionChanged = !sameSet(selectedIds, enabledMetaIds) || enabledMetaIds.length === 0;
   const googleSelectionChanged = !sameSet(selectedGoogleIds, enabledGoogleIds) || enabledGoogleIds.length === 0;
+  const tiktokSelectionChanged = !sameSet(selectedTikTokIds, enabledTikTokIds) || enabledTikTokIds.length === 0;
 
   const metaShowSaveSelection =
     metaConnectedLike && selectedIds.length > 0 && metaSelectionChanged;
 
   const googleShowSaveSelection =
     googleConnectedLike && selectedGoogleIds.length > 0 && googleSelectionChanged;
+  const tiktokShowSaveSelection =
+    tiktokConnectedLike && selectedTikTokIds.length > 0 && tiktokSelectionChanged;
 
   const metaShowDisconnect = metaCanShowAccountSelection;
   const googleShowDisconnect = googleCanShowAccountSelection;
+  const tiktokShowDisconnect = tiktokCanShowAccountSelection;
 
   const metaMainButtonText =
     metaStatus === "disconnected" || metaStatus === "not_connected"
@@ -368,9 +400,16 @@ export default function AccountsPageClient() {
       : googleStatus === "error"
         ? "Переподключить"
         : "Подключено";
+  const tiktokMainButtonText =
+    tiktokStatus === "disconnected" || tiktokStatus === "not_connected"
+      ? "Подключить"
+      : tiktokStatus === "error"
+        ? "Переподключить"
+        : "Подключено";
 
   const metaPrimaryButtonKind = metaStatus === "disconnected" || metaStatus === "not_connected" ? "primary" : "ghost";
   const googlePrimaryButtonKind = googleStatus === "disconnected" || googleStatus === "not_connected" ? "primary" : "ghost";
+  const tiktokPrimaryButtonKind = tiktokStatus === "disconnected" || tiktokStatus === "not_connected" ? "primary" : "ghost";
 
   const metaStatusLabel = useMemo(() => {
     if (metaStatus === "healthy") return "Подключено";
@@ -389,6 +428,14 @@ export default function AccountsPageClient() {
     if (googleStatus === "disconnected") return "Отключено";
     return "Не подключено";
   }, [googleStatus]);
+  const tiktokStatusLabel = useMemo(() => {
+    if (tiktokStatus === "healthy") return "Подключено";
+    if (tiktokStatus === "no_accounts") return "Подключено — выбери аккаунты";
+    if (tiktokStatus === "error") return "Ошибка синка";
+    if (tiktokStatus === "stale") return "Данные устарели";
+    if (tiktokStatus === "disconnected") return "Отключено";
+    return "Не подключено";
+  }, [tiktokStatus]);
 
   const statusToStyles: Record<IntegrationStatusValue, React.CSSProperties> = useMemo(
     () => ({
@@ -427,6 +474,7 @@ export default function AccountsPageClient() {
   );
   const metaStatusStyles = statusToStyles[metaStatus];
   const googleStatusStyles = statusToStyles[googleStatus];
+  const tiktokStatusStyles = statusToStyles[tiktokStatus];
 
   async function refresh() {
     if (!projectId) return;
@@ -439,6 +487,7 @@ export default function AccountsPageClient() {
 
       const metaFromUnified = statusList.find((i) => i.platform === "meta");
       const googleFromUnified = statusList.find((i) => i.platform === "google");
+      const tiktokFromUnified = statusList.find((i) => i.platform === "tiktok");
       setIntegrationId(metaFromUnified?.integration_id ?? null);
 
       const accRes = await fetch(`/api/dashboard/accounts?project_id=${encodeURIComponent(projectId)}`);
@@ -453,6 +502,14 @@ export default function AccountsPageClient() {
           googleFromUnified.status === "error" ||
           googleFromUnified.status === "no_accounts") &&
         list.filter((a) => a.platform === "google").length === 0;
+      const tiktokShouldDiscover =
+        tiktokFromUnified &&
+        tiktokFromUnified.oauth_valid &&
+        (tiktokFromUnified.status === "healthy" ||
+          tiktokFromUnified.status === "stale" ||
+          tiktokFromUnified.status === "error" ||
+          tiktokFromUnified.status === "no_accounts") &&
+        list.filter((a) => a.platform === "tiktok").length === 0;
 
       if (googleShouldDiscover) {
         try {
@@ -469,6 +526,21 @@ export default function AccountsPageClient() {
         }
       }
 
+      if (tiktokShouldDiscover) {
+        try {
+          await fetch("/api/oauth/tiktok/accounts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ project_id: projectId }),
+          });
+          const accRes3 = await fetch(`/api/dashboard/accounts?project_id=${encodeURIComponent(projectId)}`);
+          const accJson3 = (await accRes3.json()) as { success?: boolean; accounts?: CanonicalAccount[] };
+          list = accJson3?.accounts ?? [];
+        } catch {
+          // non-blocking
+        }
+      }
+
       setAccounts(list);
 
       const metaEnabled = list
@@ -481,6 +553,10 @@ export default function AccountsPageClient() {
         .filter((a) => a.platform === "google" && a.is_enabled)
         .map((a) => a.platform_account_id);
       setSelectedGoogleIds(googleEnabled);
+      const tiktokEnabled = list
+        .filter((a) => a.platform === "tiktok" && a.is_enabled)
+        .map((a) => a.platform_account_id);
+      setSelectedTikTokIds(tiktokEnabled);
     } catch {
       setToast({ type: "error", text: "Ошибка загрузки кабинетов/подключений" });
     } finally {
@@ -508,7 +584,7 @@ export default function AccountsPageClient() {
   const connectedAccountsByPlatform = useMemo(() => {
     const map = new Map<string, CanonicalAccount[]>();
     for (const a of accounts) {
-      if ((a.platform === "meta" || a.platform === "google") && !a.is_enabled) continue;
+      if ((a.platform === "meta" || a.platform === "google" || a.platform === "tiktok") && !a.is_enabled) continue;
       const list = map.get(a.platform) ?? [];
       list.push(a);
       map.set(a.platform, list);
@@ -521,14 +597,17 @@ export default function AccountsPageClient() {
     const metaOk = metaStatus === "healthy" || metaStatus === "stale" || metaStatus === "no_accounts" || metaStatus === "error";
     const googleOk =
       googleStatus === "healthy" || googleStatus === "stale" || googleStatus === "no_accounts" || googleStatus === "error";
-    return { meta: metaOk, google: googleOk };
-  }, [metaStatus, googleStatus]);
+    const tiktokOk =
+      tiktokStatus === "healthy" || tiktokStatus === "stale" || tiktokStatus === "no_accounts" || tiktokStatus === "error";
+    return { meta: metaOk, google: googleOk, tiktok: tiktokOk };
+  }, [metaStatus, googleStatus, tiktokStatus]);
 
   const connectedAccountsByPlatformFiltered = useMemo(() => {
     const map = new Map<string, CanonicalAccount[]>();
     for (const [platformId, list] of connectedAccountsByPlatform) {
       if (platformId === "meta" && !platformActiveForList.meta) continue;
       if (platformId === "google" && !platformActiveForList.google) continue;
+      if (platformId === "tiktok" && !platformActiveForList.tiktok) continue;
       if (list?.length) map.set(platformId, list);
     }
     return map;
@@ -536,7 +615,9 @@ export default function AccountsPageClient() {
 
   const metaDiscoveredCount = accountsByPlatform.get("meta")?.length ?? 0;
   const googleDiscoveredCount = accountsByPlatform.get("google")?.length ?? 0;
+  const tiktokDiscoveredCount = accountsByPlatform.get("tiktok")?.length ?? 0;
   const googleEnabledCount = (accountsByPlatform.get("google") ?? []).filter((a) => a.is_enabled).length;
+  const tiktokEnabledCount = (accountsByPlatform.get("tiktok") ?? []).filter((a) => a.is_enabled).length;
 
   function toggleSelected(platformAccountId: string) {
     setSelectedIds((prev) => (prev.includes(platformAccountId) ? prev.filter((x) => x !== platformAccountId) : [...prev, platformAccountId]));
@@ -544,6 +625,12 @@ export default function AccountsPageClient() {
 
   function toggleSelectedGoogle(platformAccountId: string) {
     setSelectedGoogleIds((prev) =>
+      prev.includes(platformAccountId) ? prev.filter((x) => x !== platformAccountId) : [...prev, platformAccountId]
+    );
+  }
+
+  function toggleSelectedTikTok(platformAccountId: string) {
+    setSelectedTikTokIds((prev) =>
       prev.includes(platformAccountId) ? prev.filter((x) => x !== platformAccountId) : [...prev, platformAccountId]
     );
   }
@@ -581,6 +668,44 @@ export default function AccountsPageClient() {
       }
     } catch {
       setToast({ type: "error", text: "Ошибка сохранения выбора Google" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveTikTokSelection() {
+    if (!projectId) return;
+    if (tiktokStatus === "disconnected" || tiktokStatus === "not_connected") {
+      setToast({ type: "error", text: "TikTok не подключён. Подключи OAuth и нажми «Обновить»." });
+      return;
+    }
+    if (!tiktokShowSaveSelection) {
+      setToast({ type: "error", text: "Сохранение недоступно для текущего статуса TikTok." });
+      return;
+    }
+    if (selectedTikTokIds.length === 0) {
+      setToast({ type: "info", text: "Выбери хотя бы один TikTok аккаунт." });
+      return;
+    }
+    setLoading(true);
+    try {
+      const r = await fetch("/api/oauth/tiktok/connections/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: projectId,
+          ad_account_ids: selectedTikTokIds,
+        }),
+      });
+      const j = await r.json();
+      if (!j?.success) {
+        setToast({ type: "error", text: j?.error ?? "Не удалось сохранить выбор TikTok" });
+      } else {
+        setToast({ type: "success", text: `Сохранено TikTok аккаунтов: ${j.saved ?? selectedTikTokIds.length}` });
+        await refresh();
+      }
+    } catch {
+      setToast({ type: "error", text: "Ошибка сохранения выбора TikTok" });
     } finally {
       setLoading(false);
     }
@@ -658,6 +783,28 @@ export default function AccountsPageClient() {
     )}`;
   }
 
+  async function connectTikTok() {
+    if (!projectId) return;
+    if (tiktokConnectedLike) {
+      try {
+        setLoading(true);
+        await fetch("/api/oauth/tiktok/accounts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ project_id: projectId }),
+        });
+        await refresh();
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+    const returnTo = `/app/accounts?project_id=${encodeURIComponent(projectId)}`;
+    window.location.href = `/api/oauth/tiktok/start?project_id=${encodeURIComponent(projectId)}&return_to=${encodeURIComponent(
+      returnTo
+    )}`;
+  }
+
   async function disconnectGoogle() {
     if (!projectId) return;
     setGoogleDisconnectLoading(true);
@@ -683,8 +830,35 @@ export default function AccountsPageClient() {
     }
   }
 
+  async function disconnectTikTok() {
+    if (!projectId) return;
+    setTikTokDisconnectLoading(true);
+    try {
+      const r = await fetch("/api/oauth/tiktok/integration/disconnect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project_id: projectId }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j?.success) {
+        setToast({ type: "error", text: j?.error ?? "Не удалось отключить TikTok" });
+        return;
+      }
+      setShowTikTokDisconnectConfirm(false);
+      setSelectedTikTokIds([]);
+      setToast({ type: "success", text: "TikTok отключён." });
+      await refresh();
+    } catch {
+      setToast({ type: "error", text: "Ошибка отключения TikTok" });
+    } finally {
+      setTikTokDisconnectLoading(false);
+    }
+  }
+
   const hasAnyEnabledAccounts =
-    (metaSyncEnabled && activeIds.length > 0) || (googleSyncEnabled && selectedGoogleIds.length > 0);
+    (metaSyncEnabled && activeIds.length > 0) ||
+    (googleSyncEnabled && selectedGoogleIds.length > 0) ||
+    (tiktokSyncEnabled && selectedTikTokIds.length > 0);
 
   async function syncAll() {
     if (!projectId) return;
@@ -737,6 +911,26 @@ export default function AccountsPageClient() {
         totalRows += Number(j?.rows_written ?? 0);
       }
 
+      for (const ad of selectedTikTokIds) {
+        const r = await fetch("/api/sync/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            project_id: projectId,
+            platform: "tiktok",
+            ad_account_id: ad,
+            sync_type: "insights",
+          }),
+        });
+        const j = await r.json();
+        if (!j?.success) {
+          setToast({ type: "error", text: j?.error ?? `Sync ошибка для TikTok ${ad}` });
+          setLoading(false);
+          return;
+        }
+        totalRows += Number(j?.rows_written ?? 0);
+      }
+
       setToast({ type: "success", text: `Синхронизация завершена: ${totalRows} строк` });
       await refresh();
     } catch {
@@ -770,10 +964,11 @@ export default function AccountsPageClient() {
     }
   }
 
-  async function syncOneAccount(platformAccountId: string, platform: "meta" | "google") {
+  async function syncOneAccount(platformAccountId: string, platform: "meta" | "google" | "tiktok") {
     if (!projectId) return;
     if (platform === "meta" && !metaSyncEnabled) return;
     if (platform === "google" && !googleSyncEnabled) return;
+    if (platform === "tiktok" && !tiktokSyncEnabled) return;
     setSyncingAccountId(platformAccountId);
     try {
       const r = await fetch("/api/sync/run", {
@@ -909,6 +1104,75 @@ export default function AccountsPageClient() {
                 }}
               >
                 {googleDisconnectLoading ? "Отключение…" : "Отключить Google"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showTikTokDisconnectConfirm ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9998,
+            background: "rgba(0,0,0,0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 24,
+          }}
+          onClick={() => !tiktokDisconnectLoading && setShowTikTokDisconnectConfirm(false)}
+        >
+          <div
+            style={{
+              background: "rgba(28,28,36,0.98)",
+              borderRadius: 20,
+              padding: 24,
+              maxWidth: 420,
+              border: "1px solid rgba(255,255,255,0.12)",
+              boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ fontWeight: 900, fontSize: 20, marginBottom: 12 }}>
+              Отключить интеграцию TikTok?
+            </div>
+            <div style={{ ...smallMuted, marginBottom: 20 }}>
+              Будет удалено подключение. Исторические данные (метрики, аккаунты) сохранятся.
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => !tiktokDisconnectLoading && setShowTikTokDisconnectConfirm(false)}
+                disabled={tiktokDisconnectLoading}
+                style={{
+                  padding: "10px 16px",
+                  borderRadius: 12,
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  background: "rgba(255,255,255,0.06)",
+                  color: "white",
+                  cursor: tiktokDisconnectLoading ? "not-allowed" : "pointer",
+                  fontWeight: 700,
+                }}
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={disconnectTikTok}
+                disabled={tiktokDisconnectLoading}
+                style={{
+                  padding: "10px 16px",
+                  borderRadius: 12,
+                  border: "1px solid rgba(255,100,100,0.4)",
+                  background: "rgba(255,80,80,0.2)",
+                  color: "rgba(255,180,180,0.95)",
+                  cursor: tiktokDisconnectLoading ? "not-allowed" : "pointer",
+                  fontWeight: 700,
+                }}
+              >
+                {tiktokDisconnectLoading ? "Отключение…" : "Отключить TikTok"}
               </button>
             </div>
           </div>
@@ -1173,17 +1437,76 @@ export default function AccountsPageClient() {
         <div style={card}>
           <div style={cardTitleRow}>
             <div style={{ fontSize: 24, fontWeight: 950 }}>TikTok Ads</div>
-            <div style={{ ...badgeBase }}>Скоро</div>
+            <div style={{ ...badgeBase, ...tiktokStatusStyles }}>{tiktokStatusLabel}</div>
           </div>
           <div style={{ opacity: 0.8, marginTop: 6 }}>Расходы, показы, клики TikTok</div>
-          <div style={{ ...smallMuted, marginTop: 10 }}>
-            Business Center → выбор рекламного аккаунта → ежедневный sync.
+          <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+            <div style={smallMuted}>1) Нажми «Подключить» → авторизуйся в TikTok</div>
+            <div style={smallMuted}>2) Вернёшься назад → нажми «Обновить»</div>
+            <div style={smallMuted}>3) Нажми «Подключить» ещё раз для загрузки аккаунтов, затем выбери их и сохрани</div>
           </div>
-          <div style={{ marginTop: "auto", paddingTop: 14 }}>
-            <Button disabled kind="ghost">
-              Подключить
+          <div style={{ marginTop: "auto", display: "flex", gap: 10, flexWrap: "wrap", paddingTop: 14 }}>
+            <Button onClick={connectTikTok} disabled={!projectId || loading} kind={tiktokPrimaryButtonKind}>
+              {tiktokMainButtonText}
             </Button>
+            {tiktokShowSaveSelection ? (
+              <Button
+                kind="ghost"
+                onClick={saveTikTokSelection}
+                disabled={!projectId || loading || selectedTikTokIds.length === 0}
+              >
+                Сохранить выбор
+              </Button>
+            ) : null}
+            {tiktokShowDisconnect ? (
+              <button
+                type="button"
+                onClick={() => setShowTikTokDisconnectConfirm(true)}
+                disabled={loading || tiktokDisconnectLoading}
+                style={{
+                  height: 44,
+                  padding: "0 14px",
+                  borderRadius: 14,
+                  border: "1px solid rgba(255,100,100,0.4)",
+                  background: "rgba(255,80,80,0.12)",
+                  color: "rgba(255,180,180,0.95)",
+                  fontWeight: 850,
+                  cursor: loading || tiktokDisconnectLoading ? "not-allowed" : "pointer",
+                  opacity: loading || tiktokDisconnectLoading ? 0.6 : 1,
+                }}
+              >
+                Отключить TikTok
+              </button>
+            ) : null}
           </div>
+          <div style={{ ...smallMuted, marginTop: 10 }}>
+            Найдено: <b>{tiktokDiscoveredCount}</b> • Выбрано: <b>{selectedTikTokIds.length}</b> • Включено: <b>{tiktokEnabledCount}</b>
+          </div>
+
+          {tiktokCanShowAccountSelection && tiktokDiscoveredCount > 0 ? (
+            <details style={{ marginTop: 12 }}>
+              <summary style={{ cursor: "pointer", fontWeight: 800, fontSize: 13, opacity: 0.9 }}>
+                Выбери аккаунты TikTok для проекта ({tiktokDiscoveredCount})
+              </summary>
+              <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                {(accountsByPlatform.get("tiktok") ?? []).map((a) => {
+                  const checked = selectedTikTokIds.includes(a.platform_account_id);
+                  return (
+                    <label key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleSelectedTikTok(a.platform_account_id)}
+                        style={{ width: 18, height: 18, flexShrink: 0 }}
+                      />
+                      <span style={{ fontSize: 13 }}>{a.name || a.platform_account_id}</span>
+                      <span style={{ ...smallMuted, fontSize: 11 }}>{a.platform_account_id}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </details>
+          ) : null}
         </div>
       </div>
 
@@ -1216,8 +1539,10 @@ export default function AccountsPageClient() {
                   const list = connectedAccountsByPlatformFiltered.get(platformId);
                   const isMeta = platformId === "meta";
                   const isGoogle = platformId === "google";
+                  const isTikTok = platformId === "tiktok";
                   if (isMeta && !platformActiveForList.meta) return null;
                   if (isGoogle && !platformActiveForList.google) return null;
+                  if (isTikTok && !platformActiveForList.tiktok) return null;
                   if (isMeta && (!list || list.length === 0)) {
                     return (
                       <div key={platformId}>
@@ -1353,6 +1678,29 @@ export default function AccountsPageClient() {
                                     >
                                       {syncing ? "Syncing…" : "Sync now"}
                                     </button>
+                                  ) : isTikTok ? (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        syncOneAccount(a.platform_account_id, "tiktok");
+                                      }}
+                                      disabled={syncing || !tiktokSyncEnabled}
+                                      style={{
+                                        height: 28,
+                                        padding: "0 10px",
+                                        borderRadius: 10,
+                                        border: "1px solid rgba(255,255,255,0.14)",
+                                        background: "rgba(120,120,255,0.15)",
+                                        color: "white",
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        cursor: syncing || !tiktokSyncEnabled ? "not-allowed" : "pointer",
+                                        opacity: syncing || !tiktokSyncEnabled ? 0.6 : 1,
+                                      }}
+                                    >
+                                      {syncing ? "Syncing…" : "Sync now"}
+                                    </button>
                                   ) : (
                                     <button
                                       type="button"
@@ -1410,6 +1758,15 @@ export default function AccountsPageClient() {
                   : googleStatus === "disconnected"
                     ? "отключено"
                     : "не подключено"}
+              {", "}
+              TikTok{" "}
+              {tiktokStatus === "healthy" || tiktokStatus === "stale" || tiktokStatus === "no_accounts"
+                ? "токен OK"
+                : tiktokStatus === "error"
+                  ? "ошибка синка"
+                  : tiktokStatus === "disconnected"
+                    ? "отключено"
+                    : "не подключено"}
             </b>
           </div>
 
@@ -1419,6 +1776,8 @@ export default function AccountsPageClient() {
             Meta: <b>{metaSyncEnabled && enabledMetaIds.length ? enabledMetaIds.join(", ") : "—"}</b>
             <br />
             Google: <b>{googleSyncEnabled && enabledGoogleIds.length ? enabledGoogleIds.join(", ") : "—"}</b>
+            <br />
+            TikTok: <b>{tiktokSyncEnabled && enabledTikTokIds.length ? enabledTikTokIds.join(", ") : "—"}</b>
           </div>
 
           <div style={{ ...smallMuted, marginTop: 12 }}>
