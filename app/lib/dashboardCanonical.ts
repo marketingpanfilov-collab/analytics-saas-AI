@@ -66,12 +66,15 @@ function convertToUsd(
   value: number,
   accountCurrency: "USD" | "KZT" | null,
   provider: string | null | undefined,
+  projectCurrency: "USD" | "KZT",
   usdToKztRate: number | null
 ): number {
   if (!Number.isFinite(value)) return 0;
   const providerNorm = String(provider ?? "").trim().toLowerCase();
-  // TikTok advertiser accounts are often billed in KZT but currency can be missing in ad_accounts.
-  const effectiveCurrency = accountCurrency ?? (providerNorm === "tiktok" ? "KZT" : "USD");
+  // Backward-compatible fallback: for legacy TikTok rows with missing account currency,
+  // assume project currency if project is KZT.
+  const effectiveCurrency =
+    accountCurrency ?? (providerNorm === "tiktok" && projectCurrency === "KZT" ? "KZT" : "USD");
   if (effectiveCurrency === "KZT" && usdToKztRate && usdToKztRate > 0) {
     return value / usdToKztRate;
   }
@@ -212,6 +215,12 @@ async function fetchCanonicalRowsViaJoin(
 
   const adAccountIdSet = new Set<string>(rows.map((r) => String(r.ad_account_id ?? "")).filter(Boolean));
   const adAccountIdsForCurrency = Array.from(adAccountIdSet);
+  const { data: projectRow } = await admin
+    .from("projects")
+    .select("currency")
+    .eq("id", projectId)
+    .maybeSingle();
+  const projectCurrency = normalizeCurrency((projectRow as { currency?: string | null } | null)?.currency) ?? "USD";
   const accountMeta = new Map<string, { currency: "USD" | "KZT" | null; provider: string | null }>();
   if (adAccountIdsForCurrency.length > 0) {
     const { data: adAccountsData } = await admin
@@ -274,6 +283,7 @@ async function fetchCanonicalRowsViaJoin(
       Number(r.spend ?? 0) || 0,
       accountMeta.get(r.ad_account_id)?.currency ?? null,
       accountMeta.get(r.ad_account_id)?.provider ?? r.platform ?? null,
+      projectCurrency,
       usdToKztRate
     ),
     impressions: Number(r.impressions ?? 0) || 0,
@@ -284,6 +294,7 @@ async function fetchCanonicalRowsViaJoin(
       Number(r.revenue ?? 0) || 0,
       accountMeta.get(r.ad_account_id)?.currency ?? null,
       accountMeta.get(r.ad_account_id)?.provider ?? r.platform ?? null,
+      projectCurrency,
       usdToKztRate
     ),
   }));

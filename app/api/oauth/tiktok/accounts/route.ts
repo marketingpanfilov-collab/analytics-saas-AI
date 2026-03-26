@@ -10,6 +10,8 @@ type TikTokAdvertiser = {
   advertiser_id?: string | number;
   advertiser_name?: string;
   name?: string;
+  currency?: string;
+  currency_code?: string;
 };
 
 type TikTokAdvertiserResponse = {
@@ -152,12 +154,15 @@ export async function POST(req: Request) {
     .map((row) => {
       const externalId = String(row.advertiser_id ?? "").trim();
       if (!externalId) return null;
+      const currencyRaw = String(row.currency_code ?? row.currency ?? "").trim().toUpperCase();
+      const currency = currencyRaw === "KZT" || currencyRaw === "USD" ? currencyRaw : null;
       return {
         externalId,
         name: row.advertiser_name?.trim() || row.name?.trim() || externalId,
+        currency,
       };
     })
-    .filter((x): x is { externalId: string; name: string } => !!x);
+    .filter((x): x is { externalId: string; name: string; currency: string | null } => !!x);
 
   if (!proj.owner_id) {
     return NextResponse.json({ success: false, error: "Project has no owner_id; required for ad_accounts" }, { status: 500 });
@@ -170,6 +175,7 @@ export async function POST(req: Request) {
     provider: "tiktok" as const,
     external_account_id: a.externalId,
     account_name: a.name,
+    currency: a.currency,
   }));
 
   if (adAccountRows.length > 0) {
