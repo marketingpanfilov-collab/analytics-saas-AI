@@ -4,19 +4,11 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { SIDEBAR_TODAY_REFRESH_EVENT } from "@/app/lib/sidebarTodayRefreshEvent";
 import { supabase } from "@/app/lib/supabaseClient";
+import { type ProjectCurrency } from "@/app/lib/currency";
 import AssistedAttributionCard from "./components/AssistedAttributionCard";
 import { RevenueAttributionMapCard } from "./components/RevenueAttributionMapCard";
 import { ConversionBehaviorCard } from "./components/ConversionBehaviorCard";
 import { AttributionFlowCard } from "./components/AttributionFlowCard";
-
-function formatMoney(n: number) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 0,
-  }).format(n);
-}
 
 function toISO(d: Date) {
   const yyyy = d.getFullYear();
@@ -171,7 +163,13 @@ function mkPathWithGaps(
   return parts.join(" ");
 }
 
-function MultiMetricLineChart({ points }: { points: ChartPoint[] }) {
+function MultiMetricLineChart({
+  points,
+  formatMoney,
+}: {
+  points: ChartPoint[];
+  formatMoney: (v: number) => string;
+}) {
   const w = 860;
   const h = 280;
   const pad = 22;
@@ -569,6 +567,8 @@ export default function AppDashboardClient() {
   const prevAccountCountRef = useRef<number>(0);
   const [connectionLost, setConnectionLost] = useState(false);
   const [dashboardIntegrationStatus, setDashboardIntegrationStatus] = useState<IntegrationStatusRow[]>([]);
+  const [projectCurrency, setProjectCurrency] = useState<ProjectCurrency>("USD");
+  const [usdToKztRate, setUsdToKztRate] = useState<number | null>(null);
 
   /** Historical backfill: source of truth is summary + timeseries backfill metadata. Used for banner and refetch polling. */
   const [historicalBackfill, setHistoricalBackfill] = useState<{
@@ -593,6 +593,53 @@ export default function AppDashboardClient() {
     () => appliedDateFrom > appliedDateTo,
     [appliedDateFrom, appliedDateTo]
   );
+
+  useEffect(() => {
+    if (!projectId) {
+      setProjectCurrency("USD");
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/projects/currency?project_id=${encodeURIComponent(projectId)}`, {
+          cache: "no-store",
+        });
+        const json = await res.json();
+        if (cancelled) return;
+        if (res.ok && json?.success && typeof json.currency === "string") {
+          setProjectCurrency(json.currency.toUpperCase() === "KZT" ? "KZT" : "USD");
+        }
+      } catch {
+        if (!cancelled) setProjectCurrency("USD");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+    if (projectCurrency !== "KZT") {
+      setUsdToKztRate(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/system/update-rates", { method: "POST" });
+        const json = await res.json();
+        if (cancelled) return;
+        const rate = Number(json?.rate ?? 0);
+        setUsdToKztRate(res.ok && json?.success && rate > 0 ? rate : null);
+      } catch {
+        if (!cancelled) setUsdToKztRate(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectCurrency]);
 
   useEffect(() => {
     if (!projectId) {
@@ -1134,19 +1181,32 @@ export default function AppDashboardClient() {
   // Derived KPI helpers for CPL / CAC.
   const registrationsCount = kpiSummary?.registrations ?? 0;
   const salesCount = kpiSummary?.sales ?? 0;
-  const spendValue = summary.spend ?? 0;
+  const toProjectSpend = (usd: number) =>
+    projectCurrency === "KZT" && usdToKztRate && usdToKztRate > 0 ? usd * usdToKztRate : usd;
+  const formatMoneyValue = (v: number) => {
+    if (projectCurrency === "KZT") {
+      return `₸${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(Math.round(v))}`;
+    }
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 0,
+    }).format(v);
+  };
+  const spendValue = toProjectSpend(summary.spend ?? 0);
 
   const cplValue = registrationsCount > 0 ? spendValue / registrationsCount : null;
   const cacValue = salesCount > 0 ? spendValue / salesCount : null;
 
-  const cplLabel = cplValue !== null ? formatMoney(cplValue) : "—";
-  const cacLabel = cacValue !== null ? formatMoney(cacValue) : "—";
+  const cplLabel = cplValue !== null ? formatMoneyValue(cplValue) : "—";
+  const cacLabel = cacValue !== null ? formatMoneyValue(cacValue) : "—";
 
   const chartPoints = useMemo((): ChartPoint[] => {
     if (appliedDateFrom > appliedDateTo) return [];
     const dates = dateRange(appliedDateFrom, appliedDateTo);
     return dates.map((date) => {
-      const spend = points.find((p) => p.date === date)?.spend ?? 0;
+      const spend = toProjectSpend(points.find((p) => p.date === date)?.spend ?? 0);
       const sales = conversionSeries.find((c) => c.date === date)?.sales ?? 0;
       return {
         date,
@@ -1156,7 +1216,7 @@ export default function AppDashboardClient() {
         cac: sales > 0 ? spend / sales : null,
       };
     });
-  }, [appliedDateFrom, appliedDateTo, points, conversionSeries]);
+  }, [appliedDateFrom, appliedDateTo, points, conversionSeries, projectCurrency, usdToKztRate]);
 
   // Block-level readiness only: no page-level demo flag. Each section/card decides its own.
   const hasRealKpiData =
@@ -1640,7 +1700,7 @@ export default function AppDashboardClient() {
             <div style={tag(sourcesLabel)}>{sourcesLabel}</div>
           </div>
           <div style={{ fontSize: 36, fontWeight: 900, marginTop: 10 }}>
-            {formatMoney(summary.spend)}
+            {formatMoneyValue(spendValue)}
           </div>
           <div style={{ opacity: 0.72, marginTop: 6 }}>CPL: {cplLabel} • CAC: {cacLabel}</div>
         </div>
@@ -1673,7 +1733,7 @@ export default function AppDashboardClient() {
             {kpiSummary ? (kpiSummary.sales || kpiSummary.sales === 0 ? kpiSummary.sales : "—") : "—"}
           </div>
           <div style={{ opacity: 0.6, marginTop: 6 }}>
-            {kpiSummary ? `Выручка: ${formatMoney(kpiSummary.revenue)}` : "Выручка: —"}
+            {kpiSummary ? `Выручка: ${formatMoneyValue(kpiSummary.revenue)}` : "Выручка: —"}
           </div>
         </div>
 
@@ -1710,7 +1770,7 @@ export default function AppDashboardClient() {
           <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 10 }}>Динамика расхода</div>
           <div style={{ opacity: 0.7, marginBottom: 14 }}>Spend, Registrations, Sales (по выбранному диапазону)</div>
 
-          <MultiMetricLineChart points={chartPoints} />
+          <MultiMetricLineChart points={chartPoints} formatMoney={formatMoneyValue} />
         </div>
 
         <div style={{ ...mini, ...card, padding: 20 }}>

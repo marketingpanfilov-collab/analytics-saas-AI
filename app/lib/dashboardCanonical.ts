@@ -42,6 +42,42 @@ function normalizeSources(sources: string[] | null | undefined): string[] {
     .filter((s) => ALLOWED_PLATFORMS.includes(s as any));
 }
 
+function normalizeCurrency(raw: string | null | undefined): "USD" | "KZT" | null {
+  const v = String(raw ?? "").trim().toUpperCase();
+  if (v === "USD" || v === "KZT") return v;
+  return null;
+}
+
+async function getUsdToKztRate(admin: SupabaseClient): Promise<number | null> {
+  const { data, error } = await admin
+    .from("exchange_rates")
+    .select("rate")
+    .eq("base_currency", "USD")
+    .eq("quote_currency", "KZT")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return null;
+  const rate = Number((data as { rate?: number | null } | null)?.rate ?? 0);
+  return Number.isFinite(rate) && rate > 0 ? rate : null;
+}
+
+function convertToUsd(
+  value: number,
+  accountCurrency: "USD" | "KZT" | null,
+  provider: string | null | undefined,
+  usdToKztRate: number | null
+): number {
+  if (!Number.isFinite(value)) return 0;
+  const providerNorm = String(provider ?? "").trim().toLowerCase();
+  // TikTok advertiser accounts are often billed in KZT but currency can be missing in ad_accounts.
+  const effectiveCurrency = accountCurrency ?? (providerNorm === "tiktok" ? "KZT" : "USD");
+  if (effectiveCurrency === "KZT" && usdToKztRate && usdToKztRate > 0) {
+    return value / usdToKztRate;
+  }
+  return value;
+}
+
 /**
  * Resolve ad_account ids for a project that participate in sync and dashboard.
  * Only accounts with ad_account_settings.is_enabled = true are included.
@@ -112,7 +148,7 @@ async function fetchCanonicalRowsViaJoin(
 
   const { data, error } = await admin
     .from("daily_ad_metrics_campaign")
-    .select("date, platform, spend, impressions, clicks, leads, purchases, revenue")
+    .select("ad_account_id, date, platform, spend, impressions, clicks, leads, purchases, revenue")
     .in("ad_account_id", adAccountIds)
     .in("platform", ["meta", "google", "tiktok"])
     .gte("date", start)
@@ -125,7 +161,9 @@ async function fetchCanonicalRowsViaJoin(
 
   const campaignRawRows = (data ?? []) as Record<string, unknown>[];
   const campaignRows = campaignRawRows as {
+    ad_account_id: string;
     date: string;
+    platform: string | null;
     spend: number | null;
     impressions: number | null;
     clicks: number | null;
@@ -144,7 +182,9 @@ async function fetchCanonicalRowsViaJoin(
   // in campaign-level result for the same query.
   const accountLevelPlatforms = ["tiktok", "yandex"].filter((p) => !campaignPlatforms.has(p));
   let accountRows: {
+    ad_account_id: string;
     date: string;
+    platform: string | null;
     spend: number | null;
     impressions: number | null;
     clicks: number | null;
@@ -156,7 +196,7 @@ async function fetchCanonicalRowsViaJoin(
   if (accountLevelPlatforms.length > 0) {
     const { data: accountData, error: accountError } = await admin
       .from("daily_ad_metrics")
-      .select("date, spend, impressions, clicks, leads, purchases, revenue")
+      .select("ad_account_id, date, platform, spend, impressions, clicks, leads, purchases, revenue")
       .in("ad_account_id", adAccountIds)
       .is("campaign_id", null)
       .in("platform", accountLevelPlatforms)
@@ -169,6 +209,23 @@ async function fetchCanonicalRowsViaJoin(
     accountRows = (accountData ?? []) as typeof accountRows;
   }
   const rows = [...campaignRows, ...accountRows];
+
+  const adAccountIdSet = new Set<string>(rows.map((r) => String(r.ad_account_id ?? "")).filter(Boolean));
+  const adAccountIdsForCurrency = Array.from(adAccountIdSet);
+  const accountMeta = new Map<string, { currency: "USD" | "KZT" | null; provider: string | null }>();
+  if (adAccountIdsForCurrency.length > 0) {
+    const { data: adAccountsData } = await admin
+      .from("ad_accounts")
+      .select("id, currency, provider")
+      .in("id", adAccountIdsForCurrency);
+    for (const a of (adAccountsData ?? []) as { id: string; currency: string | null; provider: string | null }[]) {
+      accountMeta.set(a.id, {
+        currency: normalizeCurrency(a.currency),
+        provider: a.provider ?? null,
+      });
+    }
+  }
+  const usdToKztRate = await getUsdToKztRate(admin);
 
   console.log("[CANONICAL_FETCH]", {
     projectId,
@@ -213,12 +270,22 @@ async function fetchCanonicalRowsViaJoin(
 
   return rows.map((r) => ({
     date: String(r.date).slice(0, 10),
-    spend: Number(r.spend ?? 0) || 0,
+    spend: convertToUsd(
+      Number(r.spend ?? 0) || 0,
+      accountMeta.get(r.ad_account_id)?.currency ?? null,
+      accountMeta.get(r.ad_account_id)?.provider ?? r.platform ?? null,
+      usdToKztRate
+    ),
     impressions: Number(r.impressions ?? 0) || 0,
     clicks: Number(r.clicks ?? 0) || 0,
     leads: Number(r.leads ?? 0) || 0,
     purchases: Number(r.purchases ?? 0) || 0,
-    revenue: Number(r.revenue ?? 0) || 0,
+    revenue: convertToUsd(
+      Number(r.revenue ?? 0) || 0,
+      accountMeta.get(r.ad_account_id)?.currency ?? null,
+      accountMeta.get(r.ad_account_id)?.provider ?? r.platform ?? null,
+      usdToKztRate
+    ),
   }));
 }
 

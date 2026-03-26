@@ -115,6 +115,26 @@ export async function GET(req: Request) {
       .maybeSingle();
     const currency = (projectRow as { currency?: string } | null)?.currency ?? "USD";
     const displayCurrency = currency === "KZT" ? "KZT" : "USD";
+    let usdToKztRate: number | null = null;
+    if (displayCurrency === "KZT") {
+      const { data: rateRow } = await admin
+        .from("exchange_rates")
+        .select("rate")
+        .eq("base_currency", "USD")
+        .eq("quote_currency", "KZT")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const rate = Number((rateRow as { rate?: number | null } | null)?.rate ?? 0);
+      usdToKztRate = Number.isFinite(rate) && rate > 0 ? rate : null;
+    }
+    const toProjectMoney = (v: number | null): number | null => {
+      if (v == null || !Number.isFinite(v)) return v;
+      if (displayCurrency === "KZT" && usdToKztRate && usdToKztRate > 0) {
+        return v * usdToKztRate;
+      }
+      return v;
+    };
 
     const from = `${start}T00:00:00.000Z`;
     const to = `${end}T23:59:59.999Z`;
@@ -582,11 +602,11 @@ export async function GET(req: Request) {
         retention_user_rate: retentionUserRate,
         first_revenue_share: firstRevenueShare,
         revenue_recapture_rate: revenueRecaptureRate,
-        spend,
-        budget_for_repeat_sales: budgetForRepeatSales,
-        cpr,
-        retention_spend: retentionSpend,
-        cpr_actual: cprActual,
+        spend: toProjectMoney(spend) ?? 0,
+        budget_for_repeat_sales: toProjectMoney(budgetForRepeatSales),
+        cpr: toProjectMoney(cpr),
+        retention_spend: toProjectMoney(retentionSpend),
+        cpr_actual: toProjectMoney(cprActual),
         retention_roas: retentionRoas,
       },
       lineData,
