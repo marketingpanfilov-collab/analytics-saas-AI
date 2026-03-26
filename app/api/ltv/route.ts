@@ -33,6 +33,7 @@ type PurchaseRow = {
   user_external_id: string | null;
   visitor_id: string | null;
   value: number | null;
+  currency?: string | null;
   campaign_intent?: string | null;
   click_id?: string | null;
   traffic_source?: string | null;
@@ -72,6 +73,26 @@ function userKey(row: PurchaseRow): string | null {
 
 function isPlatformSource(v: string): v is (typeof PLATFORM_SOURCES)[number] {
   return PLATFORM_SOURCES.includes(v as (typeof PLATFORM_SOURCES)[number]);
+}
+
+function normalizeCurrency(raw: string | null | undefined): "USD" | "KZT" | null {
+  const v = String(raw ?? "").trim().toUpperCase();
+  if (v === "USD" || v === "KZT") return v;
+  return null;
+}
+
+function convertMoney(
+  amount: number,
+  fromCurrency: "USD" | "KZT",
+  toCurrency: "USD" | "KZT",
+  usdToKztRate: number | null
+): number {
+  if (!Number.isFinite(amount)) return 0;
+  if (fromCurrency === toCurrency) return amount;
+  if (!usdToKztRate || usdToKztRate <= 0) return amount;
+  return fromCurrency === "USD" && toCurrency === "KZT"
+    ? amount * usdToKztRate
+    : amount / usdToKztRate;
 }
 
 export async function GET(req: Request) {
@@ -260,7 +281,7 @@ export async function GET(req: Request) {
       const toIdx = fromIdx + PAGE_SIZE - 1;
       const { data, error } = await admin
         .from("conversion_events")
-        .select("id, event_time, created_at, user_external_id, visitor_id, value, campaign_intent")
+        .select("id, event_time, created_at, user_external_id, visitor_id, value, currency, campaign_intent")
         .eq("project_id", projectId)
         .eq("event_name", "purchase")
         .gte("event_time", from)
@@ -292,7 +313,9 @@ export async function GET(req: Request) {
       if (key === null) continue;
       if (!allowedUserKeys.has(key)) continue;
 
-      const val = r.value != null ? Number(r.value) : 0;
+      const rawVal = r.value != null ? Number(r.value) : 0;
+      const rowCurrency = normalizeCurrency(r.currency) ?? displayCurrency;
+      const val = convertMoney(rawVal, rowCurrency, displayCurrency, usdToKztRate);
       totalRevenue += val;
       const eventTime = parseEventTime(r);
       const campaignIntent = (r.campaign_intent?.trim() === "retention" ? "retention" : null) || null;

@@ -17,6 +17,26 @@ function normalizePlatformSource(raw: string | null): string | null {
   return PLATFORM_SOURCE_VALUES.includes(v as (typeof PLATFORM_SOURCE_VALUES)[number]) ? v : null;
 }
 
+function normalizeCurrency(raw: string | null | undefined): "USD" | "KZT" | null {
+  const v = String(raw ?? "").trim().toUpperCase();
+  if (v === "USD" || v === "KZT") return v;
+  return null;
+}
+
+function convertMoney(
+  amount: number,
+  fromCurrency: "USD" | "KZT",
+  toCurrency: "USD" | "KZT",
+  usdToKztRate: number | null
+): number {
+  if (!Number.isFinite(amount)) return 0;
+  if (fromCurrency === toCurrency) return amount;
+  if (!usdToKztRate || usdToKztRate <= 0) return amount;
+  return fromCurrency === "USD" && toCurrency === "KZT"
+    ? amount * usdToKztRate
+    : amount / usdToKztRate;
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const projectId = searchParams.get("project_id")?.trim() ?? "";
@@ -54,7 +74,7 @@ export async function GET(req: Request) {
   try {
     const { data, error } = await admin
       .from("conversion_events")
-      .select("event_name, value, source, traffic_source, visitor_id, created_at")
+      .select("event_name, value, currency, source, traffic_source, visitor_id, created_at")
       .eq("project_id", projectId)
       .gte("created_at", from)
       .lte("created_at", to)
@@ -68,6 +88,7 @@ export async function GET(req: Request) {
     type ConversionRow = {
       event_name: string;
       value: number | null;
+      currency?: string | null;
       source: string | null;
       traffic_source: string | null;
       visitor_id: string | null;
@@ -164,7 +185,35 @@ export async function GET(req: Request) {
     const purchases = effectiveRows.filter((r) => r.event_name === "purchase");
     const registrationsCount = registrations.length;
     const salesCount = purchases.length;
-    const revenue = purchases.reduce((sum, r) => sum + (Number(r.value) || 0), 0);
+    const { data: projectRow } = await admin
+      .from("projects")
+      .select("currency")
+      .eq("id", projectId)
+      .maybeSingle();
+    const projectCurrency =
+      String((projectRow as { currency?: string | null } | null)?.currency ?? "USD")
+        .trim()
+        .toUpperCase() === "KZT"
+        ? "KZT"
+        : "USD";
+    let usdToKztRate: number | null = null;
+    if (projectCurrency === "KZT") {
+      const { data: rateRow } = await admin
+        .from("exchange_rates")
+        .select("rate")
+        .eq("base_currency", "USD")
+        .eq("quote_currency", "KZT")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const rate = Number((rateRow as { rate?: number | null } | null)?.rate ?? 0);
+      usdToKztRate = Number.isFinite(rate) && rate > 0 ? rate : null;
+    }
+    const revenue = purchases.reduce((sum, r) => {
+      const amount = Number(r.value ?? 0) || 0;
+      const fromCurrency = normalizeCurrency(r.currency) ?? projectCurrency;
+      return sum + convertMoney(amount, fromCurrency, projectCurrency, usdToKztRate);
+    }, 0);
 
     return NextResponse.json({
       success: true,
