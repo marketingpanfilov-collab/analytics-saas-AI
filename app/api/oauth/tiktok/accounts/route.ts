@@ -28,10 +28,15 @@ async function fetchAdvertisers(
   const query = new URLSearchParams({
     app_id: appId,
     secret,
-    access_token: accessToken,
   });
   const url = `https://business-api.tiktok.com/open_api/v1.3/oauth2/advertiser/get/?${query.toString()}`;
-  const res = await fetch(url, { method: "GET", headers: { "Content-Type": "application/json" } });
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      "Access-Token": accessToken,
+      "Content-Type": "application/json",
+    },
+  });
   const payload = (await res.json().catch(() => ({}))) as TikTokAdvertiserResponse;
   if (res.ok && Number(payload.code ?? 0) === 0) return { ok: true, payload, status: res.status };
   // Do not mask real API validation/auth errors with fallback responses.
@@ -39,10 +44,13 @@ async function fetchAdvertisers(
   if (res.status < 500) return { ok: false, payload, status: res.status };
 
   // Fallback for apps configured with header-based access token.
-  const fallback = await fetch(`https://business-api.tiktok.com/open_api/v1.3/oauth2/advertiser/get/?${query.toString()}`, {
+  const fallbackQuery = new URLSearchParams({
+    ...Object.fromEntries(query.entries()),
+    access_token: accessToken,
+  });
+  const fallback = await fetch(`https://business-api.tiktok.com/open_api/v1.3/oauth2/advertiser/get/?${fallbackQuery.toString()}`, {
     method: "GET",
     headers: {
-      "Access-Token": accessToken,
       "Content-Type": "application/json",
     },
   });
