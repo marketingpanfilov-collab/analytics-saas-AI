@@ -18,6 +18,7 @@ const PAGE_SIZE = 1000;
 const MAX_PAGES = 50; // cap at 50k events
 const CLICK_ID_BATCH = 200;
 const VISITOR_ID_BATCH = 500;
+const PLATFORM_SOURCES = ["meta", "google", "tiktok", "yandex"] as const;
 
 function toISODate(s: string | null): string | null {
   if (!s) return null;
@@ -67,6 +68,10 @@ function userKey(row: PurchaseRow): string | null {
   const u = row.user_external_id?.trim();
   const v = row.visitor_id?.trim();
   return (u || v) || null;
+}
+
+function isPlatformSource(v: string): v is (typeof PLATFORM_SOURCES)[number] {
+  return PLATFORM_SOURCES.includes(v as (typeof PLATFORM_SOURCES)[number]);
 }
 
 export async function GET(req: Request) {
@@ -444,7 +449,11 @@ export async function GET(req: Request) {
       cohortRevenueRows.push({ cohort: co, values });
     }
 
-    const canonical = await getCanonicalSummary(admin, projectId, start, end, undefined);
+    const spendSources =
+      filterByAcquisitionSource && requestedSource
+        ? (isPlatformSource(requestedSource) ? [requestedSource] : [])
+        : undefined;
+    const canonical = await getCanonicalSummary(admin, projectId, start, end, { sources: spendSources });
     const spend = canonical?.data?.spend ?? 0;
 
     // Actual retention spend: SUM(spend) for campaigns that lead to retention links (redirect_click_events.campaign_intent = 'retention').

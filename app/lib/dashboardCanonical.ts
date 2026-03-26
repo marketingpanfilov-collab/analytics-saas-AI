@@ -87,10 +87,9 @@ async function resolveAdAccountIds(
 
 /**
  * Fetch daily_ad_metrics for a project and date range.
- * Uses daily_ad_metrics_campaign (campaign_id IS NOT NULL) so account-level rows are excluded
- * and board aggregation does not double-count. Only campaign-level rows are used; if a range
- * has only account-level data (no campaign-level yet), this returns empty and dashboard shows
- * no spend for that range until campaign-level sync completes.
+ * Primary source: daily_ad_metrics_campaign (campaign_id IS NOT NULL) for campaign-level detail.
+ * For platforms where campaign breakdown is not available yet (currently TikTok), include
+ * account-level rows from daily_ad_metrics (campaign_id IS NULL) to avoid losing spend in dashboard/LTV.
  * sources: filter by platform (meta, google, tiktok). Empty = all.
  * accountIds: filter by ad_accounts.id. Empty = all (for resolved sources).
  */
@@ -113,7 +112,7 @@ async function fetchCanonicalRowsViaJoin(
 
   const { data, error } = await admin
     .from("daily_ad_metrics_campaign")
-    .select("date, spend, impressions, clicks, leads, purchases, revenue")
+    .select("date, platform, spend, impressions, clicks, leads, purchases, revenue")
     .in("ad_account_id", adAccountIds)
     .in("platform", ["meta", "google", "tiktok"])
     .gte("date", start)
@@ -124,8 +123,8 @@ async function fetchCanonicalRowsViaJoin(
     throw error;
   }
 
-  const rawRows = (data ?? []) as Record<string, unknown>[];
-  const rows = rawRows as {
+  const campaignRawRows = (data ?? []) as Record<string, unknown>[];
+  const campaignRows = campaignRawRows as {
     date: string;
     spend: number | null;
     impressions: number | null;
@@ -134,6 +133,42 @@ async function fetchCanonicalRowsViaJoin(
     purchases: number | null;
     revenue: number | null;
   }[];
+  const campaignPlatforms = new Set<string>(
+    (campaignRawRows ?? [])
+      .map((r) => String((r as { platform?: string }).platform ?? "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+
+  // TikTok currently syncs account-level rows only (campaign_id = null), so include them.
+  // To avoid double-counting, include account-level rows only for platforms that are not present
+  // in campaign-level result for the same query.
+  const accountLevelPlatforms = ["tiktok", "yandex"].filter((p) => !campaignPlatforms.has(p));
+  let accountRows: {
+    date: string;
+    spend: number | null;
+    impressions: number | null;
+    clicks: number | null;
+    leads: number | null;
+    purchases: number | null;
+    revenue: number | null;
+  }[] = [];
+
+  if (accountLevelPlatforms.length > 0) {
+    const { data: accountData, error: accountError } = await admin
+      .from("daily_ad_metrics")
+      .select("date, spend, impressions, clicks, leads, purchases, revenue")
+      .in("ad_account_id", adAccountIds)
+      .is("campaign_id", null)
+      .in("platform", accountLevelPlatforms)
+      .gte("date", start)
+      .lte("date", end);
+    if (accountError) {
+      console.log("[CANONICAL_QUERY_ACCOUNT_LEVEL_ERROR]", { error: String(accountError?.message ?? accountError) });
+      throw accountError;
+    }
+    accountRows = (accountData ?? []) as typeof accountRows;
+  }
+  const rows = [...campaignRows, ...accountRows];
 
   console.log("[CANONICAL_FETCH]", {
     projectId,
@@ -143,6 +178,8 @@ async function fetchCanonicalRowsViaJoin(
     accountIdsCount: options?.accountIds?.length ?? "all",
     adAccountIdsCount: adAccountIds.length,
     rowCount: rows.length,
+    campaignRows: campaignRows.length,
+    accountRows: accountRows.length,
   });
 
   // When source-filtered and few campaign-level rows, log account-level count (non-fatal; must not throw)

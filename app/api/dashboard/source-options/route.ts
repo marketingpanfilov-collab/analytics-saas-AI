@@ -80,7 +80,14 @@ export async function GET(req: Request) {
       .eq("platform", "google");
     const googleIds = (googleIntRows ?? []).map((r: { id: string }) => r.id);
 
-    const integrationIds = [...new Set([...metaIds, ...googleIds])];
+    const { data: tiktokIntRows } = await admin
+      .from("integrations")
+      .select("id")
+      .eq("project_id", projectId)
+      .eq("platform", "tiktok");
+    const tiktokIds = (tiktokIntRows ?? []).map((r: { id: string }) => r.id);
+
+    const integrationIds = [...new Set([...metaIds, ...googleIds, ...tiktokIds])];
 
     if (integrationIds.length > 0) {
       const { data: adAccounts } = await admin

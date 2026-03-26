@@ -1309,7 +1309,7 @@ export default function AppDashboardClient() {
       <div style={{ marginBottom: 10 }}>
         <div style={{ fontSize: 34, fontWeight: 900, lineHeight: 1.1 }}>Дашборд</div>
         <div style={{ opacity: 0.75, marginTop: 6 }}>
-          Spend, Impressions, Clicks из Meta (daily_ad_metrics). Конверсии и продажи — позже.
+          Spend, Impressions, Clicks из рекламных платформ (Meta, Google, TikTok) через daily_ad_metrics.
         </div>
 
         {errorText ? (
