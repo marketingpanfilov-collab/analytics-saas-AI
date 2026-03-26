@@ -34,9 +34,12 @@ async function fetchAdvertisers(
   const res = await fetch(url, { method: "GET", headers: { "Content-Type": "application/json" } });
   const payload = (await res.json().catch(() => ({}))) as TikTokAdvertiserResponse;
   if (res.ok && Number(payload.code ?? 0) === 0) return { ok: true, payload, status: res.status };
+  // Do not mask real API validation/auth errors with fallback responses.
+  // Fallback is only for transport-level issues (5xx / gateway), not 4xx business errors.
+  if (res.status < 500) return { ok: false, payload, status: res.status };
 
   // Fallback for apps configured with header-based access token.
-  const fallback = await fetch("https://business-api.tiktok.com/open_api/v1.3/oauth2/advertiser/get/", {
+  const fallback = await fetch(`https://business-api.tiktok.com/open_api/v1.3/oauth2/advertiser/get/?${query.toString()}`, {
     method: "GET",
     headers: {
       "Access-Token": accessToken,
