@@ -15,8 +15,20 @@ function isYmd(v: string) {
 type TikTokReportRow = {
   stat_time_day?: string;
   spend?: string;
+  cost?: string;
   impressions?: string;
   clicks?: string;
+  dimensions?: {
+    stat_time_day?: string;
+    [key: string]: string | undefined;
+  };
+  metrics?: {
+    spend?: string;
+    cost?: string;
+    impressions?: string;
+    clicks?: string;
+    [key: string]: string | undefined;
+  };
 };
 
 type TikTokReportResponse = {
@@ -133,15 +145,47 @@ export async function GET(req: Request) {
         return NextResponse.json({ success: false, step: "tiktok_report_fetch", error: message, period: { since, until } }, { status: 400 });
       }
 
-      const rows = (reportJson.data?.list ?? []).map((r) => ({
+      const toNum = (v: unknown): number => {
+        const n = Number(v ?? 0);
+        return Number.isFinite(n) ? n : 0;
+      };
+
+      const getDate = (r: TikTokReportRow): string => {
+        return String(
+          r.stat_time_day ??
+          r.dimensions?.stat_time_day ??
+          ""
+        ).slice(0, 10);
+      };
+
+      const getSpend = (r: TikTokReportRow): number => {
+        return toNum(
+          r.spend ??
+          r.cost ??
+          r.metrics?.spend ??
+          r.metrics?.cost ??
+          0
+        );
+      };
+
+      const getImpressions = (r: TikTokReportRow): number => {
+        return toNum(r.impressions ?? r.metrics?.impressions ?? 0);
+      };
+
+      const getClicks = (r: TikTokReportRow): number => {
+        return toNum(r.clicks ?? r.metrics?.clicks ?? 0);
+      };
+
+      const rawRows = reportJson.data?.list ?? [];
+      const rows = rawRows.map((r) => ({
         project_id: projectId,
         ad_account_id: canonicalAdAccountId,
         campaign_id: null as string | null,
-        date: String(r.stat_time_day ?? "").slice(0, 10),
+        date: getDate(r),
         platform: "tiktok" as const,
-        spend: Number(r.spend ?? 0),
-        impressions: Number(r.impressions ?? 0),
-        clicks: Number(r.clicks ?? 0),
+        spend: getSpend(r),
+        impressions: getImpressions(r),
+        clicks: getClicks(r),
         reach: 0,
         cpm: 0,
         cpc: 0,
@@ -169,7 +213,13 @@ export async function GET(req: Request) {
         campaignRowsInserted: 0,
         accountRowsInserted: rows.length,
         rowsDeleted: 0,
-        meta: { since, until, ad_account_id_external: adAccountId },
+        meta: {
+          since,
+          until,
+          ad_account_id_external: adAccountId,
+          raw_rows: rawRows.length,
+          mapped_rows: rows.length,
+        },
       });
 
       return NextResponse.json({
