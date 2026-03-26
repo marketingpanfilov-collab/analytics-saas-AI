@@ -528,16 +528,20 @@ export default function AccountsPageClient() {
 
       if (tiktokShouldDiscover) {
         try {
-          await fetch("/api/oauth/tiktok/accounts", {
+          const discoverRes = await fetch("/api/oauth/tiktok/accounts", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ project_id: projectId }),
           });
+          const discoverJson = await discoverRes.json().catch(() => ({} as { success?: boolean; error?: string }));
+          if (!discoverRes.ok || !discoverJson?.success) {
+            setToast({ type: "error", text: discoverJson?.error ?? "Не удалось загрузить аккаунты TikTok" });
+          }
           const accRes3 = await fetch(`/api/dashboard/accounts?project_id=${encodeURIComponent(projectId)}`);
           const accJson3 = (await accRes3.json()) as { success?: boolean; accounts?: CanonicalAccount[] };
           list = accJson3?.accounts ?? [];
         } catch {
-          // non-blocking
+          setToast({ type: "error", text: "Ошибка загрузки аккаунтов TikTok" });
         }
       }
 
@@ -788,11 +792,17 @@ export default function AccountsPageClient() {
     if (tiktokConnectedLike) {
       try {
         setLoading(true);
-        await fetch("/api/oauth/tiktok/accounts", {
+        const r = await fetch("/api/oauth/tiktok/accounts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ project_id: projectId }),
         });
+        const j = await r.json().catch(() => ({} as { success?: boolean; error?: string }));
+        if (!r.ok || !j?.success) {
+          setToast({ type: "error", text: j?.error ?? "Не удалось загрузить аккаунты TikTok" });
+          return;
+        }
+        setToast({ type: "success", text: `Найдено TikTok аккаунтов: ${j?.discovered ?? 0}` });
         await refresh();
       } finally {
         setLoading(false);

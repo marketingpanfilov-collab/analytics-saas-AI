@@ -20,6 +20,45 @@ type TikTokAdvertiserResponse = {
   code?: number;
 };
 
+async function fetchAdvertisers(
+  appId: string,
+  secret: string,
+  accessToken: string
+): Promise<{ ok: boolean; payload: TikTokAdvertiserResponse; status: number }> {
+  const query = new URLSearchParams({
+    app_id: appId,
+    secret,
+    access_token: accessToken,
+  });
+  const url = `https://business-api.tiktok.com/open_api/v1.3/oauth2/advertiser/get/?${query.toString()}`;
+  const res = await fetch(url, { method: "GET", headers: { "Content-Type": "application/json" } });
+  const payload = (await res.json().catch(() => ({}))) as TikTokAdvertiserResponse;
+  if (res.ok && Number(payload.code ?? 0) === 0) return { ok: true, payload, status: res.status };
+
+  // Fallback for apps configured with header-based access token.
+  const fallback = await fetch("https://business-api.tiktok.com/open_api/v1.3/oauth2/advertiser/get/", {
+    method: "GET",
+    headers: {
+      "Access-Token": accessToken,
+      "Content-Type": "application/json",
+    },
+  });
+  const fallbackPayload = (await fallback.json().catch(() => ({}))) as TikTokAdvertiserResponse;
+  return {
+    ok: fallback.ok && Number(fallbackPayload.code ?? 0) === 0,
+    payload: fallbackPayload,
+    status: fallback.status,
+  };
+}
+
+type TikTokAdvertiserResponseLegacy = {
+  data?: {
+    list?: TikTokAdvertiser[];
+  };
+  message?: string;
+  code?: number;
+};
+
 export async function POST(req: Request) {
   let body: unknown;
   try {
@@ -73,23 +112,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: "TikTok auth token not found or expired; reconnect TikTok OAuth" }, { status: 401 });
   }
 
-  const query = new URLSearchParams({
-    app_id: appId,
-    secret,
-    access_token: token.access_token,
-  });
-  const listRes = await fetch(`https://business-api.tiktok.com/open_api/v1.3/oauth2/advertiser/get/?${query.toString()}`, {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
-
-  const listJson = (await listRes.json().catch(() => ({}))) as TikTokAdvertiserResponse;
-  if (!listRes.ok || Number(listJson.code ?? 0) !== 0) {
+  const listResult = await fetchAdvertisers(appId, secret, token.access_token);
+  const listJson = listResult.payload as TikTokAdvertiserResponseLegacy;
+  if (!listResult.ok) {
     return NextResponse.json(
-      { success: false, error: listJson.message || `TikTok advertiser list error: ${listRes.status}` },
-      { status: listRes.status >= 400 ? listRes.status : 500 }
+      {
+        success: false,
+        error: listJson.message || `TikTok advertiser list error: ${listResult.status}`,
+        tiktok_code: listJson.code ?? null,
+      },
+      { status: listResult.status >= 400 ? listResult.status : 500 }
     );
   }
 
