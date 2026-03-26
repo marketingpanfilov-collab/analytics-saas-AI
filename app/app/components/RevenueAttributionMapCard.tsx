@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { InsightTooltip } from "./InsightTooltip";
+import { fmtProjectCurrency, type ProjectCurrency } from "@/app/lib/currency";
 
 type ChannelRow = {
   source: string;
@@ -79,16 +80,6 @@ const SOURCE_LABELS: Record<string, string> = {
 const TOOLTIP_BLOCK_MAIN =
   "Показывает, какие каналы закрывают выручку как последнее касание, а какие участвуют в пути пользователя и влияют на покупку до её завершения.";
 
-function formatCurrency(n: number): string {
-  if (!Number.isFinite(n)) return "$0";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-    minimumFractionDigits: 0,
-  }).format(Math.round(n));
-}
-
 function srcLabel(source: string | null | undefined): string {
   if (!source) return "—";
   const key = source.toLowerCase();
@@ -142,6 +133,8 @@ export function RevenueAttributionMapCard({ projectId, days = 30 }: Props) {
   const [channels, setChannels] = useState<ChannelRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [projectCurrency, setProjectCurrency] = useState<ProjectCurrency>("USD");
+  const [usdToKztRate, setUsdToKztRate] = useState<number | null>(null);
   type SegmentKind = "closed" | "assisted";
   const [tooltip, setTooltip] = useState<{
     channel: ChannelRow;
@@ -188,6 +181,50 @@ export function RevenueAttributionMapCard({ projectId, days = 30 }: Props) {
     fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/projects/currency?project_id=${encodeURIComponent(projectId)}`, {
+          cache: "no-store",
+        });
+        const json = await res.json();
+        if (cancelled) return;
+        if (res.ok && json?.success && typeof json.currency === "string") {
+          setProjectCurrency(json.currency.toUpperCase() === "KZT" ? "KZT" : "USD");
+        }
+      } catch {
+        if (!cancelled) setProjectCurrency("USD");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+    if (projectCurrency !== "KZT") {
+      setUsdToKztRate(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/system/update-rates", { method: "POST" });
+        const json = await res.json();
+        if (cancelled) return;
+        const rate = Number(json?.rate ?? 0);
+        setUsdToKztRate(res.ok && json?.success && rate > 0 ? rate : null);
+      } catch {
+        if (!cancelled) setUsdToKztRate(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectCurrency]);
+
   const totalPurchases = useMemo(
     () =>
       channels.reduce(
@@ -233,6 +270,10 @@ export function RevenueAttributionMapCard({ projectId, days = 30 }: Props) {
   );
 
   const isActive = !loading && !error && !isDemo;
+  const formatCurrency = (n: number): string => {
+    if (!Number.isFinite(n)) return projectCurrency === "KZT" ? "₸0" : "$0";
+    return fmtProjectCurrency(n, projectCurrency, usdToKztRate).replace(/\.00$/, "");
+  };
 
   const HEADER_FRAME = {
     margin: "0 -18px 0 -18px",

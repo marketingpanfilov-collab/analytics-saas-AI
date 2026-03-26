@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { InsightTooltip } from "./InsightTooltip";
+import { fmtProjectCurrency, type ProjectCurrency } from "@/app/lib/currency";
 
 type PathRow = {
   path_label: string;
@@ -35,22 +36,14 @@ const DEMO_PATHS: PathRow[] = [
   { path_label: "Прямой переход → Покупка", conversions_count: 3, purchases_count: 3, registrations_count: 0, revenue_total: 650 },
 ];
 
-function formatRevenue(n: number): string {
-  if (n === 0) return "";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-    minimumFractionDigits: 0,
-  }).format(n);
-}
-
 type Props = { projectId: string | null; days?: number; limit?: number };
 
 export default function TopAttributionPathsCard({ projectId, days = 30, limit = 5 }: Props) {
   const [paths, setPaths] = useState<PathRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [projectCurrency, setProjectCurrency] = useState<ProjectCurrency>("USD");
+  const [usdToKztRate, setUsdToKztRate] = useState<number | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!projectId) {
@@ -84,8 +77,56 @@ export default function TopAttributionPathsCard({ projectId, days = 30, limit = 
     fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/projects/currency?project_id=${encodeURIComponent(projectId)}`, {
+          cache: "no-store",
+        });
+        const json = await res.json();
+        if (cancelled) return;
+        if (res.ok && json?.success && typeof json.currency === "string") {
+          setProjectCurrency(json.currency.toUpperCase() === "KZT" ? "KZT" : "USD");
+        }
+      } catch {
+        if (!cancelled) setProjectCurrency("USD");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+    if (projectCurrency !== "KZT") {
+      setUsdToKztRate(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/system/update-rates", { method: "POST" });
+        const json = await res.json();
+        if (cancelled) return;
+        const rate = Number(json?.rate ?? 0);
+        setUsdToKztRate(res.ok && json?.success && rate > 0 ? rate : null);
+      } catch {
+        if (!cancelled) setUsdToKztRate(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectCurrency]);
+
   const isDemo = !loading && !error && paths.length === 0;
   const displayPaths = paths.length > 0 ? paths : DEMO_PATHS;
+  const formatRevenue = (n: number): string => {
+    if (n === 0) return "";
+    return fmtProjectCurrency(n, projectCurrency, usdToKztRate).replace(/\.00$/, "");
+  };
 
   const HEADER_FRAME = {
     margin: "0 -18px 0 -18px",

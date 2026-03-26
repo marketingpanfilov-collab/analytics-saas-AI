@@ -71,10 +71,10 @@ function convertToUsd(
 ): number {
   if (!Number.isFinite(value)) return 0;
   const providerNorm = String(provider ?? "").trim().toLowerCase();
-  // Backward-compatible fallback: for legacy TikTok rows with missing account currency,
-  // assume project currency if project is KZT.
+  // Backward-compatible fallback: legacy TikTok rows may miss account currency.
+  // In this case treat TikTok as KZT to avoid inflated USD totals.
   const effectiveCurrency =
-    accountCurrency ?? (providerNorm === "tiktok" && projectCurrency === "KZT" ? "KZT" : "USD");
+    accountCurrency ?? (providerNorm === "tiktok" ? "KZT" : (projectCurrency === "KZT" ? "KZT" : "USD"));
   if (effectiveCurrency === "KZT" && usdToKztRate && usdToKztRate > 0) {
     return value / usdToKztRate;
   }
