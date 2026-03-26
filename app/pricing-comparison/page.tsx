@@ -114,7 +114,7 @@ export default function PricingComparisonPage() {
 
       <section className="relative z-10">
         <div className="mx-auto max-w-7xl px-5 pb-14 pt-12 md:pb-20 md:pt-16">
-          <div className="grid grid-cols-[1fr_auto_1fr] items-center">
+          <div className="mb-4">
             <button
               type="button"
               onClick={handleBack}
@@ -125,13 +125,11 @@ export default function PricingComparisonPage() {
               </svg>
               <span className="inline-block -translate-y-[1px] leading-none">Вернуться назад</span>
             </button>
-
-            <h1 className="text-center text-3xl font-semibold tracking-tight text-white/95 md:text-4xl">
-              Сравнение тарифов BoardIQ
-            </h1>
-
-            <span aria-hidden />
           </div>
+
+          <h1 className="text-center text-3xl font-semibold tracking-tight text-white/95 md:text-4xl">
+            Сравнение тарифов BoardIQ
+          </h1>
 
           <p className="mx-auto mt-4 max-w-2xl text-center text-base leading-relaxed text-white/60 md:text-lg">
             Выберите тариф, который лучше всего подходит под ваш бизнес и задачи
