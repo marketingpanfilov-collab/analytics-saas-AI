@@ -66,15 +66,18 @@ function convertToUsd(
   value: number,
   accountCurrency: "USD" | "KZT" | null,
   provider: string | null | undefined,
-  projectCurrency: "USD" | "KZT",
+  _projectCurrency: "USD" | "KZT",
   usdToKztRate: number | null
 ): number {
   if (!Number.isFinite(value)) return 0;
   const providerNorm = String(provider ?? "").trim().toLowerCase();
-  // Backward-compatible fallback: legacy TikTok rows may miss account currency.
-  // In this case treat TikTok as KZT to avoid inflated USD totals.
-  const effectiveCurrency =
-    accountCurrency ?? (providerNorm === "tiktok" ? "KZT" : (projectCurrency === "KZT" ? "KZT" : "USD"));
+  // Stable fallback for legacy rows without account currency:
+  // - TikTok/Yandex are typically stored in KZT
+  // - Meta/Google are typically stored in USD
+  // This keeps canonical USD independent from current project display currency.
+  const fallbackByProvider: "USD" | "KZT" =
+    providerNorm === "tiktok" || providerNorm === "yandex" ? "KZT" : "USD";
+  const effectiveCurrency = accountCurrency ?? fallbackByProvider;
   if (effectiveCurrency === "KZT" && usdToKztRate && usdToKztRate > 0) {
     return value / usdToKztRate;
   }
