@@ -66,10 +66,7 @@ export async function getValidTikTokAccessToken(
 
   if (!refreshToken) return null;
 
-  let tokenJson: TikTokTokenResponse | null = null;
-  let normalized: { access_token: string | null; refresh_token: string | null; expires_in: number } | null = null;
-
-  // Primary: Marketing API v1.3 refresh.
+  // Marketing API v1.3 refresh only (TikTok Ads flow).
   const primaryRes = await fetch("https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -82,36 +79,12 @@ export async function getValidTikTokAccessToken(
   });
   const primaryJson = (await primaryRes.json().catch(() => ({}))) as TikTokTokenResponse;
   const primaryNormalized = normalizeTokenPayload(primaryJson);
-  if (primaryRes.ok && primaryNormalized.access_token) {
-    tokenJson = primaryJson;
-    normalized = primaryNormalized;
-  } else {
-    // Fallback: OAuth v2 refresh.
-    const fallbackBody = new URLSearchParams({
-      client_key: appId,
-      client_secret: clientSecret,
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-    });
-    const fallbackRes = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: fallbackBody.toString(),
-    });
-    const fallbackJson = (await fallbackRes.json().catch(() => ({}))) as TikTokTokenResponse;
-    const fallbackNormalized = normalizeTokenPayload(fallbackJson);
-    if (fallbackRes.ok && fallbackNormalized.access_token) {
-      tokenJson = fallbackJson;
-      normalized = fallbackNormalized;
-    }
-  }
+  if (!primaryRes.ok || !primaryNormalized.access_token) return null;
 
-  if (!normalized?.access_token) return null;
-
-  const newAccessToken = normalized.access_token;
-  const expiresIn = normalized.expires_in;
+  const newAccessToken = primaryNormalized.access_token;
+  const expiresIn = primaryNormalized.expires_in;
   const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
-  const newRefreshToken = normalized.refresh_token || refreshToken;
+  const newRefreshToken = primaryNormalized.refresh_token || refreshToken;
 
   await admin
     .from("integrations_auth")

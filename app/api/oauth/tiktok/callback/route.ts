@@ -120,28 +120,11 @@ export async function GET(req: NextRequest) {
   let tokenJson = (await primaryRes.json().catch(() => ({}))) as TikTokTokenResponse;
   let normalized = normalizeTokenPayload(tokenJson);
 
-  // Fallback: OAuth v2 exchange for apps configured with Login Kit style callback.
   if (!primaryRes.ok || !normalized.access_token) {
-    const fallbackBody = new URLSearchParams({
-      client_key: appId,
-      client_secret: clientSecret,
-      code,
-      grant_type: "authorization_code",
-      redirect_uri: redirectUri,
-    });
-    const fallbackRes = await fetch("https://open.tiktokapis.com/v2/oauth/token/", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: fallbackBody.toString(),
-    });
-    tokenJson = (await fallbackRes.json().catch(() => ({}))) as TikTokTokenResponse;
-    normalized = normalizeTokenPayload(tokenJson);
-    if (!fallbackRes.ok || !normalized.access_token) {
-      const back = new URL(returnTo, req.nextUrl.origin);
-      back.searchParams.set("connected", "tiktok_error");
-      back.searchParams.set("reason", tokenJson.error_description || tokenJson.error || tokenJson.message || "token_exchange_failed");
-      return NextResponse.redirect(back, { status: 302 });
-    }
+    const back = new URL(returnTo, req.nextUrl.origin);
+    back.searchParams.set("connected", "tiktok_error");
+    back.searchParams.set("reason", tokenJson.error_description || tokenJson.error || tokenJson.message || "token_exchange_failed");
+    return NextResponse.redirect(back, { status: 302 });
   }
 
   if (!normalized.access_token) {
