@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="64" viewBox="0 0 360 64" role="img" aria-label="BoardIQ logo">
+  <defs>
+    <linearGradient id="biqBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#13151b" />
+      <stop offset="100%" stop-color="#0a0b0f" />
+    </linearGradient>
+  </defs>
+
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="url(#biqBg)" />
+  <rect x="2" y="2" width="60" height="60" rx="14" fill="none" stroke="#ffffff" stroke-opacity="0.2" />
+
+  <text
+    x="32"
+    y="32"
+    text-anchor="middle"
+    dominant-baseline="middle"
+    fill="#ffffff"
+    font-family="Inter, Arial, sans-serif"
+    font-size="25"
+    font-weight="900"
+    letter-spacing="0.3"
+  >
+    BIQ
+  </text>
+
+  <text
+    x="78"
+    y="28"
+    fill="#f5f5f5"
+    font-family="Inter, Arial, sans-serif"
+    font-size="22"
+    font-weight="800"
+    letter-spacing="0.2"
+  >
+    BoardIQ
+  </text>
+  <text
+    x="79"
+    y="47"
+    fill="#a1a1aa"
+    font-family="Inter, Arial, sans-serif"
+    font-size="13"
+    font-weight="500"
+    letter-spacing="0.2"
+  >
+    analytics
+  </text>
+</svg>

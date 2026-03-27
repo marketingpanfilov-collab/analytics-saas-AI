@@ -1,12 +1,46 @@
 import { NextResponse } from "next/server";
+import { createServerSupabase } from "@/app/lib/supabaseServer";
+import { getCurrentSystemRoleCheck } from "@/app/lib/auth/systemRoles";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { checkRateLimit, getRequestIp } from "@/app/lib/security/rateLimit";
 
-const CURRENCY_API_KEY = process.env.CURRENCYAPI_KEY || "cur_live_8p2RcOFrFbWPD7lZKD1ZBhZPvkVZtX1uOD30pmYl";
-
-export async function POST() {
+export async function POST(req: Request) {
   try {
+    const internalSecret = process.env.INTERNAL_SYNC_SECRET?.trim();
+    const receivedSecret = req.headers.get("x-internal-sync-secret")?.trim() ?? "";
+    const bySecret = !!internalSecret && receivedSecret === internalSecret;
+
+    const supabase = await createServerSupabase();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const byAuth = !!user;
+    const sys = await getCurrentSystemRoleCheck(["service_admin"]);
+    const bySystemRole = sys.hasAnyAllowedRole;
+    if (!bySecret && !byAuth && !bySystemRole) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
+    const ip = getRequestIp(req);
+    const rlKey = byAuth && user?.id ? `rates:update:${user.id}:${ip}` : `rates:update:anon:${ip}`;
+    const rl = await checkRateLimit(rlKey, 15, 60_000);
+    if (!rl.ok) {
+      return NextResponse.json(
+        { success: false, error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s` },
+        { status: 429 }
+      );
+    }
+
+    const currencyApiKey = process.env.CURRENCYAPI_KEY?.trim();
+    if (!currencyApiKey) {
+      return NextResponse.json(
+        { success: false, error: "CURRENCYAPI_KEY is not configured" },
+        { status: 500 }
+      );
+    }
+
     const url = `https://api.currencyapi.com/v3/latest?apikey=${encodeURIComponent(
-      CURRENCY_API_KEY
+      currencyApiKey
     )}&base_currency=USD&currencies=KZT`;
 
     const res = await fetch(url);

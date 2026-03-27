@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
+import PaddleAppInit from "../components/PaddleAppInit";
 import { supabase } from "../../lib/supabaseClient";
 
 function SidebarFallback() {
@@ -57,6 +58,7 @@ export default function WithSidebarLayout({ children }: { children: React.ReactN
         gridTemplateColumns: "260px 1fr",
       }}
     >
+      <PaddleAppInit />
       {/* LEFT: SIDEBAR — 260px to match Sidebar component width; wrapped in Suspense because Sidebar uses useSearchParams() */}
       <div style={{ minHeight: "100vh", minWidth: 0 }}>
         <Suspense fallback={<SidebarFallback />}>

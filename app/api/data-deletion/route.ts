@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
+import { checkRateLimit, getRequestIp } from "@/app/lib/security/rateLimit";
 
 const ADMIN_EMAIL = "marketing.panfilov@gmail.com";
 
@@ -53,6 +54,15 @@ async function sendResendEmail(params: { to: string; subject: string; text: stri
 }
 
 export async function POST(request: Request) {
+  const ip = getRequestIp(request);
+  const rl = await checkRateLimit(`public:data-deletion:${ip}`, 8, 60_000);
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: `rate_limited_${rl.retryAfterSec}s` },
+      { status: 429 }
+    );
+  }
+
   let body: Record<string, unknown>;
   try {
     body = await request.json();

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { buildLoginPurchaseHref, type PricingPlanId } from "@/app/lib/auth/loginPurchaseUrl";
+import { getPaddle } from "@/app/lib/paddle";
 import { BaseButton, cn } from "@/components/landing/BaseButton";
 import { LandingDemoSection } from "@/components/landing/LandingDemoBoard";
 import { LandingPartnershipCta } from "@/components/landing/LandingPartnershipCta";
@@ -214,6 +215,11 @@ const PRICING_PLANS: {
 
 export default function Page() {
   const [billing, setBilling] = useState<BillingPeriod>("yearly");
+
+  useEffect(() => {
+    // Public-facing initialization for Paddle.js + Retain entry points.
+    void getPaddle();
+  }, []);
 
   const scrollToPricing = () => {
     const section = document.getElementById("pricing");

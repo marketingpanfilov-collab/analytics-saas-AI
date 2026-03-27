@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { NextResponse } from "next/server";
+import { checkRateLimit, getRequestIp } from "@/app/lib/security/rateLimit";
 
 export const runtime = "nodejs";
 
@@ -41,6 +42,15 @@ function getTransporter() {
 }
 
 export async function POST(req: Request) {
+  const ip = getRequestIp(req);
+  const rl = await checkRateLimit(`public:refund-request:${ip}`, 8, 60_000);
+  if (!rl.ok) {
+    return NextResponse.json(
+      { ok: false, error: `rate_limited_${rl.retryAfterSec}s` },
+      { status: 429 }
+    );
+  }
+
   let json: Body;
   try {
     json = (await req.json()) as Body;

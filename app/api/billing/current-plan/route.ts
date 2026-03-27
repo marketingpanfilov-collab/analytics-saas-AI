@@ -39,6 +39,45 @@ export async function GET() {
   const admin = supabaseAdmin();
   const email = (user.email ?? "").trim().toLowerCase() || null;
 
+  // 0) Entitlements layer (admin overrides), higher priority than provider snapshot.
+  const nowIso = new Date().toISOString();
+  const { data: entitlements } = await admin
+    .from("billing_entitlements")
+    .select("id, plan_override, status, starts_at, ends_at, source, reason, updated_at")
+    .eq("user_id", user.id)
+    .eq("status", "active")
+    .order("updated_at", { ascending: false })
+    .limit(10);
+  const activeEntitlement = (entitlements ?? []).find((e) => {
+    const startsAt = e.starts_at ? Date.parse(String(e.starts_at)) : 0;
+    const endsAt = e.ends_at ? Date.parse(String(e.ends_at)) : null;
+    const nowTs = Date.parse(nowIso);
+    if (Number.isFinite(startsAt) && nowTs < startsAt) return false;
+    if (endsAt != null && Number.isFinite(endsAt) && nowTs > endsAt) return false;
+    return true;
+  });
+  if (activeEntitlement && activeEntitlement.plan_override) {
+    const plan = String(activeEntitlement.plan_override).toLowerCase();
+    const normalizedPlan: PlanId =
+      plan === "starter" || plan === "growth" || plan === "agency" ? (plan as PlanId) : "unknown";
+    return NextResponse.json({
+      success: true,
+      subscription: {
+        provider: "entitlement",
+        plan: normalizedPlan,
+        billing_period: "unknown",
+        status: "active",
+        provider_subscription_id: null,
+        current_period_start: activeEntitlement.starts_at ?? null,
+        current_period_end: activeEntitlement.ends_at ?? null,
+        canceled_at: null,
+        currency_code: null,
+        last_event_type: "entitlement.active",
+        last_event_at: activeEntitlement.updated_at ?? null,
+      },
+    });
+  }
+
   const customerIds = new Set<string>();
 
   const { data: byUser } = await admin
@@ -112,6 +151,12 @@ export async function GET() {
   });
 
   const top = activeFirst[0]!;
+  const topStatus = String(top.status ?? "unknown").toLowerCase();
+  const topPeriodEndTs = Date.parse(String(top.current_period_end ?? ""));
+  const isExpiredByDate =
+    Number.isFinite(topPeriodEndTs) && topStatus !== "canceled" && topStatus !== "inactive"
+      ? Date.now() > topPeriodEndTs
+      : false;
   const planMeta = detectPlan(top.provider_price_id ?? null);
 
   return NextResponse.json({
@@ -120,7 +165,7 @@ export async function GET() {
       provider: "paddle",
       plan: planMeta.plan,
       billing_period: planMeta.billing,
-      status: String(top.status ?? "unknown").toLowerCase(),
+      status: isExpiredByDate ? "expired" : topStatus,
       provider_subscription_id: top.provider_subscription_id,
       current_period_start: top.current_period_start,
       current_period_end: top.current_period_end,

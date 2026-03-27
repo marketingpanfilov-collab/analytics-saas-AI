@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
-import { createServerSupabase } from "@/app/lib/supabaseServer";
+import { requireOrgAdminOrSystemRole } from "@/app/lib/auth/requireOrgAdminOrSystemRole";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { checkRateLimit, getRequestIp } from "@/app/lib/security/rateLimit";
 
 /**
  * GET /api/users/by-email?email=...
  * Returns { success: true, user: { id, email } } or { success: false, error: "not_found" }.
- * Requires authenticated user (any logged-in user can look up by email for add-member flow).
+ * Requires either:
+ * - organization owner/admin, or
+ * - internal system role (service_admin/support/ops_manager).
  */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -15,12 +18,18 @@ export async function GET(req: Request) {
     return NextResponse.json({ success: false, error: "email required" }, { status: 400 });
   }
 
-  const supabase = await createServerSupabase();
-  const {
-    data: { user: currentUser },
-  } = await supabase.auth.getUser();
-  if (!currentUser) {
-    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  const access = await requireOrgAdminOrSystemRole();
+  if (!access.ok) {
+    return NextResponse.json({ success: false, error: access.error }, { status: access.status });
+  }
+
+  const ip = getRequestIp(req);
+  const rl = await checkRateLimit(`users:by-email:${access.userId}:${ip}`, 30, 60_000);
+  if (!rl.ok) {
+    return NextResponse.json(
+      { success: false, error: `Rate limit exceeded. Retry in ${rl.retryAfterSec}s` },
+      { status: 429 }
+    );
   }
 
   const admin = supabaseAdmin();
