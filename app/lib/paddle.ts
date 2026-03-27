@@ -14,11 +14,8 @@ async function syncPwCustomer(paddle: Paddle | undefined, pwCustomerId: string |
   const next = pwCustomerId && pwCustomerId.startsWith("ctm_") ? pwCustomerId : null;
   if (initializedPwCustomerId === next) return;
   try {
-    if (next) {
-      paddle.Update({ pwCustomer: { id: next } });
-    } else {
-      paddle.Update({ pwCustomer: {} });
-    }
+    if (!next) return;
+    paddle.Update({ pwCustomer: { id: next } });
     initializedPwCustomerId = next;
   } catch {
     // non-fatal; checkout can still work without Retain customer context
