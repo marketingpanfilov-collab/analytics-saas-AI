@@ -72,17 +72,22 @@ export default function RefundPolicyPage() {
               </Link>
               .
             </p>
+            <p className={p}>
+              1.4. Если иное не требуется обязательными нормами применимого права, транзакции считаются не подлежащими
+              возврату и обмену; при этом Paddle может рассматривать отдельные запросы на дискреционной основе в
+              соответствии со своей политикой.
+            </p>
 
             <h2 className={h2}>2. Срок на запрос возврата (refund window)</h2>
             <p className={p}>
-              Вы вправе подать запрос на возврат средств в течение{" "}
+              Для покупателей, на которых распространяется обязательное право на отказ/возврат по применимому праву
+              (включая нормы Республики Казахстан), применяется срок{" "}
               <strong className="font-semibold text-white/85">14 (четырнадцати) календарных дней</strong> с даты
-              списания платежа за подписку или разовую покупку, оформленную через Paddle. Срок исчисляется с даты
-              подтверждённой транзакции в Paddle.
+              подтверждённой транзакции, если более длительный или иной обязательный срок не установлен законом.
             </p>
             <p className={p}>
-              Запросы, поступившие после истечения указанного 14-дневного периода, рассматриваются только в рамках
-              правил Paddle и применимого права (включая отдельные положения для подписок и отмены в соответствии с{" "}
+              Поскольку Paddle является Merchant of Record, к операциям также применяются country-specific правила и
+              исключения из{" "}
               <a
                 className="text-white/80 underline underline-offset-2 hover:text-white"
                 href="https://www.paddle.com/legal/refund-policy"
@@ -90,13 +95,37 @@ export default function RefundPolicyPage() {
                 rel="noreferrer"
               >
                 Paddle Refund Policy
+              </a>{" "}
+              и{" "}
+              <a
+                className="text-white/80 underline underline-offset-2 hover:text-white"
+                href="https://www.paddle.com/legal/buyer-terms"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Paddle Buyer Terms
               </a>
-              ).
+              . При расхождении применяется тот стандарт защиты, который обязателен по закону или прямо предоставлен
+              Paddle покупателю.
+            </p>
+            <p className={p}>
+              Если транзакция не подпадает под обязательное право на возврат, возврат может быть предоставлен Paddle
+              на дискреционной основе в соответствии с его политикой.
             </p>
 
             <h2 className={h2}>3. Как запросить возврат</h2>
             <p className={p}>
-              3.1. Основной способ — следовать инструкциям Paddle: раздел о возвратах и отмене в{" "}
+              3.1. Основной способ — запрос через buyer support Paddle ({""}
+              <a
+                className="text-white/80 underline underline-offset-2 hover:text-white"
+                href="https://paddle.net"
+                target="_blank"
+                rel="noreferrer"
+              >
+                paddle.net
+              </a>
+              ), а также через ссылки «View receipt / Manage subscription» из письма о транзакции. Дополнительно можно
+              использовать раздел о возвратах и отмене в{" "}
               <a
                 className="text-white/80 underline underline-offset-2 hover:text-white"
                 href="https://www.paddle.com/legal/refund-policy"
@@ -105,18 +134,9 @@ export default function RefundPolicyPage() {
               >
                 Paddle Refund Policy
               </a>
-              , а также портал покупателя и письма с подтверждением заказа от Paddle.
-            </p>
-            <p className={p}>
-              3.2. Вы также можете обратиться в поддержку Paddle:{" "}
-              <a
-                className="text-white/80 underline underline-offset-2 hover:text-white"
-                href="mailto:help@paddle.com"
-              >
-                help@paddle.com
-              </a>
               .
             </p>
+            <p className={p}>3.2. Приоритетный канал обработки возврата — инструменты buyer support Paddle.</p>
             <p className={p}>
               3.3. Дополнительно вы можете направить обращение через форму на этой странице — заявка будет обработана
               службой поддержки BoardIQ для согласования с Paddle и ответа вам.
