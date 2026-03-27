@@ -429,8 +429,8 @@ export default function Page() {
                 </p>
               </div>
 
-              <div className="grid w-full grid-cols-2 gap-2.5 md:flex md:w-auto md:shrink-0 md:flex-wrap">
-                <span className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/14 bg-white/[0.06] px-4 text-sm font-medium text-zinc-200 md:w-auto">
+              <div className="flex w-full flex-col gap-2.5 md:flex-row md:w-auto md:shrink-0 md:flex-wrap">
+                <span className="order-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/14 bg-white/[0.06] px-4 text-sm font-medium text-zinc-200 md:order-1 md:w-auto">
                   <span className="inline-flex h-5 w-5 items-center justify-center">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden className="shrink-0">
                       <path d="M3 20.5V3.5c0-.8.9-1.3 1.6-.9l10 5.8-2.3 2.3-6.3-3.6v10l6.3-3.6 2.3 2.3-10 5.8c-.7.4-1.6-.1-1.6-.9Zm12.3-8.5 2.4-2.4 3 1.8c.7.4.7 1.4 0 1.8l-3 1.8-2.4-2.4Z" />
@@ -442,7 +442,7 @@ export default function Page() {
                   </span>
                 </span>
 
-                <span className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/14 bg-white/[0.06] px-4 text-sm font-medium text-zinc-200 md:w-auto">
+                <span className="order-1 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/14 bg-white/[0.06] px-4 text-sm font-medium text-zinc-200 md:order-2 md:w-auto">
                   <span className="inline-flex h-5 w-5 items-center justify-center">
                     <svg width="23" height="23" viewBox="0 0 24 24" fill="currentColor" aria-hidden className="-translate-y-px shrink-0">
                       <path d="M16.37 12.27c.02 2.21 1.94 2.95 1.96 2.96-.01.05-.31 1.06-1.02 2.1-.61.9-1.25 1.8-2.24 1.82-.97.02-1.28-.57-2.39-.57-1.11 0-1.46.55-2.35.59-0.95.04-1.67-.95-2.28-1.84-1.24-1.8-2.18-5.09-.91-7.29.63-1.09 1.75-1.78 2.96-1.8.92-.02 1.8.62 2.39.62.59 0 1.69-.76 2.85-.65.48.02 1.83.19 2.69 1.44-.07.04-1.61.94-1.66 2.62Zm-2.02-5.08c.51-.62.86-1.48.77-2.34-.74.03-1.63.49-2.16 1.11-.47.55-.88 1.43-.77 2.27.82.06 1.66-.42 2.16-1.04Z" />
