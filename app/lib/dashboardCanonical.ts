@@ -1,6 +1,9 @@
 /**
  * Canonical dashboard data from daily_ad_metrics.
  * Used for summary, timeseries, and metrics routes with legacy fallback.
+ *
+ * Phase B (optional): SUM/GROUP BY in Postgres via RPC would reduce rows over the wire; requires
+ * parity checks against this path and currency conversion order (see dashboard speed plan).
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
@@ -12,6 +15,7 @@ import {
   pushCurrencyReason,
   resolveUsdToKztRateForDay,
 } from "@/app/lib/currencyNormalization";
+import { fetchAllPages } from "@/app/lib/supabasePagination";
 
 export type CanonicalSummary = {
   spend: number;
@@ -125,11 +129,10 @@ async function resolveAdAccountIds(
 
 /**
  * Fetch daily_ad_metrics for a project and date range.
- * Primary source: daily_ad_metrics_campaign (campaign_id IS NOT NULL) for campaign-level detail.
- * For platforms where campaign breakdown is not available yet (currently TikTok), include
- * account-level rows from daily_ad_metrics (campaign_id IS NULL) to avoid losing spend in dashboard/LTV.
- * sources: filter by platform (meta, google, tiktok). Empty = all.
- * accountIds: filter by ad_accounts.id. Empty = all (for resolved sources).
+ * Meta & Google: account-level rows only (campaign_id IS NULL) — same totals as Ads / Google Ads account reports.
+ * Summing daily_ad_metrics_campaign was lower when some campaigns were missing from DB or mapping.
+ * TikTok: campaign-level from daily_ad_metrics_campaign plus account-level fallback when needed.
+ * Yandex: account-level only.
  */
 async function fetchCanonicalRowsViaJoin(
   admin: SupabaseClient,
@@ -140,6 +143,18 @@ async function fetchCanonicalRowsViaJoin(
 ): Promise<
   { date: string; spend: number; impressions: number; clicks: number; leads: number; purchases: number; revenue: number }[]
 > {
+  type RawMetricRow = {
+    ad_account_id: string;
+    date: string;
+    platform: string | null;
+    spend: number | null;
+    impressions: number | null;
+    clicks: number | null;
+    leads: number | null;
+    purchases: number | null;
+    revenue: number | null;
+  };
+
   const adAccountIds = await resolveAdAccountIds(
     admin,
     projectId,
@@ -148,69 +163,97 @@ async function fetchCanonicalRowsViaJoin(
   );
   if (!adAccountIds.length) return [];
 
-  const { data, error } = await admin
-    .from("daily_ad_metrics_campaign")
-    .select("ad_account_id, date, platform, spend, impressions, clicks, leads, purchases, revenue")
-    .in("ad_account_id", adAccountIds)
-    .in("platform", ["meta", "google", "tiktok"])
-    .gte("date", start)
-    .lte("date", end);
+  const normalizedSources = normalizeSources(options?.sources ?? []);
+  const wantsMeta = normalizedSources.length === 0 || normalizedSources.includes("meta");
+  const wantsGoogle = normalizedSources.length === 0 || normalizedSources.includes("google");
 
-  if (error) {
-    console.log("[CANONICAL_QUERY_ERROR]", { error: String(error?.message ?? error) });
-    throw error;
+  const metaGooglePlatforms: ("meta" | "google")[] = [];
+  if (wantsMeta) metaGooglePlatforms.push("meta");
+  if (wantsGoogle) metaGooglePlatforms.push("google");
+
+  let metaGoogleAccountRows: RawMetricRow[] = [];
+  let metaGooglePagesFetched = 0;
+  if (metaGooglePlatforms.length > 0) {
+    try {
+      const { rows, pagesFetched } = await fetchAllPages(async (from, to) =>
+        admin
+          .from("daily_ad_metrics")
+          .select("ad_account_id, date, platform, spend, impressions, clicks, leads, purchases, revenue")
+          .in("ad_account_id", adAccountIds)
+          .is("campaign_id", null)
+          .in("platform", metaGooglePlatforms)
+          .gte("date", start)
+          .lte("date", end)
+          .order("date", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to)
+      );
+      metaGooglePagesFetched = pagesFetched;
+      metaGoogleAccountRows = rows as RawMetricRow[];
+    } catch (e: unknown) {
+      const msg = e && typeof e === "object" && "message" in e ? String((e as { message?: string }).message) : String(e);
+      console.log("[CANONICAL_QUERY_META_GOOGLE_ACCOUNT_ERROR]", { error: msg });
+      throw e;
+    }
   }
 
-  const campaignRawRows = (data ?? []) as Record<string, unknown>[];
-  const campaignRows = campaignRawRows as {
-    ad_account_id: string;
-    date: string;
-    platform: string | null;
-    spend: number | null;
-    impressions: number | null;
-    clicks: number | null;
-    leads: number | null;
-    purchases: number | null;
-    revenue: number | null;
-  }[];
+  let campaignPagesFetched = 0;
+  let campaignRawRows: Record<string, unknown>[] = [];
+  try {
+    const { rows, pagesFetched } = await fetchAllPages(async (from, to) =>
+      admin
+        .from("daily_ad_metrics_campaign")
+        .select("ad_account_id, date, platform, spend, impressions, clicks, leads, purchases, revenue")
+        .in("ad_account_id", adAccountIds)
+        .in("platform", ["tiktok"])
+        .gte("date", start)
+        .lte("date", end)
+        .order("date", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to)
+    );
+    campaignPagesFetched = pagesFetched;
+    campaignRawRows = rows as Record<string, unknown>[];
+  } catch (e: unknown) {
+    const msg = e && typeof e === "object" && "message" in e ? String((e as { message?: string }).message) : String(e);
+    console.log("[CANONICAL_QUERY_ERROR]", { error: msg });
+    throw e;
+  }
+  const campaignRows = campaignRawRows as RawMetricRow[];
   const campaignPlatforms = new Set<string>(
     (campaignRawRows ?? [])
       .map((r) => String((r as { platform?: string }).platform ?? "").trim().toLowerCase())
       .filter(Boolean)
   );
 
-  // TikTok currently syncs account-level rows only (campaign_id = null), so include them.
-  // To avoid double-counting, include account-level rows only for platforms that are not present
-  // in campaign-level result for the same query.
   const accountLevelPlatforms = ["tiktok", "yandex"].filter((p) => !campaignPlatforms.has(p));
-  let accountRows: {
-    ad_account_id: string;
-    date: string;
-    platform: string | null;
-    spend: number | null;
-    impressions: number | null;
-    clicks: number | null;
-    leads: number | null;
-    purchases: number | null;
-    revenue: number | null;
-  }[] = [];
+  let accountRows: RawMetricRow[] = [];
 
+  let accountPagesFetched = 0;
   if (accountLevelPlatforms.length > 0) {
-    const { data: accountData, error: accountError } = await admin
-      .from("daily_ad_metrics")
-      .select("ad_account_id, date, platform, spend, impressions, clicks, leads, purchases, revenue")
-      .in("ad_account_id", adAccountIds)
-      .is("campaign_id", null)
-      .in("platform", accountLevelPlatforms)
-      .gte("date", start)
-      .lte("date", end);
-    if (accountError) {
-      console.log("[CANONICAL_QUERY_ACCOUNT_LEVEL_ERROR]", { error: String(accountError?.message ?? accountError) });
-      throw accountError;
+    try {
+      const { rows, pagesFetched } = await fetchAllPages(async (from, to) =>
+        admin
+          .from("daily_ad_metrics")
+          .select("ad_account_id, date, platform, spend, impressions, clicks, leads, purchases, revenue")
+          .in("ad_account_id", adAccountIds)
+          .is("campaign_id", null)
+          .in("platform", accountLevelPlatforms)
+          .gte("date", start)
+          .lte("date", end)
+          .order("date", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to)
+      );
+      accountPagesFetched = pagesFetched;
+      accountRows = rows as RawMetricRow[];
+    } catch (e: unknown) {
+      const msg = e && typeof e === "object" && "message" in e ? String((e as { message?: string }).message) : String(e);
+      console.log("[CANONICAL_QUERY_ACCOUNT_LEVEL_ERROR]", { error: msg });
+      throw e;
     }
-    accountRows = (accountData ?? []) as typeof accountRows;
   }
-  const rows = [...campaignRows, ...accountRows];
+  const rows = [...metaGoogleAccountRows, ...campaignRows, ...accountRows];
 
   const adAccountIdSet = new Set<string>(rows.map((r) => String(r.ad_account_id ?? "")).filter(Boolean));
   const adAccountIdsForCurrency = Array.from(adAccountIdSet);
@@ -248,9 +291,25 @@ async function fetchCanonicalRowsViaJoin(
     accountIdsCount: options?.accountIds?.length ?? "all",
     adAccountIdsCount: adAccountIds.length,
     rowCount: rows.length,
-    campaignRows: campaignRows.length,
-    accountRows: accountRows.length,
+    meta_google_account_rows: metaGoogleAccountRows.length,
+    campaignRows_tiktok: campaignRows.length,
+    accountRows_tiktok_yandex_fallback: accountRows.length,
+    metaGooglePagesFetched,
+    campaignPagesFetched,
+    accountPagesFetched,
   });
+  if (metaGooglePagesFetched > 1 || campaignPagesFetched > 1 || accountPagesFetched > 1) {
+    console.log("[CANONICAL_ROWCAP]", {
+      projectId,
+      start,
+      end,
+      note: "H1: more than one PostgREST page was required; pre-fix totals would have been truncated at 1000 rows per query.",
+      metaGooglePagesFetched,
+      campaignPagesFetched,
+      accountPagesFetched,
+      totalRows: rows.length,
+    });
+  }
 
   // When source-filtered and few campaign-level rows, log account-level count (non-fatal; must not throw)
   if (
@@ -274,7 +333,10 @@ async function fetchCanonicalRowsViaJoin(
         sources: options?.sources,
         campaign_level_rows: rows.length,
         account_level_rows_in_range: acctCount,
-        note: acctCount > 0 && rows.length <= 2 ? "Dashboard uses campaign-level only; Google may have only account-level data." : null,
+        note:
+          acctCount > 0 && rows.length <= 2
+            ? "Meta/Google use account-level rows; TikTok uses campaign view + account fallback."
+            : null,
       });
     } catch (_) {
       // diagnostic only; do not affect main path

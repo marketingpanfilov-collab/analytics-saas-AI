@@ -875,38 +875,35 @@ export default function AppDashboardClient() {
     try {
       const qs = params.toString();
 
-      const [sRes, tRes, kRes, cRes] = await Promise.all([
-        fetch(`/api/dashboard/summary?${qs}`, { cache: "no-store", signal }),
-        fetch(`/api/dashboard/timeseries?${qs}`, { cache: "no-store", signal }),
-        fetch(`/api/dashboard/kpi?${qs}`, { cache: "no-store", signal }),
-        fetch(`/api/dashboard/timeseries-conversions?${qs}`, { cache: "no-store", signal }),
-      ]);
+      const bundleRes = await fetch(`/api/dashboard/bundle?${qs}`, { cache: "no-store", signal });
+      const bundleText = await bundleRes.text();
+      const bundleJson = bundleText ? JSON.parse(bundleText) : null;
 
-      const sText = await sRes.text();
-      const tText = await tRes.text();
-      const kText = await kRes.text();
-      const cText = await cRes.text();
+      if (!bundleRes.ok || !bundleJson?.success) {
+        const apiErr = extractApiError(bundleJson);
+        throw new Error(apiErr || bundleJson?.error?.message || bundleJson?.error || "bundle: ошибка");
+      }
 
-      const sJson = sText ? JSON.parse(sText) : null;
-      const tJson = tText ? JSON.parse(tText) : null;
-      const kJson = kText ? JSON.parse(kText) : null;
-      const cJson = cText ? JSON.parse(cText) : null;
+      const sJson = bundleJson.summary;
+      const tJson = bundleJson.timeseries;
+      const kJson = bundleJson.kpi;
+      const cJson = bundleJson.timeseriesConversions;
 
-      console.log("[SUMMARY_RESPONSE_RAW]", { ok: sRes.ok, totals: sJson?.totals, source: sJson?.source, raw: sJson });
-      console.log("[TIMESERIES_RESPONSE_RAW]", { ok: tRes.ok, pointsCount: tJson?.points?.length, firstSpend: tJson?.points?.[0]?.spend, raw: tJson });
+      console.log("[SUMMARY_RESPONSE_RAW]", { ok: true, totals: sJson?.totals, source: sJson?.source, raw: sJson });
+      console.log("[TIMESERIES_RESPONSE_RAW]", { ok: true, pointsCount: tJson?.points?.length, firstSpend: tJson?.points?.[0]?.spend, raw: tJson });
 
-      if (!sRes.ok || !sJson?.success) {
+      if (!sJson?.success) {
         const apiErr = extractApiError(sJson);
         throw new Error(apiErr || sJson?.error?.message || sJson?.error || "summary: ошибка");
       }
-      if (!tRes.ok || !tJson?.success) {
+      if (!tJson?.success) {
         const apiErr = extractApiError(tJson);
         throw new Error(apiErr || tJson?.error?.message || tJson?.error || "timeseries: ошибка");
       }
 
-      if (!kRes.ok || !kJson?.success) {
+      if (!kJson?.success) {
         const apiErr = (kJson && (kJson.error || kJson.message)) || "";
-        console.warn("[KPI_CONVERSIONS_ERROR]", kRes.status, apiErr || "unknown");
+        console.warn("[KPI_CONVERSIONS_ERROR]", apiErr || "unknown");
         setKpiSummary(null);
       } else {
         setKpiSummary({
@@ -939,7 +936,7 @@ export default function AppDashboardClient() {
       console.log("[STATE_SET_POINTS]", { pointsCount: pts.length, firstSpend: pts[0]?.spend, sample: pts.slice(0, 2) });
       setPoints(pts);
 
-      if (cRes.ok && cJson?.success && Array.isArray(cJson.points)) {
+      if (cJson?.success && Array.isArray(cJson.points)) {
         setConversionSeries(
           (cJson.points as { date: string; registrations: number; sales: number }[]).map((p) => ({
             date: String(p.date),
@@ -976,6 +973,7 @@ export default function AppDashboardClient() {
       }
 
       setLastDebug({
+        bundle: bundleJson,
         summary: sJson,
         timeseries: tJson,
         params: { projectId, start, end, effectiveSources, effectiveAccountIds },
@@ -1092,7 +1090,6 @@ export default function AppDashboardClient() {
       loadingKeyRef.current = null;
       clearBackfillPolling();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, appliedDateFrom, appliedDateTo, sourcesKey, accountIdsKey]);
 
   // Force sync once on entry (only when online & visible), with a 15-minute per-tab cooldown.
@@ -1137,7 +1134,6 @@ export default function AppDashboardClient() {
         // ignore
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   // Auto-refresh every 15 min while user is online & tab is visible (uses applied range)
@@ -1177,7 +1173,6 @@ export default function AppDashboardClient() {
     }, MS);
 
     return () => window.clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, appliedDateFrom, appliedDateTo, sourcesKey, accountIdsKey, loading, syncLoading]);
 
   useEffect(() => {
@@ -1822,6 +1817,10 @@ export default function AppDashboardClient() {
               {historicalBackfill.intervals.map((iv) => `${fmtRuDate(iv.start)} — ${fmtRuDate(iv.end)}`).join("; ")}
             </span>
           ) : null}
+          <span style={{ opacity: 0.75, fontSize: 12 }}>
+            График обновится автоматически (до {MAX_BACKFILL_ATTEMPTS} попыток, каждые{" "}
+            {BACKFILL_POLL_INTERVAL_MS / 1000}&nbsp;с).
+          </span>
         </div>
       ) : null}
 

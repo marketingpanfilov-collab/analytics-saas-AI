@@ -14,21 +14,26 @@ function isYmd(v: string) {
 }
 
 /**
- * POST /api/dashboard/sync?project_id=...&start=...&end=...
+ * POST /api/dashboard/sync?project_id=...&start=...&end=...&date_origin=...
  *
  * Syncs the given date range for the project: Meta (if connected), all enabled Google accounts,
  * and all enabled TikTok accounts.
  * Used by backfill and by dashboard refresh flow.
+ *
+ * `date_origin=utc_today` (internal cron only): start/end are UTC calendar days; forwarded to Meta
+ * so single-day "today" sync maps to the ad account timezone (matches Ads Manager).
  */
 export async function POST(req: Request) {
   const { searchParams } = new URL(req.url);
   const projectId = searchParams.get("project_id") ?? "";
   const start = searchParams.get("start") ?? "";
   const end = searchParams.get("end") ?? "";
+  const dateOrigin = (searchParams.get("date_origin") ?? "").trim();
   console.log("[DASHBOARD_SYNC_ENTER]", {
     start,
     end,
     projectId,
+    date_origin: dateOrigin || null,
     received_range: { start, end },
   });
 
@@ -67,7 +72,7 @@ export async function POST(req: Request) {
   }
 
   // Soft dedup guard: suppress burst duplicate sync dispatches for same project/range.
-  const dedupKey = `dashboard-sync-dispatch:${projectId}:${start}:${end}`;
+  const dedupKey = `dashboard-sync-dispatch:${projectId}:${start}:${end}:${dateOrigin}`;
   const dedup = await checkRateLimit(dedupKey, 1, 20_000);
   if (!dedup.ok) {
     return NextResponse.json({ success: true, skipped: true, reason: "dedup_recent_dispatch" });
@@ -123,6 +128,7 @@ export async function POST(req: Request) {
     metaSyncUrl.searchParams.set("ad_account_id", externalId);
     metaSyncUrl.searchParams.set("date_start", start);
     metaSyncUrl.searchParams.set("date_stop", end);
+    if (dateOrigin) metaSyncUrl.searchParams.set("date_origin", dateOrigin);
     console.log("[DASHBOARD_SYNC_META]", {
       ad_account_id: externalId,
       date_start: start,

@@ -242,6 +242,7 @@ async function runInternalCron(): Promise<{
     syncUrl.searchParams.set("project_id", projectId);
     syncUrl.searchParams.set("start", today);
     syncUrl.searchParams.set("end", today);
+    syncUrl.searchParams.set("date_origin", "utc_today");
 
     try {
       const r = await fetch(syncUrl.toString(), {

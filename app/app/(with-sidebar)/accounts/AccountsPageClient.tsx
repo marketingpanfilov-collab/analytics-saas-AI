@@ -571,7 +571,6 @@ export default function AccountsPageClient() {
   useEffect(() => {
     if (!projectId) return;
     refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   const accountsByPlatform = useMemo(() => {

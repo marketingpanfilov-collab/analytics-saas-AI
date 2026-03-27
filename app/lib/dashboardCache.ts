@@ -14,7 +14,7 @@ function now() {
 
 /** Build cache key. sourcesKey: sorted comma-separated or "all". accountIdsKey: sorted comma-separated or "all". */
 export function dashboardCacheKey(
-  route: "summary" | "timeseries" | "metrics",
+  route: "summary" | "timeseries" | "metrics" | "bundle",
   projectId: string,
   start: string,
   end: string,
@@ -44,9 +44,10 @@ export function dashboardCacheSet(key: string, value: unknown, ttlMs: number): v
   });
 }
 
-/** TTLs in milliseconds (for reference: summary 30s, metrics 30s, timeseries 60s) */
+/** TTLs in milliseconds (summary 30s, metrics 30s, timeseries 60s, bundle 60s) */
 export const DASHBOARD_CACHE_TTL = {
   summary: 30_000,
   metrics: 30_000,
   timeseries: 60_000,
+  bundle: 60_000,
 } as const;

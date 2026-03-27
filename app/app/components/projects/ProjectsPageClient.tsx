@@ -76,7 +76,7 @@ function ProjectCard({
 }
 
 function slugify(name: string): string {
-  let s = name
+  const s = name
     .toLowerCase()
     .trim()
     .replace(/[\s_]+/g, "-")

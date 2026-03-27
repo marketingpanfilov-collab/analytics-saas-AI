@@ -117,8 +117,8 @@ export async function GET(req: NextRequest) {
       grant_type: "auth_code",
     }),
   });
-  let tokenJson = (await primaryRes.json().catch(() => ({}))) as TikTokTokenResponse;
-  let normalized = normalizeTokenPayload(tokenJson);
+  const tokenJson = (await primaryRes.json().catch(() => ({}))) as TikTokTokenResponse;
+  const normalized = normalizeTokenPayload(tokenJson);
 
   if (!primaryRes.ok || !normalized.access_token) {
     const back = new URL(returnTo, req.nextUrl.origin);

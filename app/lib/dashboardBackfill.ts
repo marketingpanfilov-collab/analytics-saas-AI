@@ -12,6 +12,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSyncTtlMs } from "./syncTtl";
 import { getInternalSyncHeaders } from "./auth/requireProjectAccessOrInternal";
+import { fetchAllPages } from "@/app/lib/supabasePagination";
 
 export type Platform = "meta" | "google" | "tiktok";
 
@@ -147,14 +148,24 @@ export async function isRangeCovered(
   }
 
   // Any row (campaign- or account-level). Must NOT use .not("campaign_id", "is", null).
-  const { data: rows, error } = await admin
-    .from("daily_ad_metrics")
-    .select("ad_account_id, date")
-    .in("ad_account_id", ids)
-    .gte("date", start)
-    .lte("date", end);
-
-  if (error) {
+  // Paginate: PostgREST caps at ~1000 rows; incomplete rows ⇒ false coverage and spurious sync.
+  let rows: { ad_account_id: string; date: string }[] = [];
+  let coveragePagesFetched = 0;
+  try {
+    const { rows: paged, pagesFetched } = await fetchAllPages(async (rangeFrom, rangeTo) =>
+      admin
+        .from("daily_ad_metrics")
+        .select("ad_account_id, date")
+        .in("ad_account_id", ids)
+        .gte("date", start)
+        .lte("date", end)
+        .order("date", { ascending: true })
+        .order("id", { ascending: true })
+        .range(rangeFrom, rangeTo)
+    );
+    rows = paged as { ad_account_id: string; date: string }[];
+    coveragePagesFetched = pagesFetched;
+  } catch (_error) {
     return {
       covered: false,
       rowCount: 0,
@@ -165,6 +176,17 @@ export async function isRangeCovered(
       uncoveredAccountIds: [...ids],
       perAccountCoverage: ids.map((id) => ({ ad_account_id: id, covered: false, min_date: null, max_date: null, date_count: 0 })),
     };
+  }
+
+  if (coveragePagesFetched > 1) {
+    console.log("[BACKFILL_COVERAGE_ROWCAP]", {
+      projectId,
+      start,
+      end,
+      coveragePagesFetched,
+      rowCount: rows.length,
+      note: "H1: coverage query required multiple PostgREST pages; pre-fix logic was wrong beyond ~1000 rows.",
+    });
   }
 
   const allDates = datesInRange(start, end);

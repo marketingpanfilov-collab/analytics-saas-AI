@@ -154,6 +154,8 @@ export async function GET(req: Request) {
 
   const dateStartParam = searchParams.get("date_start");
   const dateStopParam = searchParams.get("date_stop");
+  /** Set by internal cron only: start/end are UTC calendar days; remap single-day "today" to account TZ. */
+  const dateOriginParam = (searchParams.get("date_origin") ?? "").trim();
 
   if (!projectIdRaw || !adAccountIdRaw) {
     console.log("[META_SYNC_400_MISSING_PARAMS]", { project_id: projectIdRaw || null, ad_account_id: adAccountIdRaw || null });
@@ -314,8 +316,23 @@ export async function GET(req: Request) {
   const accountTz: string = tzJson?.timezone_name || "UTC";
 
   const now = new Date();
-  const since = dateStartParam ?? firstDayOfMonthYmdInTz(now, accountTz);
-  const until = dateStopParam ?? formatYmdInTz(now, accountTz);
+  const utcToday = new Date().toISOString().slice(0, 10);
+  const accountLocalToday = formatYmdInTz(now, accountTz);
+
+  let since = dateStartParam ?? firstDayOfMonthYmdInTz(now, accountTz);
+  let until = dateStopParam ?? formatYmdInTz(now, accountTz);
+
+  const singleDayExplicit =
+    dateStartParam != null && dateStopParam != null && dateStartParam === dateStopParam;
+  const utcTodayOriginApplied =
+    dateOriginParam === "utc_today" &&
+    access.source === "internal" &&
+    singleDayExplicit &&
+    dateStartParam === utcToday;
+  if (utcTodayOriginApplied) {
+    since = accountLocalToday;
+    until = accountLocalToday;
+  }
 
   console.log("[INSIGHTS_SYNC_PERIOD]", { date_start_param: dateStartParam, date_stop_param: dateStopParam, since, until, tz: accountTz });
 
@@ -667,7 +684,7 @@ export async function GET(req: Request) {
 
   // Canonical: map entity_id (meta campaign id) -> campaigns.id for daily_ad_metrics dual-write.
   // Load existing; we will upsert missing campaigns per chunk so every insight row gets a campaign_id.
-  let entityIdToCampaignId = new Map<string, string>();
+  const entityIdToCampaignId = new Map<string, string>();
   if (canonicalAdAccountId) {
     const { data: campaigns } = await admin
       .from("campaigns")

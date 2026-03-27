@@ -84,7 +84,7 @@ export async function GET(req: Request) {
     }
   }
 
-  let coverageMap: Record<string, { min_date: string; max_date: string; row_count: number }> = {};
+  const coverageMap: Record<string, { min_date: string; max_date: string; row_count: number }> = {};
   if (ids.length > 0) {
     const twoYearsAgo = new Date();
     twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);

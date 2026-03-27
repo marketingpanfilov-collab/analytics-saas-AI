@@ -304,19 +304,18 @@ function DonutChart({
   const r = (size - stroke) / 2;
   const cx = size / 2;
   const cy = size / 2;
-  let acc = 0;
-  const paths = segments
-    .filter((s) => s.value > 0)
-    .map((s, i) => {
-      const pct = total > 0 ? s.value / total : 0;
-      const start = acc;
-      acc += pct;
-      const key = PLATFORM_LABEL_TO_KEY[s.platform] ?? s.platform.toLowerCase();
-      const color = DONUT_COLORS[key] ?? ["#1877f2", "#ea4335", "#000000", "#fc3f7c"][i % 4];
-      const dash = `${2 * Math.PI * r * pct} ${2 * Math.PI * r}`;
-      const offset = -2 * Math.PI * r * start;
-      return { dash, offset, color, platform: s.platform, value: s.value, pct };
-    });
+  const positive = segments.filter((s) => s.value > 0);
+  const paths = positive.map((s, i) => {
+    const pct = total > 0 ? s.value / total : 0;
+    const start = positive
+      .slice(0, i)
+      .reduce((sum, x) => sum + (total > 0 ? x.value / total : 0), 0);
+    const key = PLATFORM_LABEL_TO_KEY[s.platform] ?? s.platform.toLowerCase();
+    const color = DONUT_COLORS[key] ?? ["#1877f2", "#ea4335", "#000000", "#fc3f7c"][i % 4];
+    const dash = `${2 * Math.PI * r * pct} ${2 * Math.PI * r}`;
+    const offset = -2 * Math.PI * r * start;
+    return { dash, offset, color, platform: s.platform, value: s.value, pct };
+  });
   const displayName = (p: string) => PLATFORM_LABELS[p] ?? p;
   return (
     <div className="flex flex-col gap-2">

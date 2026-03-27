@@ -1,8 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({ request });
+/** Backup / alternate matcher (not active — rename to `proxy.ts` to use). */
+export async function proxy(request: NextRequest) {
+  const response = NextResponse.next({ request });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,9 +28,8 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const pathname = request.nextUrl.pathname;
-  const isProtected = pathname.startsWith("/app");
+  const isProtected = pathname.startsWith("/app") || pathname.startsWith("/dashboard");
 
-  // 1) Protect private routes
   if (isProtected && !user) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
@@ -37,7 +37,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // 2) If already logged in — redirect to project selection (never default to /app)
   if (pathname.startsWith("/login") && user) {
     const url = request.nextUrl.clone();
     url.pathname = "/app/projects";
@@ -49,6 +48,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/app/:path*", "/login"],
+  matcher: ["/app/:path*", "/dashboard/:path*", "/login"],
 };
-

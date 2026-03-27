@@ -485,10 +485,11 @@ export default function UtmBuilderPageClient() {
       <div
         className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4"
         role="region"
-        aria-expanded={warningExpanded}
+        aria-label="Важное предупреждение по tracking-ссылкам"
       >
         <button
           type="button"
+          aria-expanded={warningExpanded}
           onClick={() => setWarningExpanded((e) => !e)}
           className="flex w-full items-center justify-between gap-2 text-left"
         >

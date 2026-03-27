@@ -128,7 +128,7 @@ export async function getMarketingSummary(
   const month = now.getMonth() + 1;
   const year = now.getFullYear();
 
-  let plan: PlanMetrics = {
+  const plan: PlanMetrics = {
     monthly_budget: null,
     target_registrations: null,
     target_sales: null,
@@ -295,7 +295,7 @@ export async function getMarketingSummary(
     }
   }
 
-  let campaignNames: Record<string, string> = {};
+  const campaignNames: Record<string, string> = {};
   if (campaignIds.size > 0) {
     const { data: cNames } = await admin
       .from("campaigns")
