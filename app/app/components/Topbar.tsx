@@ -20,6 +20,7 @@ function sectionLabel(pathname: string): string {
   if (pathname.startsWith("/app/accounts")) return "Аккаунты";
   if (pathname.startsWith("/app/project-members")) return "Участники";
   if (pathname.startsWith("/app/org-members")) return "Организация";
+  if (pathname.startsWith("/app/manage-access")) return "Управление доступом";
   if (pathname.startsWith("/app/conversion-data") || pathname.startsWith("/app/sales-data")) return "Conversion Data";
   if (pathname.startsWith("/app/api")) return "API";
   if (pathname.startsWith("/app/settings")) return "Настройки";
@@ -100,24 +101,20 @@ function Dot({ color }: { color: string }) {
 }
 
 export default function Topbar({ email }: { email?: string }) {
-  type CurrentPlan = "starter" | "growth" | "agency";
-  const getCurrentPlan = (): CurrentPlan => "agency";
+  type CurrentPlan = "starter" | "growth" | "agency" | "unknown";
 
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project_id")?.trim() ?? null;
 
-  // Статичный пример фрейма тарифа (пока без логики — позже подключим реальные данные).
-  // Визуальный фрейм тарифа (статичный UI пока без логики).
-  // Оставляем название "Agency", но делаем сам фрейм зелёным.
-  const CURRENT_PLAN = getCurrentPlan();
-  const CURRENT_PLAN_UNTIL = "31.12.2026";
-  const CURRENT_PLAN_UNTIL_SHORT = CURRENT_PLAN_UNTIL;
-  const isMaxPlan = CURRENT_PLAN === "agency";
+  const [currentPlan, setCurrentPlan] = useState<CurrentPlan>("unknown");
+  const [currentPlanStatus, setCurrentPlanStatus] = useState<string>("unknown");
+  const [currentPlanUntil, setCurrentPlanUntil] = useState<string | null>(null);
+  const isMaxPlan = currentPlan === "agency";
 
   const planTheme =
-    CURRENT_PLAN === "starter"
+    currentPlan === "starter"
       ? {
           label: "Starter",
           dot: "rgba(200,200,210,0.95)",
@@ -125,7 +122,7 @@ export default function Topbar({ email }: { email?: string }) {
           bg: "rgba(255,255,255,0.06)",
           dotGlow: "rgba(255,255,255,0.18)",
         }
-      : CURRENT_PLAN === "growth"
+      : currentPlan === "growth"
         ? {
             label: "Growth",
             dot: "rgba(52,211,153,0.95)",
@@ -133,13 +130,21 @@ export default function Topbar({ email }: { email?: string }) {
             bg: "rgba(16,185,129,0.14)",
             dotGlow: "rgba(16,185,129,0.25)",
           }
-        : {
+        : currentPlan === "agency"
+          ? {
             label: "Agency",
             dot: "rgba(52,211,153,0.95)",
             border: "rgba(52,211,153,0.35)",
             bg: "rgba(16,185,129,0.14)",
             dotGlow: "rgba(16,185,129,0.25)",
-          };
+          }
+          : {
+              label: "No plan",
+              dot: "rgba(148,163,184,0.95)",
+              border: "rgba(148,163,184,0.28)",
+              bg: "rgba(148,163,184,0.14)",
+              dotGlow: "rgba(148,163,184,0.2)",
+            };
 
   type DataQualityPayload = {
     has_data: boolean;
@@ -268,6 +273,45 @@ export default function Topbar({ email }: { email?: string }) {
     }
     loadDataQuality();
   }, [projectId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/billing/current-plan", { cache: "no-store" });
+        const json = (await res.json()) as {
+          success?: boolean;
+          subscription?: {
+            plan?: string;
+            status?: string;
+            current_period_end?: string | null;
+          } | null;
+        };
+        if (cancelled) return;
+        if (!res.ok || !json?.success || !json?.subscription) {
+          setCurrentPlan("unknown");
+          setCurrentPlanStatus("unknown");
+          setCurrentPlanUntil(null);
+          return;
+        }
+        const planRaw = String(json.subscription.plan ?? "").toLowerCase();
+        const nextPlan: CurrentPlan =
+          planRaw === "starter" || planRaw === "growth" || planRaw === "agency" ? (planRaw as CurrentPlan) : "unknown";
+        setCurrentPlan(nextPlan);
+        setCurrentPlanStatus(String(json.subscription.status ?? "unknown").toLowerCase());
+        setCurrentPlanUntil(json.subscription.current_period_end ?? null);
+      } catch {
+        if (!cancelled) {
+          setCurrentPlan("unknown");
+          setCurrentPlanStatus("unknown");
+          setCurrentPlanUntil(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // ✅ Закрытие попапа по клику вне
   useEffect(() => {
@@ -522,7 +566,7 @@ export default function Topbar({ email }: { email?: string }) {
           )}
         </div>
 
-        {/* Тариф-фрейм слева от email (статичный UI) */}
+          {/* Тариф-фрейм слева от email (динамика из billing_subscriptions) */}
         <div className="relative group" style={{ flex: "0 0 auto" }}>
           <div
             className="flex cursor-default items-center gap-2 rounded-xl px-4 py-2"
@@ -551,7 +595,7 @@ export default function Topbar({ email }: { email?: string }) {
           <div
             className="absolute left-0 top-full z-[1000] w-[330px] flex-col rounded-2xl border border-white/10 bg-[#0f0f14] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.65)] opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto"
           >
-            <div style={{ fontWeight: 900, color: "white", fontSize: 14 }}>{planTheme.label}</div>
+              <div style={{ fontWeight: 900, color: "white", fontSize: 14 }}>{planTheme.label}</div>
             <div
               style={{
                 marginTop: 6,
@@ -561,7 +605,9 @@ export default function Topbar({ email }: { email?: string }) {
                 lineHeight: 1.2,
               }}
             >
-              Тариф действует до {CURRENT_PLAN_UNTIL}
+                {currentPlanUntil
+                  ? `Тариф действует до ${new Date(currentPlanUntil).toLocaleDateString("ru-RU")}`
+                  : `Статус подписки: ${currentPlanStatus}`}
             </div>
 
             <div style={{ marginTop: 12, fontSize: 12, opacity: 0.85, color: "white" }}>

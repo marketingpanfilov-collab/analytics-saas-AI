@@ -222,15 +222,13 @@ export default function LoginPageClient() {
       paddle.Checkout.open({
         items: [{ priceId, quantity: 1 }],
         customer: { email: email.trim() },
-        ...(productId
-          ? {
-              customData: {
-                paddle_product_id: productId,
-                plan: effectivePlan,
-                billing_period: effectiveBilling,
-              },
-            }
-          : {}),
+        customData: {
+          ...(productId ? { paddle_product_id: productId } : {}),
+          plan: effectivePlan,
+          billing_period: effectiveBilling,
+          app_user_id: data?.user?.id ?? null,
+          app_email: email.trim().toLowerCase(),
+        },
       });
     } catch (e) {
       console.error("[Login signup + Paddle] error", e);

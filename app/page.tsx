@@ -410,6 +410,55 @@ export default function Page() {
         </div>
       </section>
 
+      <section className="landing-mid-scope relative z-10 border-t border-white/10">
+        <div className="mx-auto max-w-6xl px-5 py-8 md:py-10">
+          <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] p-5 md:p-6">
+            <div className="pointer-events-none absolute inset-0" aria-hidden>
+              <div className="absolute -right-16 -top-16 h-48 w-48 rounded-full bg-white/[0.14] blur-2xl animate-[pulse_3.2s_cubic-bezier(0.4,0,0.6,1)_infinite]" />
+              <div className="absolute -bottom-20 left-1/3 h-56 w-56 rounded-full bg-zinc-300/[0.13] blur-2xl animate-[pulse_4.4s_cubic-bezier(0.4,0,0.6,1)_infinite]" />
+              <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(255,255,255,0.12),rgba(255,255,255,0.02)_42%,rgba(161,161,170,0.1))]" />
+            </div>
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="text-xl font-semibold tracking-tight text-white/95 md:text-2xl">
+                  Скачайте наше приложение
+                </h3>
+                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/60 md:text-base">
+                  Для вашего удобства у нас есть приложение для отслеживания эффективности рекламы и ключевых метрик в
+                  реальном времени.
+                </p>
+              </div>
+
+              <div className="grid w-full grid-cols-2 gap-2.5 md:flex md:w-auto md:shrink-0 md:flex-wrap">
+                <span className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/14 bg-white/[0.06] px-4 text-sm font-medium text-zinc-200 md:w-auto">
+                  <span className="inline-flex h-5 w-5 items-center justify-center">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden className="shrink-0">
+                      <path d="M3 20.5V3.5c0-.8.9-1.3 1.6-.9l10 5.8-2.3 2.3-6.3-3.6v10l6.3-3.6 2.3 2.3-10 5.8c-.7.4-1.6-.1-1.6-.9Zm12.3-8.5 2.4-2.4 3 1.8c.7.4.7 1.4 0 1.8l-3 1.8-2.4-2.4Z" />
+                    </svg>
+                  </span>
+                  Google Play
+                  <span className="rounded-full border border-amber-400/40 bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-bold text-amber-100">
+                    Скоро
+                  </span>
+                </span>
+
+                <span className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/14 bg-white/[0.06] px-4 text-sm font-medium text-zinc-200 md:w-auto">
+                  <span className="inline-flex h-5 w-5 items-center justify-center">
+                    <svg width="23" height="23" viewBox="0 0 24 24" fill="currentColor" aria-hidden className="-translate-y-px shrink-0">
+                      <path d="M16.37 12.27c.02 2.21 1.94 2.95 1.96 2.96-.01.05-.31 1.06-1.02 2.1-.61.9-1.25 1.8-2.24 1.82-.97.02-1.28-.57-2.39-.57-1.11 0-1.46.55-2.35.59-0.95.04-1.67-.95-2.28-1.84-1.24-1.8-2.18-5.09-.91-7.29.63-1.09 1.75-1.78 2.96-1.8.92-.02 1.8.62 2.39.62.59 0 1.69-.76 2.85-.65.48.02 1.83.19 2.69 1.44-.07.04-1.61.94-1.66 2.62Zm-2.02-5.08c.51-.62.86-1.48.77-2.34-.74.03-1.63.49-2.16 1.11-.47.55-.88 1.43-.77 2.27.82.06 1.66-.42 2.16-1.04Z" />
+                    </svg>
+                  </span>
+                  App Store
+                  <span className="rounded-full border border-amber-400/40 bg-amber-500/[0.14] px-2 py-0.5 text-[11px] font-bold text-amber-100">
+                    Скоро
+                  </span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <LandingDemoSection />
 
       <LandingPartnershipCta />
