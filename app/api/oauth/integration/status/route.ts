@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
 import { getMetaIntegrationForProject } from "@/app/lib/metaIntegration";
 import { getValidGoogleAccessToken } from "@/app/lib/googleAdsAuth";
 import { getValidTikTokAccessToken } from "@/app/lib/tiktokAdsAuth";
@@ -23,7 +24,14 @@ export type IntegrationStatusRow = {
   data_max_date?: string | null;
 };
 
-const DATA_FRESHNESS_THRESHOLD_MINUTES = 20;
+const DATA_FRESHNESS_THRESHOLD_MINUTES = 60;
+
+function dayDiffUtc(fromYmd: string, toYmd: string): number {
+  const from = Date.parse(`${fromYmd}T00:00:00Z`);
+  const to = Date.parse(`${toYmd}T00:00:00Z`);
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return 0;
+  return Math.max(0, Math.floor((to - from) / (24 * 60 * 60 * 1000)));
+}
 
 /** Fetch last sync run (by started_at) and max(date) for project+platform. Uses limit(1) to avoid maybeSingle() failures. */
 async function getSyncAndFreshness(
@@ -40,7 +48,7 @@ async function getSyncAndFreshness(
     const [syncRes, metricsRes] = await Promise.all([
       admin
         .from("sync_runs")
-        .select("status, started_at, error_message, error_text")
+        .select("status, started_at, finished_at, error_message, error_text")
         .eq("project_id", projectId)
         .eq("platform", platform)
         .order("started_at", { ascending: false })
@@ -54,11 +62,18 @@ async function getSyncAndFreshness(
         .limit(1),
     ]);
 
-    const run = (syncRes.data as { status?: string; started_at?: string; error_message?: string | null; error_text?: string | null }[] | null)?.[0] ?? null;
+    const run = (syncRes.data as {
+      status?: string;
+      started_at?: string;
+      finished_at?: string;
+      error_message?: string | null;
+      error_text?: string | null;
+    }[] | null)?.[0] ?? null;
     const metricsRow = (metricsRes.data as { date?: string }[] | null)?.[0] ?? null;
     return {
       last_sync_status: run?.status ?? null,
-      last_sync_at: run?.started_at ?? null,
+      // finished_at is more reliable freshness marker than started_at.
+      last_sync_at: run?.finished_at ?? run?.started_at ?? null,
       last_sync_error: run?.error_text ?? run?.error_message ?? null,
       data_max_date: metricsRow?.date ?? null,
     };
@@ -89,18 +104,26 @@ function resolveDataStatus(
     return { status: "error", reason: "sync_failed" };
   }
 
-  if (data_max_date == null || data_max_date < today) {
+  if (data_max_date == null) {
     if (staleThreshold) {
       return { status: "error", reason: "no_data_updates_today" };
     }
     return { status: "stale", reason: "data_behind" };
   }
 
-  if (staleThreshold) {
-    return { status: "stale", reason: "sync_old" };
+  // If we already have data for today, treat integration as healthy even when last sync is old.
+  // This prevents false "stale" noise after periods of inactivity.
+  if (data_max_date >= today) {
+    return { status: "healthy", reason: null };
   }
 
-  return { status: "healthy", reason: null };
+  // Data is behind today: stale for short lag, error for longer lag.
+  const lagDays = dayDiffUtc(data_max_date, today);
+  if (lagDays >= 2) {
+    return { status: "error", reason: "no_data_updates_today" };
+  }
+  if (staleThreshold) return { status: "stale", reason: "sync_old" };
+  return { status: "stale", reason: "data_behind" };
 }
 
 /**
@@ -250,6 +273,11 @@ export async function GET(req: Request) {
 
   if (!projectId) {
     return NextResponse.json({ success: false, error: "project_id required" }, { status: 400 });
+  }
+
+  const access = await requireProjectAccessOrInternal(req, projectId, { allowInternalBypass: false });
+  if (!access.allowed) {
+    return NextResponse.json(access.body, { status: access.status });
   }
 
   let admin: ReturnType<typeof supabaseAdmin>;
