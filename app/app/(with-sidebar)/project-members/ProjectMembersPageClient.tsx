@@ -59,10 +59,16 @@ function formatDateTime(iso: string): string {
   }
 }
 
-export default function ProjectMembersPageClient() {
+export type ProjectMembersPageClientProps = {
+  /** Встроенная страница (например /app/manage-access) — без лишних отступов контейнера */
+  variant?: "page" | "embedded";
+};
+
+export default function ProjectMembersPageClient({ variant = "page" }: ProjectMembersPageClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project_id")?.trim() ?? "";
+  const isEmbedded = variant === "embedded";
 
   const [loading, setLoading] = useState(true);
   const [allowed, setAllowed] = useState(false);
@@ -361,7 +367,7 @@ export default function ProjectMembersPageClient() {
 
   if (loading || !allowed) {
     return (
-      <div className="mx-auto max-w-4xl p-6">
+      <div className={isEmbedded ? "" : "mx-auto max-w-4xl p-6"}>
         <div className="h-10 w-64 rounded-2xl bg-white/[0.04]" />
         <div className="mt-6 h-48 rounded-2xl border border-white/10 bg-white/[0.03]" />
       </div>
@@ -369,7 +375,7 @@ export default function ProjectMembersPageClient() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-8 p-6">
+    <div className={isEmbedded ? "space-y-8" : "mx-auto max-w-4xl space-y-8 p-6"}>
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-white">

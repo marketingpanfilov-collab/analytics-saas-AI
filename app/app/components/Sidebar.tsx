@@ -1241,12 +1241,8 @@ export default function Sidebar() {
           🌎 Аккаунты
         </Link>
 
-        <Link href={withProjectId("/app/project-members")} style={itemStyle(pathname.startsWith("/app/project-members"))}>
-          👥 Участники
-        </Link>
-
-        <Link href="/app/org-members" style={itemStyle(pathname.startsWith("/app/org-members"))}>
-          👥 Организация
+        <Link href={withProjectId("/app/manage-access")} style={itemStyle(pathname.startsWith("/app/manage-access"))}>
+          🔐 Управление доступом
         </Link>
 
         <Link href={withProjectId("/app/conversion-data")} style={itemStyle(pathname.startsWith("/app/conversion-data"))}>

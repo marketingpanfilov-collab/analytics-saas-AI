@@ -17,6 +17,10 @@ export default async function ProjectsPage() {
     context.memberships.length > 0 &&
     ORG_ROLES_CAN_CREATE.includes(context.memberships[0]!.role);
 
+  const canManageAccess =
+    context.memberships.length > 0 &&
+    ORG_ROLES_CAN_CREATE.includes(context.memberships[0]!.role);
+
   return (
     <ProjectsListClient
       projects={context.projects}
@@ -24,6 +28,7 @@ export default async function ProjectsPage() {
       activeProjectId={context.activeProject?.id ?? null}
       roleMap={context.roleMap}
       canCreate={canCreate}
+      canManageAccess={canManageAccess}
       currentUserId={context.user?.id ?? null}
       canTransferOwnership={context.canTransferOwnership}
       organizationId={context.organizationId}

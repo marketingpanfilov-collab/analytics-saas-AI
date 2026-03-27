@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { isValidPricingPlanId, type PricingPlanId } from "../lib/auth/loginPurchaseUrl";
 import { getPaddle, setPaddleEventHandler } from "../lib/paddle";
-import { getPaddlePriceId, type BillingPeriod } from "../lib/paddlePriceMap";
+import { getPaddlePriceId, getPaddleProductId, type BillingPeriod } from "../lib/paddlePriceMap";
 import { supabase } from "../lib/supabaseClient";
 
 type Mode = "login" | "signup";
@@ -182,6 +182,8 @@ export default function LoginPageClient() {
         return;
       }
 
+      const productId = getPaddleProductId(effectivePlan, effectiveBilling);
+
       const paddle = await getPaddle();
       if (!paddle) {
         setMsg("Не удалось инициализировать оплату. Попробуйте позже.");
@@ -220,6 +222,15 @@ export default function LoginPageClient() {
       paddle.Checkout.open({
         items: [{ priceId, quantity: 1 }],
         customer: { email: email.trim() },
+        ...(productId
+          ? {
+              customData: {
+                paddle_product_id: productId,
+                plan: effectivePlan,
+                billing_period: effectiveBilling,
+              },
+            }
+          : {}),
       });
     } catch (e) {
       console.error("[Login signup + Paddle] error", e);

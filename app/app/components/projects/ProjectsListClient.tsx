@@ -34,6 +34,8 @@ type Props = {
   activeProjectId: string | null;
   roleMap: Record<string, string>;
   canCreate: boolean;
+  /** Владелец и администратор организации — управление доступом (организация + проекты) */
+  canManageAccess?: boolean;
   currentUserId?: string | null;
   canTransferOwnership?: boolean;
   organizationId?: string | null;
@@ -48,6 +50,7 @@ export default function ProjectsListClient({
   activeProjectId,
   roleMap,
   canCreate,
+  canManageAccess = false,
   currentUserId = null,
   canTransferOwnership = false,
   organizationId = null,
@@ -313,6 +316,14 @@ export default function ProjectsListClient({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          {canManageAccess && (
+            <Link
+              href="/app/manage-access"
+              className="inline-flex h-10 cursor-pointer items-center rounded-xl border border-white/15 bg-white/[0.06] px-4 text-sm font-medium text-white hover:bg-white/10"
+            >
+              Управлять доступом
+            </Link>
+          )}
           {canTransferOwnership && (
             <button
               type="button"
