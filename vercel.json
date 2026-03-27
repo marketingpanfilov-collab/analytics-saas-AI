@@ -1,0 +1,22 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/system/update-rates",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/internal-sync/cron",
+      "schedule": "0 */3 * * *"
+    },
+    {
+      "path": "/api/internal-sync/plan-fact-daily",
+      "schedule": "55 23 * * *"
+    },
+    {
+      "path": "/api/internal-sync/tracking-retention",
+      "schedule": "20 3 * * *"
+    }
+  ]
+}
+

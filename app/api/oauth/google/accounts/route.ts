@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { getValidGoogleAccessToken } from "@/app/lib/googleAdsAuth";
+import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
 
 const LIST_ACCESSIBLE_CUSTOMERS_URL =
   "https://googleads.googleapis.com/v20/customers:listAccessibleCustomers";
@@ -16,8 +17,20 @@ function parseCustomerId(rn: string): string | null {
   return /^\d+(-?\d*)$/.test(id) ? id : null;
 }
 
-type CustomerInfo = { id: string; descriptiveName: string | null; manager: boolean };
-type ClientInfo = { id: string; descriptiveName: string | null; level: number };
+type CustomerInfo = {
+  id: string;
+  descriptiveName: string | null;
+  manager: boolean;
+  currencyCode: CurrencyCode;
+};
+type ClientInfo = { id: string; descriptiveName: string | null; level: number; currencyCode: string | null };
+type CurrencyCode = "USD" | "KZT" | null;
+
+function normalizeCurrencyCode(raw: string | null | undefined): CurrencyCode {
+  const v = String(raw ?? "").trim().toUpperCase();
+  if (v === "USD" || v === "KZT") return v;
+  return null;
+}
 
 /**
  * Call Google Ads API Search for a single customer. Returns parsed rows.
@@ -64,9 +77,9 @@ async function fetchCustomerInfo(
   developerToken: string
 ): Promise<CustomerInfo | null> {
   const query =
-    "SELECT customer.id, customer.descriptive_name, customer.manager FROM customer LIMIT 1";
+    "SELECT customer.id, customer.descriptive_name, customer.manager, customer.currency_code FROM customer LIMIT 1";
   const results = await googleAdsSearch<{
-    customer?: { id?: string; descriptiveName?: string; manager?: boolean };
+    customer?: { id?: string; descriptiveName?: string; manager?: boolean; currencyCode?: string };
   }>(customerId, accessToken, developerToken, query);
   const row = results[0];
   if (!row?.customer?.id) return null;
@@ -75,6 +88,7 @@ async function fetchCustomerInfo(
     id,
     descriptiveName: row.customer.descriptiveName ?? null,
     manager: !!row.customer.manager,
+    currencyCode: normalizeCurrencyCode(row.customer.currencyCode ?? null),
   };
 }
 
@@ -87,9 +101,9 @@ async function fetchCustomerClients(
   developerToken: string
 ): Promise<ClientInfo[]> {
   const query =
-    "SELECT customer_client.id, customer_client.descriptive_name, customer_client.level FROM customer_client";
+    "SELECT customer_client.id, customer_client.descriptive_name, customer_client.level, customer_client.currency_code FROM customer_client";
   const results = await googleAdsSearch<{
-    customerClient?: { id?: string; descriptiveName?: string; level?: number };
+    customerClient?: { id?: string; descriptiveName?: string; level?: number; currencyCode?: string };
   }>(managerCustomerId, accessToken, developerToken, query);
   const list: ClientInfo[] = [];
   for (const row of results) {
@@ -101,6 +115,7 @@ async function fetchCustomerClients(
       id,
       descriptiveName: c.descriptiveName ?? null,
       level,
+      currencyCode: normalizeCurrencyCode(c.currencyCode ?? null),
     });
   }
   return list;
@@ -135,6 +150,11 @@ export async function POST(req: Request) {
       { success: false, error: "project_id is required and must be a valid UUID" },
       { status: 400 }
     );
+  }
+
+  const access = await requireProjectAccessOrInternal(req, projectId, { allowInternalBypass: false });
+  if (!access.allowed) {
+    return NextResponse.json(access.body, { status: access.status });
   }
 
   const developerToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
@@ -380,13 +400,18 @@ export async function POST(req: Request) {
       .eq("platform", "google")
       .eq("entity_type", "customer");
 
-    const nameByExternal = new Map<string, string>();
+  const nameByExternal = new Map<string, string>();
+  const currencyByExternal = new Map<string, CurrencyCode>();
     for (const id of standaloneCustomerIds) {
       const info = customerInfoById.get(id);
       nameByExternal.set(id, info?.descriptiveName ?? id);
+    currencyByExternal.set(id, normalizeCurrencyCode(info?.currencyCode ?? null));
     }
     for (const clients of clientListsByManagerId.values()) {
-      for (const c of clients) nameByExternal.set(c.id, c.descriptiveName ?? c.id);
+      for (const c of clients) {
+        nameByExternal.set(c.id, c.descriptiveName ?? c.id);
+        currencyByExternal.set(c.id, normalizeCurrencyCode(c.currencyCode));
+      }
     }
 
     const adAccountRows = Array.from(customerExternalIds).map((externalId) => ({
@@ -396,6 +421,7 @@ export async function POST(req: Request) {
       provider: "google" as const,
       external_account_id: externalId,
       account_name: nameByExternal.get(externalId) ?? externalId,
+      currency: currencyByExternal.get(externalId) ?? null,
     }));
 
     const { error: adErr } = await admin

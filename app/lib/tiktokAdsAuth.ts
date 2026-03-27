@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { fetchWithRetry } from "@/app/lib/networkRetry";
 
 const EXPIRY_BUFFER_MS = 60 * 1000;
 
@@ -67,7 +68,7 @@ export async function getValidTikTokAccessToken(
   if (!refreshToken) return null;
 
   // Marketing API v1.3 refresh only (TikTok Ads flow).
-  const primaryRes = await fetch("https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/", {
+  const primaryRes = await fetchWithRetry("https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -76,7 +77,7 @@ export async function getValidTikTokAccessToken(
       refresh_token: refreshToken,
       grant_type: "refresh_token",
     }),
-  });
+  }, { retries: 2, initialDelayMs: 500 });
   const primaryJson = (await primaryRes.json().catch(() => ({}))) as TikTokTokenResponse;
   const primaryNormalized = normalizeTokenPayload(primaryJson);
   if (!primaryRes.ok || !primaryNormalized.access_token) return null;

@@ -2,8 +2,11 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
 import { getMetaIntegrationForProject } from "@/app/lib/metaIntegration";
-import { getValidGoogleAccessToken } from "@/app/lib/googleAdsAuth";
-import { getValidTikTokAccessToken } from "@/app/lib/tiktokAdsAuth";
+import {
+  getGoogleTokenHealth,
+  getMetaTokenHealth,
+  getTikTokTokenHealth,
+} from "@/app/lib/tokenHealth";
 
 export type IntegrationStatusValue = "healthy" | "error" | "stale" | "disconnected" | "no_accounts" | "not_connected";
 
@@ -22,9 +25,18 @@ export type IntegrationStatusRow = {
   last_sync_error?: string | null;
   /** Max date in daily_ad_metrics for this project+platform (data freshness). */
   data_max_date?: string | null;
+  /** Unified token health reason code for diagnostics. */
+  token_reason_code?: string | null;
+  /** Whether degradation is temporary (network/transient) and should not be treated as hard disconnect yet. */
+  token_temporary?: boolean | null;
+  /** Last time token recovery was attempted (if any). */
+  last_recovery_attempt_at?: string | null;
 };
 
-const DATA_FRESHNESS_THRESHOLD_MINUTES = 60;
+// Cadence: background cron every ~3h, plus online refresh every 15m.
+// When we see no "today" metrics, don't escalate to error until ~3h have passed.
+const DATA_FRESHNESS_THRESHOLD_MINUTES = 180;
+const ENABLE_UNIFIED_TOKEN_HEALTH = process.env.FEATURE_UNIFIED_TOKEN_HEALTH === "1";
 
 function dayDiffUtc(fromYmd: string, toYmd: string): number {
   const from = Date.parse(`${fromYmd}T00:00:00Z`);
@@ -83,7 +95,10 @@ async function getSyncAndFreshness(
   }
 }
 
-/** Compute status from OAuth + enabled_accounts + last_sync + data freshness. Never healthy if last_sync_status === 'error'. */
+/** Compute status from OAuth + enabled_accounts + last_sync + data freshness.
+ * If we already have "today" data, prefer "healthy" even if the last sync run failed
+ * (prevents false Error caused by transient sync_run failures after data was written).
+ */
 function resolveDataStatus(
   enabled_accounts: number,
   last_sync_status: string | null,
@@ -100,10 +115,6 @@ function resolveDataStatus(
     return { status: "no_accounts", reason: null };
   }
 
-  if (last_sync_status === "error") {
-    return { status: "error", reason: "sync_failed" };
-  }
-
   if (data_max_date == null) {
     if (staleThreshold) {
       return { status: "error", reason: "no_data_updates_today" };
@@ -115,6 +126,11 @@ function resolveDataStatus(
   // This prevents false "stale" noise after periods of inactivity.
   if (data_max_date >= today) {
     return { status: "healthy", reason: null };
+  }
+
+  // No today data: if the last sync run explicitly failed, surface it as Error.
+  if (last_sync_status === "error") {
+    return { status: "error", reason: "sync_failed" };
   }
 
   // Data is behind today: stale for short lag, error for longer lag.
@@ -185,18 +201,6 @@ async function getIntegrationIdFromData(
   }
 }
 
-async function fbDebugToken(userToken: string): Promise<{ data?: { is_valid?: boolean; error?: { message?: string } }; error?: { message?: string } }> {
-  const appId = process.env.META_APP_ID;
-  const appSecret = process.env.META_APP_SECRET;
-  if (!appId || !appSecret) throw new Error("META_APP_ID / META_APP_SECRET missing");
-  const appToken = `${appId}|${appSecret}`;
-  const url =
-    "https://graph.facebook.com/v19.0/debug_token?" +
-    new URLSearchParams({ input_token: userToken, access_token: appToken }).toString();
-  const r = await fetch(url, { method: "GET" });
-  return r.json();
-}
-
 /** Canonical integration id for counting ad_accounts. Uses limit(1), no maybeSingle. */
 async function getCanonicalIntegrationId(
   admin: ReturnType<typeof supabaseAdmin>,
@@ -249,6 +253,14 @@ function safePush(
   integrations: IntegrationStatusRow[],
   row: IntegrationStatusRow
 ): void {
+  console.log("[INTEGRATION_STATUS_ROW]", {
+    platform: row.platform,
+    status: row.status,
+    reason: row.reason ?? null,
+    token_reason_code: row.token_reason_code ?? null,
+    token_temporary: row.token_temporary ?? null,
+    enabled_accounts: row.enabled_accounts,
+  });
   integrations.push({
     ...row,
     reason: row.reason ?? null,
@@ -312,6 +324,9 @@ export async function GET(req: Request) {
         let connected = hasResolverIntegration;
         let integrationId: string | null = integration?.id ?? null;
         let oauth_valid = false;
+        let token_reason_code: string | null = null;
+        let token_temporary = false;
+        let last_recovery_attempt_at: string | null = null;
 
         if (!hasResolverIntegration) {
           const fallbackId = await getIntegrationIdFromData(admin, projectId, "meta");
@@ -337,20 +352,15 @@ export async function GET(req: Request) {
         }
 
         if (hasResolverIntegration && integration) {
-          const expiresAtMs = integration.expires_at ? new Date(integration.expires_at).getTime() : 0;
-          if (expiresAtMs > 0 && expiresAtMs <= Date.now()) {
-            oauth_valid = false;
+          const health = await getMetaTokenHealth(integration.access_token ?? null, integration.expires_at ?? null);
+          oauth_valid = health.oauth_valid;
+          token_reason_code = health.reason_code;
+          token_temporary = health.temporary;
+          last_recovery_attempt_at = health.last_recovery_attempt_at;
+          if (!oauth_valid && !health.temporary) {
             reason = "disconnected";
-          } else {
-            try {
-              const dbg = await fbDebugToken(integration.access_token!);
-              oauth_valid = !!dbg?.data?.is_valid;
-              reason = oauth_valid ? null : "disconnected";
-            } catch (e) {
-              oauth_valid = false;
-              reason = "disconnected";
-              console.error("[INTEGRATION_STATUS_META_DEBUG_TOKEN]", { projectId, error: e });
-            }
+          } else if (!oauth_valid && health.temporary) {
+            reason = "temporary_oauth_failure";
           }
         }
 
@@ -364,7 +374,7 @@ export async function GET(req: Request) {
         let data_max_date: string | null = null;
 
         if (!oauth_valid) {
-          status = "disconnected";
+          status = ENABLE_UNIFIED_TOKEN_HEALTH && token_temporary ? "stale" : "disconnected";
         } else if (enabled_accounts === 0) {
           status = "no_accounts";
         } else {
@@ -395,6 +405,9 @@ export async function GET(req: Request) {
           last_sync_at,
           last_sync_error,
           data_max_date,
+          token_reason_code,
+          token_temporary,
+          last_recovery_attempt_at,
         });
         continue;
       }
@@ -405,6 +418,9 @@ export async function GET(req: Request) {
         let connected = !!integration?.id;
         let integrationId: string | null = integration?.id ?? null;
         let oauth_valid = false;
+        let token_reason_code: string | null = null;
+        let token_temporary = false;
+        let last_recovery_attempt_at: string | null = null;
 
         if (!integration?.id) {
           const fallbackId = await getIntegrationIdFromData(admin, projectId, "google");
@@ -430,15 +446,13 @@ export async function GET(req: Request) {
         }
 
         if (integrationId) {
-          try {
-            const token = await getValidGoogleAccessToken(admin, integrationId);
-            oauth_valid = !!token;
-            if (!oauth_valid) reason = "disconnected";
-          } catch (e) {
-            oauth_valid = false;
-            reason = "disconnected";
-            console.error("[INTEGRATION_STATUS_GOOGLE_TOKEN]", { projectId, error: e });
-          }
+          const health = await getGoogleTokenHealth(admin, integrationId);
+          oauth_valid = health.oauth_valid;
+          token_reason_code = health.reason_code;
+          token_temporary = health.temporary;
+          last_recovery_attempt_at = health.last_recovery_attempt_at;
+          if (!oauth_valid && !health.temporary) reason = "disconnected";
+          if (!oauth_valid && health.temporary) reason = "temporary_oauth_failure";
         }
 
         const canonicalId = await getCanonicalIntegrationId(admin, projectId, "google");
@@ -451,7 +465,7 @@ export async function GET(req: Request) {
         let data_max_date: string | null = null;
 
         if (!oauth_valid) {
-          status = "disconnected";
+          status = ENABLE_UNIFIED_TOKEN_HEALTH && token_temporary ? "stale" : "disconnected";
         } else if (enabled_accounts === 0) {
           status = "no_accounts";
         } else {
@@ -482,6 +496,9 @@ export async function GET(req: Request) {
           last_sync_at,
           last_sync_error,
           data_max_date,
+          token_reason_code,
+          token_temporary,
+          last_recovery_attempt_at,
         });
         continue;
       }
@@ -512,15 +529,17 @@ export async function GET(req: Request) {
         }
 
         let oauth_valid = false;
+        let token_reason_code: string | null = null;
+        let token_temporary = false;
+        let last_recovery_attempt_at: string | null = null;
         if (row?.id) {
-          try {
-            const token = await getValidTikTokAccessToken(admin, row.id);
-            oauth_valid = !!token;
-            if (!oauth_valid) reason = "disconnected";
-          } catch {
-            oauth_valid = false;
-            reason = "disconnected";
-          }
+          const health = await getTikTokTokenHealth(admin, row.id);
+          oauth_valid = health.oauth_valid;
+          token_reason_code = health.reason_code;
+          token_temporary = health.temporary;
+          last_recovery_attempt_at = health.last_recovery_attempt_at;
+          if (!oauth_valid && !health.temporary) reason = "disconnected";
+          if (!oauth_valid && health.temporary) reason = "temporary_oauth_failure";
         }
 
         const canonicalId = await getCanonicalIntegrationId(admin, projectId, "tiktok");
@@ -533,7 +552,7 @@ export async function GET(req: Request) {
         let data_max_date: string | null = null;
 
         if (!oauth_valid) {
-          status = "disconnected";
+          status = ENABLE_UNIFIED_TOKEN_HEALTH && token_temporary ? "stale" : "disconnected";
         } else if (enabled_accounts === 0) {
           status = "no_accounts";
         } else {
@@ -564,6 +583,9 @@ export async function GET(req: Request) {
           last_sync_at,
           last_sync_error,
           data_max_date,
+          token_reason_code,
+          token_temporary,
+          last_recovery_attempt_at,
         });
       }
     } catch (e) {

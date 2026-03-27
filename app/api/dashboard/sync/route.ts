@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccessOrInternal, getInternalSyncHeaders } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { checkRateLimit } from "@/app/lib/security/rateLimit";
 
 function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -15,7 +16,8 @@ function isYmd(v: string) {
 /**
  * POST /api/dashboard/sync?project_id=...&start=...&end=...
  *
- * Syncs the given date range for the project: Meta (if connected) and all enabled Google accounts.
+ * Syncs the given date range for the project: Meta (if connected), all enabled Google accounts,
+ * and all enabled TikTok accounts.
  * Used by backfill and by dashboard refresh flow.
  */
 export async function POST(req: Request) {
@@ -64,6 +66,13 @@ export async function POST(req: Request) {
     return NextResponse.json(access.body, { status: access.status });
   }
 
+  // Soft dedup guard: suppress burst duplicate sync dispatches for same project/range.
+  const dedupKey = `dashboard-sync-dispatch:${projectId}:${start}:${end}`;
+  const dedup = await checkRateLimit(dedupKey, 1, 20_000);
+  if (!dedup.ok) {
+    return NextResponse.json({ success: true, skipped: true, reason: "dedup_recent_dispatch" });
+  }
+
   const admin = supabaseAdmin();
   const baseUrl = new URL(req.url).origin;
   const warnings: { platform: string; ad_account_id?: string; error: string; status?: number }[] = [];
@@ -100,6 +109,9 @@ export async function POST(req: Request) {
   );
   const googleAccounts = (enabledAccounts as { id: string; external_account_id: string; provider: string }[]).filter(
     (a) => a.provider === "google"
+  );
+  const tiktokAccounts = (enabledAccounts as { id: string; external_account_id: string; provider: string }[]).filter(
+    (a) => a.provider === "tiktok"
   );
 
   // --- Meta: sync each enabled Meta account with the same start/end (no substitution) ---
@@ -157,6 +169,34 @@ export async function POST(req: Request) {
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : String(e);
       warnings.push({ platform: "google", ad_account_id: externalId, error: errMsg });
+    }
+  }
+
+  // --- TikTok: sync each enabled TikTok account (non-fatal per account) ---
+  for (const acc of tiktokAccounts) {
+    const externalId = acc.external_account_id;
+    if (!externalId) continue;
+    const tiktokSyncUrl = new URL("/api/oauth/tiktok/insights/sync", req.url);
+    tiktokSyncUrl.searchParams.set("project_id", projectId);
+    // TikTok route expects "ad_account_id" as the external advertiser/account id from our DB.
+    tiktokSyncUrl.searchParams.set("ad_account_id", externalId);
+    tiktokSyncUrl.searchParams.set("date_start", start);
+    tiktokSyncUrl.searchParams.set("date_end", end);
+    console.log("[DASHBOARD_SYNC_TIKTOK]", { projectId, start, end, ad_account_id: externalId });
+
+    try {
+      const tRes = await fetch(tiktokSyncUrl.toString(), {
+        method: "GET",
+        headers: getInternalSyncHeaders(),
+      });
+      const tJson = await tRes.json().catch(() => ({}));
+      if (!tRes.ok || tJson?.success === false) {
+        const errMsg = tJson?.error ?? tJson?.step ?? "TikTok sync failed";
+        warnings.push({ platform: "tiktok", ad_account_id: externalId, error: errMsg, status: tRes.status });
+      }
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      warnings.push({ platform: "tiktok", ad_account_id: externalId, error: errMsg });
     }
   }
 

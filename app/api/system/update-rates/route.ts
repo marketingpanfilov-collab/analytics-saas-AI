@@ -31,10 +31,34 @@ export async function POST(req: Request) {
       );
     }
 
+    const admin = supabaseAdmin();
     const currencyApiKey = process.env.CURRENCYAPI_KEY?.trim();
     if (!currencyApiKey) {
+      // Degraded mode: allow flow to continue with latest persisted rate if available.
+      const { data: existingRate } = await admin
+        .from("exchange_rates")
+        .select("rate,updated_at,rate_date")
+        .eq("base_currency", "USD")
+        .eq("quote_currency", "KZT")
+        .order("rate_date", { ascending: false })
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const fallbackRate = Number((existingRate as { rate?: number | null } | null)?.rate ?? 0);
+      if (Number.isFinite(fallbackRate) && fallbackRate > 0) {
+        return NextResponse.json({
+          success: true,
+          base: "USD",
+          quote: "KZT",
+          rate: fallbackRate,
+          degraded: true,
+          warning: "CURRENCYAPI_KEY missing; using latest stored exchange rate",
+          updated_at: (existingRate as { updated_at?: string | null } | null)?.updated_at ?? null,
+          rate_date: (existingRate as { rate_date?: string | null } | null)?.rate_date ?? null,
+        });
+      }
       return NextResponse.json(
-        { success: false, error: "CURRENCYAPI_KEY is not configured" },
+        { success: false, error: "CURRENCYAPI_KEY is not configured and no stored USD/KZT rate found" },
         { status: 500 }
       );
     }
@@ -61,7 +85,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const admin = supabaseAdmin();
+    const rateDate = new Date().toISOString().slice(0, 10);
     const { error } = await admin
       .from("exchange_rates")
       .upsert(
@@ -69,16 +93,17 @@ export async function POST(req: Request) {
           base_currency: "USD",
           quote_currency: "KZT",
           rate,
+          rate_date: rateDate,
           updated_at: new Date().toISOString(),
         },
-        { onConflict: "base_currency,quote_currency" }
+        { onConflict: "base_currency,quote_currency,rate_date" }
       );
 
     if (error) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, base: "USD", quote: "KZT", rate });
+    return NextResponse.json({ success: true, base: "USD", quote: "KZT", rate, rate_date: rateDate });
   } catch (err) {
     return NextResponse.json(
       { success: false, error: err instanceof Error ? err.message : "Unknown error" },

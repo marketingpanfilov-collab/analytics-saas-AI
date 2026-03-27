@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import {
+  convertMoneyStrict,
+  createCurrencyDiagnostics,
+  getLatestUsdToKztRate,
+  getUsdToKztRateMapForDays,
+  normalizeCurrencyCode,
+  pushCurrencyReason,
+  resolveUsdToKztRateForDay,
+} from "@/app/lib/currencyNormalization";
 
 function toISODate(s: string | null) {
   if (!s) return null;
@@ -15,26 +24,6 @@ function normalizePlatformSource(raw: string | null): string | null {
   const v = (raw ?? "").trim().toLowerCase();
   if (!v) return null;
   return PLATFORM_SOURCE_VALUES.includes(v as (typeof PLATFORM_SOURCE_VALUES)[number]) ? v : null;
-}
-
-function normalizeCurrency(raw: string | null | undefined): "USD" | "KZT" | null {
-  const v = String(raw ?? "").trim().toUpperCase();
-  if (v === "USD" || v === "KZT") return v;
-  return null;
-}
-
-function convertMoney(
-  amount: number,
-  fromCurrency: "USD" | "KZT",
-  toCurrency: "USD" | "KZT",
-  usdToKztRate: number | null
-): number {
-  if (!Number.isFinite(amount)) return 0;
-  if (fromCurrency === toCurrency) return amount;
-  if (!usdToKztRate || usdToKztRate <= 0) return amount;
-  return fromCurrency === "USD" && toCurrency === "KZT"
-    ? amount * usdToKztRate
-    : amount / usdToKztRate;
 }
 
 export async function GET(req: Request) {
@@ -74,7 +63,7 @@ export async function GET(req: Request) {
   try {
     const { data, error } = await admin
       .from("conversion_events")
-      .select("event_name, value, currency, source, traffic_source, visitor_id, created_at")
+      .select("event_name, value, currency, source, traffic_source, visitor_id, created_at, event_time")
       .eq("project_id", projectId)
       .gte("created_at", from)
       .lte("created_at", to)
@@ -93,6 +82,7 @@ export async function GET(req: Request) {
       traffic_source: string | null;
       visitor_id: string | null;
       created_at: string;
+      event_time: string | null;
     };
 
     const rows = (data ?? []) as ConversionRow[];
@@ -108,6 +98,10 @@ export async function GET(req: Request) {
       created_at: string;
     };
 
+    const lookupFrom = new Date(`${start}T00:00:00.000Z`);
+    lookupFrom.setUTCDate(lookupFrom.getUTCDate() - 30);
+    const lookupFromIso = lookupFrom.toISOString();
+
     const visitsByVisitor = new Map<string, VisitRow[]>();
     if (visitorIds.length > 0) {
       const { data: visitData, error: visitError } = await admin
@@ -115,7 +109,7 @@ export async function GET(req: Request) {
         .select("visitor_id, source_classification, created_at")
         .eq("site_id", projectId)
         .in("visitor_id", visitorIds)
-        .gte("created_at", from)
+        .gte("created_at", lookupFromIso)
         .lte("created_at", to);
 
       if (visitError) {
@@ -145,7 +139,7 @@ export async function GET(req: Request) {
         const visits = visitsByVisitor.get(r.visitor_id) ?? [];
         if (visits.length) {
           // Find last visit where created_at <= conversion.created_at
-          const convTs = r.created_at;
+          const convTs = r.event_time ?? r.created_at;
           let chosen: VisitRow | null = null;
           for (const v of visits) {
             if (v.created_at <= convTs) {
@@ -170,7 +164,7 @@ export async function GET(req: Request) {
       };
     });
 
-    let hasDirect = enriched.some((r) => r._source_class === "direct");
+    const hasDirect = enriched.some((r) => r._source_class === "direct");
 
     const effectiveRows =
       sources && sources.length > 0
@@ -196,24 +190,41 @@ export async function GET(req: Request) {
         .toUpperCase() === "KZT"
         ? "KZT"
         : "USD";
-    let usdToKztRate: number | null = null;
+    let latestUsdToKztRate: number | null = null;
+    let usdToKztRateByDay = new Map<string, number>();
     if (projectCurrency === "KZT") {
-      const { data: rateRow } = await admin
-        .from("exchange_rates")
-        .select("rate")
-        .eq("base_currency", "USD")
-        .eq("quote_currency", "KZT")
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const rate = Number((rateRow as { rate?: number | null } | null)?.rate ?? 0);
-      usdToKztRate = Number.isFinite(rate) && rate > 0 ? rate : null;
+      const days = purchases.map((r) => String(r.created_at ?? "").slice(0, 10));
+      [usdToKztRateByDay, latestUsdToKztRate] = await Promise.all([
+        getUsdToKztRateMapForDays(admin, days),
+        getLatestUsdToKztRate(admin),
+      ]);
     }
+    const currencyDiagnostics = createCurrencyDiagnostics();
     const revenue = purchases.reduce((sum, r) => {
       const amount = Number(r.value ?? 0) || 0;
-      const fromCurrency = normalizeCurrency(r.currency) ?? projectCurrency;
-      return sum + convertMoney(amount, fromCurrency, projectCurrency, usdToKztRate);
+      const normalized = normalizeCurrencyCode(r.currency);
+      const fromCurrency = normalized ?? projectCurrency;
+      if (!normalized && (r.currency == null || String(r.currency).trim() === "")) {
+        pushCurrencyReason(currencyDiagnostics, "currency_missing", "conversion_events.currency missing; fallback used.");
+      } else if (!normalized) {
+        pushCurrencyReason(currencyDiagnostics, "currency_unsupported", `Unsupported currency '${String(r.currency)}'; fallback used.`);
+      }
+      const day = String(r.event_time ?? r.created_at ?? "").slice(0, 10);
+      const dayRate = resolveUsdToKztRateForDay(
+        day,
+        usdToKztRateByDay,
+        latestUsdToKztRate,
+        currencyDiagnostics
+      );
+      return sum + convertMoneyStrict(amount, fromCurrency, projectCurrency, dayRate, currencyDiagnostics);
     }, 0);
+    if (currencyDiagnostics.reason_codes.length > 0) {
+      console.warn("[KPI_CURRENCY_DIAGNOSTICS]", {
+        projectId,
+        reason_codes: currencyDiagnostics.reason_codes,
+        warnings: currencyDiagnostics.warnings,
+      });
+    }
 
     return NextResponse.json({
       success: true,
@@ -221,8 +232,9 @@ export async function GET(req: Request) {
       sales: salesCount,
       revenue,
       has_direct: hasDirect,
+      currency_diagnostics: currencyDiagnostics,
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error("[DASHBOARD_KPI_CONVERSION_FATAL]", e);
     return NextResponse.json(
       {

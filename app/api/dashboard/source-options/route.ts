@@ -24,6 +24,9 @@ const PLATFORM_LABELS: Record<string, string> = {
 const CLASS_LABELS: Record<string, string> = {
   direct: "Direct",
   organic_search: "Organic Search",
+  organic_social: "Organic Social",
+  paid: "Paid",
+  unknown: "Unknown",
   referral: "Referral",
 };
 
@@ -60,6 +63,9 @@ export async function GET(req: Request) {
   const admin = supabaseAdmin();
   const from = `${start}T00:00:00.000Z`;
   const to = `${end}T23:59:59.999Z`;
+  const lookupFromDate = new Date(`${start}T00:00:00.000Z`);
+  lookupFromDate.setUTCDate(lookupFromDate.getUTCDate() - 30);
+  const lookupFrom = lookupFromDate.toISOString();
 
   try {
     const options: SourceOption[] = [];
@@ -169,7 +175,7 @@ export async function GET(req: Request) {
         const cls = String((row as { source_classification: string | null }).source_classification || "").trim();
         if (!cls) continue;
         // Only surface classes that are meaningful for the dashboard.
-        if (cls === "direct" || cls === "organic_search" || cls === "referral") {
+        if (cls === "direct" || cls === "organic_search" || cls === "organic_social" || cls === "paid" || cls === "unknown" || cls === "referral") {
           classSet.add(cls);
         }
       }
@@ -214,7 +220,7 @@ export async function GET(req: Request) {
             .select("visitor_id, source_classification, created_at")
             .eq("site_id", projectId)
             .in("visitor_id", visitorIds)
-            .gte("created_at", from)
+            .gte("created_at", lookupFrom)
             .lte("created_at", to);
 
           if (visitErrorForConv) {
@@ -259,12 +265,15 @@ export async function GET(req: Request) {
 
           // Direct rule: if we have no detected source (platform or class), treat as direct.
           if (!sourceClass && !platformSource) {
-            sourceClass = "direct";
+            sourceClass = "unknown";
           }
 
           if (
             sourceClass === "direct" ||
             sourceClass === "organic_search" ||
+            sourceClass === "organic_social" ||
+            sourceClass === "paid" ||
+            sourceClass === "unknown" ||
             sourceClass === "referral"
           ) {
             classSet.add(sourceClass);
@@ -288,7 +297,7 @@ export async function GET(req: Request) {
     ];
 
     return NextResponse.json({ success: true, options: sorted });
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error("[DASHBOARD_SOURCE_OPTIONS_FATAL]", e);
     return NextResponse.json(
       { success: false, error: e instanceof Error ? e.message : "Internal error" },

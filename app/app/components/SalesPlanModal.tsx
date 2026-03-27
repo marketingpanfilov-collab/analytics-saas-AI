@@ -51,6 +51,17 @@ function toNum(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function normalizeDecimalInput(raw: string): string {
+  return raw.replace(",", ".").trim();
+}
+
+function formatDecimalForInput(v: unknown, maxDecimals = 6): string {
+  if (v === null || v === undefined || v === "") return "";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "";
+  return n.toFixed(maxDecimals).replace(/\.?0+$/, "");
+}
+
 function fmtNum(n: number) {
   return new Intl.NumberFormat("ru-RU").format(Math.round(n));
 }
@@ -118,35 +129,31 @@ export default function SalesPlanModal({
 
     if (sc && sb != null) {
       const approxCac = sc > 0 ? sb / sc : 0;
-      setSalesPlanCac(approxCac > 0 ? String(Math.round(approxCac)) : "");
+      setSalesPlanCac(approxCac > 0 ? formatDecimalForInput(approxCac) : "");
     } else {
       setSalesPlanCac("");
     }
 
     if (rc && rb != null) {
       const approxCpr = rc > 0 ? rb / rc : 0;
-      setRepeatSalesCpr(approxCpr > 0 ? String(Math.round(approxCpr)) : "");
+      setRepeatSalesCpr(approxCpr > 0 ? formatDecimalForInput(approxCpr) : "");
     } else {
       setRepeatSalesCpr("");
     }
 
-    setPrimaryAvgCheck(
-      initialPlan?.primary_avg_check != null ? String(initialPlan.primary_avg_check) : ""
-    );
-    setRepeatAvgCheck(
-      initialPlan?.repeat_avg_check != null ? String(initialPlan.repeat_avg_check) : ""
-    );
+    setPrimaryAvgCheck(initialPlan?.primary_avg_check != null ? formatDecimalForInput(initialPlan.primary_avg_check) : "");
+    setRepeatAvgCheck(initialPlan?.repeat_avg_check != null ? formatDecimalForInput(initialPlan.repeat_avg_check) : "");
     setSaveError(null);
   }, [open, initialPlan]);
 
   // Числовые значения
-  const sc = toNum(salesPlanCount);
-  const cac = toNum(salesPlanCac);
-  const primaryAvg = toNum(primaryAvgCheck);
+  const sc = Math.max(0, Math.round(toNum(salesPlanCount)));
+  const cac = Math.max(0, toNum(normalizeDecimalInput(salesPlanCac)));
+  const primaryAvg = Math.max(0, toNum(normalizeDecimalInput(primaryAvgCheck)));
 
-  const rc = toNum(repeatSalesCount);
-  const cpr = toNum(repeatSalesCpr);
-  const repeatAvg = toNum(repeatAvgCheck);
+  const rc = Math.max(0, Math.round(toNum(repeatSalesCount)));
+  const cpr = Math.max(0, toNum(normalizeDecimalInput(repeatSalesCpr)));
+  const repeatAvg = Math.max(0, toNum(normalizeDecimalInput(repeatAvgCheck)));
 
   // Автоматические расчёты
   const primaryBudget = sc * cac;
@@ -362,7 +369,7 @@ export default function SalesPlanModal({
                         min={0}
                         step="any"
                         value={salesPlanCac}
-                        onChange={(e) => setSalesPlanCac(e.target.value)}
+                        onChange={(e) => setSalesPlanCac(normalizeDecimalInput(e.target.value))}
                         style={{
                           padding: "10px 12px",
                           borderRadius: 10,
@@ -385,7 +392,7 @@ export default function SalesPlanModal({
                         min={0}
                         step="any"
                         value={primaryAvgCheck}
-                        onChange={(e) => setPrimaryAvgCheck(e.target.value)}
+                        onChange={(e) => setPrimaryAvgCheck(normalizeDecimalInput(e.target.value))}
                         style={{
                           padding: "10px 12px",
                           borderRadius: 10,
@@ -479,7 +486,7 @@ export default function SalesPlanModal({
                         min={0}
                         step="any"
                         value={repeatSalesCpr}
-                        onChange={(e) => setRepeatSalesCpr(e.target.value)}
+                        onChange={(e) => setRepeatSalesCpr(normalizeDecimalInput(e.target.value))}
                         style={{
                           padding: "10px 12px",
                           borderRadius: 10,
@@ -502,7 +509,7 @@ export default function SalesPlanModal({
                         min={0}
                         step="any"
                         value={repeatAvgCheck}
-                        onChange={(e) => setRepeatAvgCheck(e.target.value)}
+                        onChange={(e) => setRepeatAvgCheck(normalizeDecimalInput(e.target.value))}
                         style={{
                           padding: "10px 12px",
                           borderRadius: 10,

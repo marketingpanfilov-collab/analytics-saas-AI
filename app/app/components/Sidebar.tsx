@@ -35,35 +35,11 @@ const cardStyle = {
 
 type DeviationStatus = "good" | "warn" | "bad" | "neutral";
 
-function classifyGenericDeviation(delta: number): DeviationStatus {
-  if (!Number.isFinite(delta)) return "neutral";
-  const abs = Math.abs(delta);
-  if (abs <= 0.3) return "good";
-  if (abs <= 0.6) return "warn";
-  return "bad";
-}
-
-/** Расход: перерасход = плохо (red), недорасход = ок (green или yellow). delta = (fact - plan) / plan */
-function classifySpendDeviation(delta: number): DeviationStatus {
-  if (!Number.isFinite(delta)) return "neutral";
-  if (delta > 0) return "bad";
-  if (delta >= -0.25) return "good";
-  return "warn";
-}
-
-/** Продажи / ROAS: больше план = хорошо. ratio = fact / plan. >= 1 green, >= 0.75 yellow, < 0.75 red */
+/** Продажи: >=100% green, 80-99% yellow, below red. */
 function classifySalesDeviation(ratio: number): DeviationStatus {
   if (!Number.isFinite(ratio) || ratio < 0) return "neutral";
   if (ratio >= 1) return "good";
-  if (ratio >= 0.75) return "warn";
-  return "bad";
-}
-
-/** CAC / CPR: меньше план = хорошо. ratio = fact / plan. <= 1 green, <= 1.25 yellow, > 1.25 red */
-function classifyLowerIsBetter(ratio: number): DeviationStatus {
-  if (!Number.isFinite(ratio) || ratio < 0) return "neutral";
-  if (ratio <= 1) return "good";
-  if (ratio <= 1.25) return "warn";
+  if (ratio >= 0.8) return "warn";
   return "bad";
 }
 
@@ -96,201 +72,86 @@ function badgeColors(status: DeviationStatus): { bg: string; border: string; tex
   }
 }
 
-function fmtKzt(n: number) {
-  return new Intl.NumberFormat("ru-RU").format(Math.round(n)) + " ₸";
-}
 function fmtPct(n: number) {
   const clamped = Math.max(-199, Math.min(199, n));
   return clamped.toFixed(0).replace(".", ",") + "%";
 }
 
 type MetricKey = "spend" | "sales" | "roas" | "cac" | "cpr";
+type TodayPlanState = "loadingFact" | "activePlan" | "planExhausted" | "noPlan";
 
 type Metric = {
   key: MetricKey;
   title: string;
-  fact: number;
-  plan: number;
-  format: "kzt" | "num" | "roas";
+  fact: number | null;
+  plan: number | null;
+  format: "money" | "num" | "roas";
+  state: TodayPlanState;
 };
 
-function formatValue(m: Metric, v: number) {
-  if (m.format === "kzt") return fmtKzt(v).replace(" ₸", "₸");
-  if (m.format === "roas") return String(v).replace(".", ",");
-  return new Intl.NumberFormat("ru-RU").format(Math.round(v));
+function classifyRoasDeviation(ratio: number): DeviationStatus {
+  if (!Number.isFinite(ratio) || ratio < 0) return "neutral";
+  if (ratio >= 1) return "good";
+  if (ratio >= 0.8) return "warn";
+  return "bad";
 }
 
-function deltaPct(fact: number, plan: number) {
-  if (!plan) return 0;
-  return ((fact - plan) / plan) * 100;
+function classifyLowerIsBetterStrict(ratio: number): DeviationStatus {
+  if (!Number.isFinite(ratio) || ratio < 0) return "neutral";
+  return ratio <= 1 ? "good" : "bad";
 }
 
-function MetricRow({ m }: { m: Metric }) {
-  const d = deltaPct(m.fact, m.plan);
-  const ratio = m.plan > 0 ? m.fact / m.plan : 0;
-  const status =
-    m.key === "sales"
-      ? classifySalesDeviation(ratio)
-      : classifyGenericDeviation(m.plan ? (m.fact - m.plan) / m.plan : 0);
-  const colors = badgeColors(status);
-  const sign = d > 0 ? "+" : "";
-  return (
-    <div
-      style={{
-        padding: 12,
-        borderRadius: 14,
-        border: "1px solid rgba(255,255,255,0.10)",
-        background: "rgba(255,255,255,0.02)",
-        minWidth: 0, // ✅ фикс: даём блоку сжиматься в узком сайдбаре
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 10,
-          alignItems: "center",
-          minWidth: 0, // ✅ фикс
-        }}
-      >
-        <div
-          style={{
-            fontWeight: 900,
-            minWidth: 0, // ✅ фикс
-            overflow: "hidden", // ✅ фикс
-            textOverflow: "ellipsis", // ✅ фикс
-            whiteSpace: "nowrap", // ✅ фикс
-          }}
-        >
-          {m.title}
-        </div>
-
-        <div
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 5,
-            padding: "4px 8px",
-            borderRadius: 999,
-              background: colors.bg,
-              border: `1px solid ${colors.border}`,
-              color: colors.text,
-            fontWeight: 900,
-            fontSize: 11,
-            lineHeight: 1.2,
-            whiteSpace: "nowrap",
-            flexShrink: 0,
-          }}
-          title="Отклонение факт vs план"
-        >
-          {sign}
-          {fmtPct(d)}
-          <span
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: 999,
-              background: colors.text,
-              opacity: 0.9,
-              flexShrink: 0,
-            }}
-          />
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gap: 6, marginTop: 10, minWidth: 0 }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 10,
-            opacity: 0.75,
-            minWidth: 0, // ✅ фикс
-          }}
-        >
-          <span style={{ minWidth: 0 }}>Факт</span>
-          <span
-            style={{
-              fontWeight: 900,
-              opacity: 1,
-              whiteSpace: "nowrap", // ✅ фикс: не переносим числа
-              fontVariantNumeric: "tabular-nums", // ✅ фикс: стабильная ширина цифр
-              flexShrink: 0, // ✅ фикс
-            }}
-          >
-            {formatValue(m, m.fact)}
-          </span>
-        </div>
-
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 10,
-            opacity: 0.75,
-            minWidth: 0, // ✅ фикс
-          }}
-        >
-          <span style={{ minWidth: 0 }}>План</span>
-          <span
-            style={{
-              fontWeight: 900,
-              opacity: 1,
-              whiteSpace: "nowrap",
-              fontVariantNumeric: "tabular-nums",
-              flexShrink: 0,
-            }}
-          >
-            {formatValue(m, m.plan)}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
+function classifySpendByRatio(ratio: number): DeviationStatus {
+  if (!Number.isFinite(ratio) || ratio < 0) return "neutral";
+  if (ratio > 1.03) return "bad";
+  if (ratio >= 0.9) return "good";
+  return "warn";
 }
 
-function safeGetProjectIdFromStorage() {
-  try {
-    return localStorage.getItem("active_project_id");
-  } catch {
-    return null;
-  }
-}
-function safeSetProjectIdToStorage(v: string) {
-  try {
-    localStorage.setItem("active_project_id", v);
-  } catch {}
-}
-
-function todayYmd() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+function formatMetricValue(
+  metric: Metric,
+  value: number | null,
+  currency: ProjectCurrency,
+  usdToKztRate: number | null
+) {
+  if (value == null) return "—";
+  if (metric.format === "money") return fmtProjectCurrency(value, currency, usdToKztRate);
+  if (metric.format === "roas") return value.toFixed(2).replace(".", ",");
+  return new Intl.NumberFormat("ru-RU").format(Math.round(value));
 }
 
-const TODAY_SPEND_PLAN_USD = 20;
-
-function fmtUsd(n: number) {
-  return "$" + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-}
-
-type TodaySpendCardProps = {
-  todaySpend: number | null;
-  planBudget: number | null;
+function MetricRow({
+  m,
+  currency,
+  usdToKztRate,
+}: {
+  m: Metric;
   currency: ProjectCurrency;
   usdToKztRate: number | null;
-};
+}) {
+  const ratio = m.plan != null && m.plan > 0 && m.fact != null ? m.fact / m.plan : null;
+  const delta = m.plan != null && m.plan > 0 && m.fact != null ? ((m.fact - m.plan) / m.plan) * 100 : null;
 
-function TodaySpendCard({ todaySpend, planBudget, currency, usdToKztRate }: TodaySpendCardProps) {
-  const hasPlanBudget = planBudget != null && planBudget > 0;
-  const plan = hasPlanBudget ? planBudget! : TODAY_SPEND_PLAN_USD;
-  const fact = todaySpend ?? 0;
-  const deltaRel = hasPlanBudget && plan > 0 ? (fact - plan) / plan : 0;
-  const status = classifySpendDeviation(deltaRel);
+  const status = (() => {
+    if (m.state === "loadingFact" || m.state === "noPlan") return "neutral";
+    if (m.state === "planExhausted") {
+      if (m.key === "sales") return (m.fact ?? 0) > 0 ? "good" : "neutral";
+      if (m.key === "spend") return (m.fact ?? 0) > 0 ? "bad" : "neutral";
+      return "neutral";
+    }
+    if (ratio == null) return "neutral";
+    if (m.key === "sales") return classifySalesDeviation(ratio);
+    if (m.key === "roas") return classifyRoasDeviation(ratio);
+    if (m.key === "spend") return classifySpendByRatio(ratio);
+    if (m.key === "cac" || m.key === "cpr") return classifyLowerIsBetterStrict(ratio);
+    return "neutral";
+  })();
+
   const colors = badgeColors(status);
-  const pct = hasPlanBudget && plan > 0 ? deltaRel * 100 : 0;
+  const badgeText =
+    m.state === "loadingFact" || m.state === "noPlan" || delta == null
+      ? "—"
+      : `${delta > 0 ? "+" : ""}${fmtPct(delta)}`;
 
   return (
     <div
@@ -311,9 +172,18 @@ function TodaySpendCard({ todaySpend, planBudget, currency, usdToKztRate }: Toda
           minWidth: 0,
         }}
       >
-        <div style={{ fontWeight: 900, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          Расход
+        <div
+          style={{
+            fontWeight: 900,
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {m.title}
         </div>
+
         <div
           style={{
             display: "inline-flex",
@@ -332,9 +202,20 @@ function TodaySpendCard({ todaySpend, planBudget, currency, usdToKztRate }: Toda
           }}
           title="Отклонение факт vs план"
         >
-          {hasPlanBudget ? `${pct >= 0 ? "+" : ""}${fmtPct(pct)}` : "—"}
+          {badgeText}
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: 999,
+              background: colors.text,
+              opacity: 0.9,
+              flexShrink: 0,
+            }}
+          />
         </div>
       </div>
+
       <div style={{ display: "grid", gap: 6, marginTop: 10, minWidth: 0 }}>
         <div
           style={{
@@ -355,9 +236,10 @@ function TodaySpendCard({ todaySpend, planBudget, currency, usdToKztRate }: Toda
               flexShrink: 0,
             }}
           >
-            {todaySpend != null ? fmtProjectCurrency(todaySpend, currency, usdToKztRate) : "—"}
+            {formatMetricValue(m, m.fact, currency, usdToKztRate)}
           </span>
         </div>
+
         <div
           style={{
             display: "flex",
@@ -377,13 +259,56 @@ function TodaySpendCard({ todaySpend, planBudget, currency, usdToKztRate }: Toda
               flexShrink: 0,
             }}
           >
-            {hasPlanBudget ? fmtProjectCurrency(plan, currency, usdToKztRate) : "—"}
+            {formatMetricValue(m, m.plan, currency, usdToKztRate)}
           </span>
         </div>
+        {m.state === "loadingFact" && (
+          <div style={{ fontSize: 11, opacity: 0.55 }}>Загрузка плана...</div>
+        )}
+        {m.state === "planExhausted" && (
+          <div style={{ fontSize: 11, opacity: 0.72 }}>План исчерпан</div>
+        )}
       </div>
     </div>
   );
 }
+
+function safeGetProjectIdFromStorage() {
+  try {
+    return localStorage.getItem("active_project_id");
+  } catch {
+    return null;
+  }
+}
+function safeSetProjectIdToStorage(v: string) {
+  try {
+    localStorage.setItem("active_project_id", v);
+  } catch {}
+}
+
+function ymdUtc(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function utcDateFromYmd(ymd: string): Date {
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0));
+}
+
+function todayYmdUtc() {
+  return ymdUtc(new Date());
+}
+
+function monthStartYmdUtc(now: Date) {
+  return ymdUtc(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0)));
+}
+
+function yesterdayYmdUtc(todayYmd: string) {
+  const d = utcDateFromYmd(todayYmd);
+  d.setUTCDate(d.getUTCDate() - 1);
+  return ymdUtc(d);
+}
+
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -402,8 +327,14 @@ export default function Sidebar() {
   const [planModalOpen, setPlanModalOpen] = useState(false);
   const [factSalesThisMonth, setFactSalesThisMonth] = useState<number | null>(null);
   const [factSalesToday, setFactSalesToday] = useState<number | null>(null);
+  const [todayRevenue, setTodayRevenue] = useState<number | null>(null);
+  const [factSalesToYesterday, setFactSalesToYesterday] = useState<number | null>(null);
+  const [factSpendToYesterday, setFactSpendToYesterday] = useState<number | null>(null);
   const [projectCurrency, setProjectCurrency] = useState<ProjectCurrency>("USD");
   const [usdToKztRate, setUsdToKztRate] = useState<number | null>(null);
+  const todayUtc = useMemo(() => todayYmdUtc(), []);
+  const yesterdayUtc = useMemo(() => yesterdayYmdUtc(todayYmdUtc()), []);
+  const monthStartUtc = useMemo(() => monthStartYmdUtc(new Date()), []);
 
   useEffect(() => {
     const fromUrl = searchParams.get("project_id");
@@ -512,10 +443,9 @@ export default function Sidebar() {
       setTodaySpend(null);
       return;
     }
-    const today = todayYmd();
     try {
       const res = await fetch(
-        `/api/dashboard/summary?project_id=${encodeURIComponent(projectId)}&start=${today}&end=${today}`,
+        `/api/dashboard/summary?project_id=${encodeURIComponent(projectId)}&start=${todayUtc}&end=${todayUtc}`,
         { cache: "no-store" }
       );
       const json = (await res.json()) as { success?: boolean; totals?: { spend?: number } };
@@ -528,10 +458,45 @@ export default function Sidebar() {
     } catch {
       setTodaySpend(null);
     }
-  }, [projectId]);
+  }, [projectId, todayUtc]);
 
-  const startParam = searchParams.get("start");
-  const endParam = searchParams.get("end");
+  const fetchSpendRange = useCallback(
+    async (start: string, end: string): Promise<number | null> => {
+      if (!projectId) return null;
+      try {
+        const res = await fetch(
+          `/api/dashboard/summary?project_id=${encodeURIComponent(projectId)}&start=${start}&end=${end}`,
+          { cache: "no-store" }
+        );
+        const json = (await res.json()) as { success?: boolean; totals?: { spend?: number } };
+        if (json?.success && json?.totals) return Number(json.totals.spend ?? 0) || 0;
+        return null;
+      } catch {
+        return null;
+      }
+    },
+    [projectId]
+  );
+
+  const fetchSalesRange = useCallback(
+    async (start: string, end: string): Promise<number | null> => {
+      if (!projectId) return null;
+      try {
+        const res = await fetch(
+          `/api/dashboard/timeseries-conversions?project_id=${encodeURIComponent(projectId)}&start=${start}&end=${end}`,
+          { cache: "no-store" }
+        );
+        const json = (await res.json()) as { success?: boolean; points?: { sales?: number }[] };
+        if (json?.success && Array.isArray(json.points)) {
+          return json.points.reduce((s, p) => s + (Number(p.sales ?? 0) || 0), 0);
+        }
+        return null;
+      } catch {
+        return null;
+      }
+    },
+    [projectId]
+  );
 
   const fetchCurrentMonthPlan = useCallback(async () => {
     if (!projectId) {
@@ -596,27 +561,9 @@ export default function Sidebar() {
       setFactSalesThisMonth(null);
       return;
     }
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
-    const start = `${year}-${String(month).padStart(2, "0")}-01`;
-    const end = todayYmd();
-    try {
-      const res = await fetch(
-        `/api/dashboard/timeseries?project_id=${encodeURIComponent(projectId)}&start=${start}&end=${end}`,
-        { cache: "no-store" }
-      );
-      const json = (await res.json()) as { success?: boolean; points?: { sales?: number }[] };
-      if (json?.success && Array.isArray(json.points)) {
-        const total = json.points.reduce((s, p) => s + (Number(p.sales ?? 0) || 0), 0);
-        setFactSalesThisMonth(total);
-      } else {
-        setFactSalesThisMonth(null);
-      }
-    } catch {
-      setFactSalesThisMonth(null);
-    }
-  }, [projectId]);
+    const total = await fetchSalesRange(monthStartUtc, todayUtc);
+    setFactSalesThisMonth(total);
+  }, [projectId, fetchSalesRange, monthStartUtc, todayUtc]);
 
   useEffect(() => {
     if (!projectId || !currentMonthPlan) {
@@ -631,41 +578,82 @@ export default function Sidebar() {
       setFactSalesToday(null);
       return;
     }
-    const today = todayYmd();
+    const total = await fetchSalesRange(todayUtc, todayUtc);
+    setFactSalesToday(total);
+  }, [projectId, fetchSalesRange, todayUtc]);
+
+  const fetchTodayKpi = useCallback(async () => {
+    if (!projectId) {
+      setTodayRevenue(null);
+      return;
+    }
     try {
-      const params = new URLSearchParams({
-        project_id: projectId,
-        event_name: "purchase",
-        date: today,
-        page: "1",
-        page_size: "1",
-      });
-      const res = await fetch(`/api/conversion-events?${params.toString()}`, { cache: "no-store" });
-      const json = (await res.json()) as { success?: boolean; total?: number };
-      if (json?.success && typeof json.total === "number") {
-        setFactSalesToday(json.total);
+      const res = await fetch(
+        `/api/dashboard/kpi?project_id=${encodeURIComponent(projectId)}&start=${todayUtc}&end=${todayUtc}`,
+        { cache: "no-store" }
+      );
+      const json = (await res.json()) as { success?: boolean; sales?: number; revenue?: number };
+      if (json?.success) {
+        setTodayRevenue(Number(json.revenue ?? 0) || 0);
+        // Keep sales fact consistent with the same KPI source if it is available.
+        if (typeof json.sales === "number") {
+          setFactSalesToday(Number(json.sales) || 0);
+        }
       } else {
-        setFactSalesToday(null);
+        setTodayRevenue(null);
       }
     } catch {
-      setFactSalesToday(null);
+      setTodayRevenue(null);
     }
-  }, [projectId]);
+  }, [projectId, todayUtc]);
+
+  const fetchFactToYesterday = useCallback(async () => {
+    if (!projectId) {
+      setFactSalesToYesterday(null);
+      setFactSpendToYesterday(null);
+      return;
+    }
+    const yesterdayDate = utcDateFromYmd(yesterdayUtc);
+    const monthStartDate = utcDateFromYmd(monthStartUtc);
+    if (yesterdayDate < monthStartDate) {
+      setFactSalesToYesterday(0);
+      setFactSpendToYesterday(0);
+      return;
+    }
+    const [sales, spend] = await Promise.all([
+      fetchSalesRange(monthStartUtc, yesterdayUtc),
+      fetchSpendRange(monthStartUtc, yesterdayUtc),
+    ]);
+    setFactSalesToYesterday(sales);
+    setFactSpendToYesterday(spend);
+  }, [projectId, yesterdayUtc, monthStartUtc, fetchSalesRange, fetchSpendRange]);
 
   useEffect(() => {
     if (!projectId || !currentMonthPlan) {
       setFactSalesToday(null);
+      setTodayRevenue(null);
       return;
     }
     fetchFactSalesToday();
-  }, [projectId, currentMonthPlan, fetchFactSalesToday]);
+    fetchTodayKpi();
+  }, [projectId, currentMonthPlan, fetchFactSalesToday, fetchTodayKpi]);
+
+  useEffect(() => {
+    if (!projectId || !currentMonthPlan) {
+      setFactSalesToYesterday(null);
+      setFactSpendToYesterday(null);
+      return;
+    }
+    fetchFactToYesterday();
+  }, [projectId, currentMonthPlan, fetchFactToYesterday]);
 
   const refreshTodayWidget = useCallback(async () => {
-    await fetchTodaySpend();
+    const tasks: Promise<unknown>[] = [fetchTodaySpend()];
     if (currentMonthPlan) {
-      await fetchFactSalesToday();
+      tasks.push(fetchFactSalesToday(), fetchFactSalesThisMonth(), fetchFactToYesterday(), fetchTodayKpi());
     }
-  }, [fetchTodaySpend, fetchFactSalesToday, currentMonthPlan]);
+    await Promise.all(tasks);
+  }, [fetchTodaySpend, fetchFactSalesToday, fetchFactSalesThisMonth, fetchFactToYesterday, fetchTodayKpi, currentMonthPlan]);
 
   useEffect(() => {
     if (!projectId) return;
@@ -681,7 +669,7 @@ export default function Sidebar() {
       window.clearInterval(id);
       window.removeEventListener(SIDEBAR_TODAY_REFRESH_EVENT, onRefresh);
     };
-  }, [projectId, startParam, endParam, refreshTodayWidget]);
+  }, [projectId, refreshTodayWidget]);
 
   const hasCurrentMonthPlan = currentMonthPlan !== null;
   const primaryCountPlan = currentMonthPlan?.sales_plan_count ?? 0;
@@ -696,21 +684,49 @@ export default function Sidebar() {
   const planRoas =
     totalBudgetPlan > 0 && plannedRevenue > 0 ? plannedRevenue / totalBudgetPlan : null;
 
-  // дневной план на сегодня (из месячного плана)
+  // Календарные параметры месяца в UTC (чтобы today/yesterday границы совпадали с API).
   const now = new Date();
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const dailySalesPlan = totalSalesPlan > 0 && daysInMonth > 0 ? totalSalesPlan / daysInMonth : 0;
-  const dailyBudgetPlan =
-    totalBudgetPlan > 0 && daysInMonth > 0 ? totalBudgetPlan / daysInMonth : 0;
-  const dailyRevenuePlan =
-    plannedRevenue > 0 && daysInMonth > 0 ? plannedRevenue / daysInMonth : 0;
+  const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+  const utcDay = now.getUTCDate();
+  const elapsedDaysBeforeToday = Math.max(0, utcDay - 1);
+  const remainingDays = Math.max(1, daysInMonth - elapsedDaysBeforeToday);
+
+  // Кумулятивный план: вчера недобрали -> сегодня план выше; вчера перевыполнили -> ниже.
+  const remainingSalesPlan = Math.max(0, totalSalesPlan - (factSalesToYesterday ?? 0));
+  const remainingBudgetPlan = Math.max(0, totalBudgetPlan - (factSpendToYesterday ?? 0));
+  const hasSpendPlan = currentMonthPlan != null && (currentMonthPlan.sales_plan_budget != null || currentMonthPlan.repeat_sales_budget != null);
+  const salesPlanLoading = hasCurrentMonthPlan && factSalesToYesterday == null;
+  const spendPlanLoading = hasCurrentMonthPlan && hasSpendPlan && factSpendToYesterday == null;
+  const dailySalesPlan = totalSalesPlan > 0 ? remainingSalesPlan / remainingDays : 0;
+  const dailyBudgetPlan = totalBudgetPlan > 0 ? remainingBudgetPlan / remainingDays : 0;
+  const salesPlanState: TodayPlanState = !hasCurrentMonthPlan || totalSalesPlan <= 0
+    ? "noPlan"
+    : salesPlanLoading
+      ? "loadingFact"
+      : dailySalesPlan <= 0
+        ? "planExhausted"
+        : "activePlan";
+  const spendPlanState: TodayPlanState = !hasCurrentMonthPlan || !hasSpendPlan
+    ? "noPlan"
+    : spendPlanLoading
+      ? "loadingFact"
+      : dailyBudgetPlan <= 0
+        ? "planExhausted"
+        : "activePlan";
+
+  const factRoas = todayRevenue != null && todaySpend != null && todaySpend > 0 ? todayRevenue / todaySpend : null;
+  const factCac =
+    todaySpend != null && factSalesToday != null && factSalesToday > 0 ? todaySpend / factSalesToday : null;
+  const roasPlanState: TodayPlanState = planRoas != null ? "activePlan" : "noPlan";
+  const cacPlanState: TodayPlanState = planCac != null ? "activePlan" : "noPlan";
+  const cprPlanState: TodayPlanState = planCpr != null ? "activePlan" : "noPlan";
 
   const planPerformanceState = useMemo((): "no_plan" | "on_track" | "behind" => {
     if (!hasCurrentMonthPlan || totalSalesPlan <= 0) return "no_plan";
     const plannedSales = totalSalesPlan;
     const now = new Date();
-    const currentDay = now.getDate();
-    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const currentDay = now.getUTCDate();
+    const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
     const progressOfMonth = currentDay / daysInMonth;
     const expectedSales = plannedSales * progressOfMonth;
     const factSales = factSalesThisMonth ?? 0;
@@ -727,6 +743,11 @@ export default function Sidebar() {
     [projectId]
   );
 
+  const handlePlanSaved = useCallback(async () => {
+    await fetchCurrentMonthPlan();
+    await refreshTodayWidget();
+  }, [fetchCurrentMonthPlan, refreshTodayWidget]);
+
   const activeProjectName =
     projectId && projects.length > 0
       ? (projects.find((p) => p.id === projectId)?.name ?? null) || "Проект"
@@ -742,21 +763,64 @@ export default function Sidebar() {
     [router]
   );
 
-  const metrics: Metric[] = useMemo(
+  const topMetrics: Metric[] = useMemo(
     () => [
+      {
+        key: "spend",
+        title: "Расход",
+        fact: todaySpend,
+        plan: spendPlanState === "loadingFact" ? null : hasSpendPlan ? dailyBudgetPlan : null,
+        format: "money",
+        state: spendPlanState,
+      },
       {
         key: "sales",
         title: "Продажи",
-        fact: factSalesToday ?? 0,
-        plan: dailySalesPlan,
+        fact: factSalesToday,
+        plan: salesPlanState === "activePlan" || salesPlanState === "planExhausted" ? dailySalesPlan : null,
         format: "num",
+        state: salesPlanState,
       },
     ],
-    [factSalesToday, dailySalesPlan]
+    [
+      todaySpend,
+      spendPlanState,
+      hasSpendPlan,
+      dailyBudgetPlan,
+      factSalesToday,
+      dailySalesPlan,
+      salesPlanState,
+    ]
   );
-
-  const visibleTop = metrics.filter((m) => m.key === "sales");
-  const hidden = metrics.filter((m) => m.key !== "sales");
+  const extendedMetrics: Metric[] = useMemo(
+    () => [
+      {
+        key: "roas",
+        title: "ROAS",
+        fact: factRoas,
+        plan: planRoas,
+        format: "roas",
+        state: roasPlanState,
+      },
+      {
+        key: "cac",
+        title: "CAC",
+        fact: factCac,
+        plan: planCac,
+        format: "money",
+        state: cacPlanState,
+      },
+      {
+        key: "cpr",
+        title: "CPR",
+        fact: null,
+        plan: planCpr,
+        format: "money",
+        state: cprPlanState,
+      },
+    ],
+    [factRoas, planRoas, roasPlanState, factCac, planCac, cacPlanState, planCpr, cprPlanState]
+  );
 
   const sidebarBackground =
     "radial-gradient(800px 260px at 30% 0%, rgba(120,120,255,0.16), transparent 60%), linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01))";
@@ -1055,9 +1119,11 @@ export default function Sidebar() {
           >
             {(() => {
               const fact = factSalesToday ?? 0;
-              const raw = dailySalesPlan > 0 ? fact / dailySalesPlan : 0;
+              const isLoadingPlan = salesPlanState === "loadingFact";
+              const planValue = isLoadingPlan ? null : dailySalesPlan;
+              const raw = (planValue ?? 0) > 0 ? fact / (planValue ?? 1) : 0;
               const clamped = Math.max(0, Math.min(raw, 1));
-              const pct = dailySalesPlan > 0 ? raw * 100 : 0;
+              const pct = (planValue ?? 0) > 0 ? raw * 100 : 0;
               return (
                 <>
                   <div
@@ -1090,10 +1156,19 @@ export default function Sidebar() {
                       alignItems: "center",
                     }}
                   >
-                    <span>{pct.toFixed(0)}% плана</span>
+                    <span>
+                      {salesPlanState === "planExhausted"
+                        ? "План исчерпан"
+                        : isLoadingPlan
+                          ? "Загрузка..."
+                          : `${pct.toFixed(0)}% плана`}
+                    </span>
                     <span>
                       {new Intl.NumberFormat("ru-RU").format(Math.round(fact))} /{" "}
-                      {new Intl.NumberFormat("ru-RU").format(Math.round(dailySalesPlan))} продаж
+                      {isLoadingPlan
+                        ? "..."
+                        : new Intl.NumberFormat("ru-RU").format(Math.round(dailySalesPlan))}{" "}
+                      продаж
                     </span>
                   </div>
                 </>
@@ -1103,102 +1178,15 @@ export default function Sidebar() {
         )}
 
         <div style={{ display: "grid", gap: 10, marginTop: 12, minWidth: 0 }}>
-          <TodaySpendCard
-            todaySpend={todaySpend}
-            planBudget={dailyBudgetPlan || null}
-            currency={projectCurrency}
-            usdToKztRate={usdToKztRate}
-          />
-          {visibleTop.map((m) => (
-            <MetricRow key={m.key} m={m} />
+          {topMetrics.map((m) => (
+            <MetricRow key={m.key} m={m} currency={projectCurrency} usdToKztRate={usdToKztRate} />
           ))}
 
           {todayOpen ? (
             <div style={{ display: "grid", gap: 10, minWidth: 0 }}>
-              {/* ROAS */}
-              <div
-                style={{
-                  padding: 10,
-                  borderRadius: 12,
-                  border: "1px solid rgba(255,255,255,0.10)",
-                  background: "rgba(255,255,255,0.02)",
-                  minWidth: 0,
-                  fontSize: 13,
-                  color: "rgba(255,255,255,0.85)",
-                  display: "grid",
-                  gap: 4,
-                }}
-              >
-                <div style={{ fontWeight: 700 }}>ROAS</div>
-                <div style={{ display: "flex", justifyContent: "space-between", opacity: 0.8 }}>
-                  <span>Факт</span>
-                  <span style={{ fontWeight: 700 }}>—</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", opacity: 0.8 }}>
-                  <span>План</span>
-                  <span style={{ fontWeight: 700 }}>
-                    {planRoas != null ? planRoas.toFixed(2).replace(".", ",") : "—"}
-                  </span>
-                </div>
-              </div>
-
-              {/* CAC */}
-              <div
-                style={{
-                  padding: 10,
-                  borderRadius: 12,
-                  border: "1px solid rgba(255,255,255,0.10)",
-                  background: "rgba(255,255,255,0.02)",
-                  minWidth: 0,
-                  fontSize: 13,
-                  color: "rgba(255,255,255,0.85)",
-                  display: "grid",
-                  gap: 4,
-                }}
-              >
-                <div style={{ fontWeight: 700 }}>CAC</div>
-                <div style={{ display: "flex", justifyContent: "space-between", opacity: 0.8 }}>
-                  <span>Факт</span>
-                  <span style={{ fontWeight: 700 }}>—</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", opacity: 0.8 }}>
-                  <span>План</span>
-                  <span style={{ fontWeight: 700 }}>
-                    {planCac != null
-                      ? fmtProjectCurrency(planCac, projectCurrency, usdToKztRate)
-                      : "—"}
-                  </span>
-                </div>
-              </div>
-
-              {/* CPR */}
-              <div
-                style={{
-                  padding: 10,
-                  borderRadius: 12,
-                  border: "1px solid rgba(255,255,255,0.10)",
-                  background: "rgba(255,255,255,0.02)",
-                  minWidth: 0,
-                  fontSize: 13,
-                  color: "rgba(255,255,255,0.85)",
-                  display: "grid",
-                  gap: 4,
-                }}
-              >
-                <div style={{ fontWeight: 700 }}>CPR</div>
-                <div style={{ display: "flex", justifyContent: "space-between", opacity: 0.8 }}>
-                  <span>Факт</span>
-                  <span style={{ fontWeight: 700 }}>—</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", opacity: 0.8 }}>
-                  <span>План</span>
-                  <span style={{ fontWeight: 700 }}>
-                    {planCpr != null
-                      ? fmtProjectCurrency(planCpr, projectCurrency, usdToKztRate)
-                      : "—"}
-                  </span>
-                </div>
-              </div>
+              {extendedMetrics.map((m) => (
+                <MetricRow key={m.key} m={m} currency={projectCurrency} usdToKztRate={usdToKztRate} />
+              ))}
         </div>
       ) : (
             <div style={{ opacity: 0.55, fontSize: 12 }}>Показать ROAS / CAC / CPR</div>
@@ -1280,7 +1268,9 @@ export default function Sidebar() {
           month={new Date().getMonth() + 1}
           year={new Date().getFullYear()}
           initialPlan={currentMonthPlan}
-          onSaved={fetchCurrentMonthPlan}
+          onSaved={() => {
+            void handlePlanSaved();
+          }}
           planPerformanceState={planPerformanceState}
           currency={projectCurrency}
           usdToKztRate={usdToKztRate}

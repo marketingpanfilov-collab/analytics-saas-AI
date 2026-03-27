@@ -10,6 +10,7 @@ import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAcc
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const projectId = searchParams.get("project_id");
+  const selectedOnly = searchParams.get("selected_only") === "1";
 
   if (!projectId) {
     return NextResponse.json({ success: false, error: "project_id required" }, { status: 400 });
@@ -147,9 +148,11 @@ export async function GET(req: Request) {
     };
   });
 
+  const responseAccounts = selectedOnly ? accounts.filter((a) => a.is_enabled) : accounts;
+
   return NextResponse.json({
     success: true,
-    accounts,
+    accounts: responseAccounts,
     ...(partialErrors.length > 0 && { partial_errors: partialErrors }),
   });
 }

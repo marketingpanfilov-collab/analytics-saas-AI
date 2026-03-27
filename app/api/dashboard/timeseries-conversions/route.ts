@@ -58,7 +58,7 @@ export async function GET(req: Request) {
   try {
     const { data, error } = await admin
       .from("conversion_events")
-      .select("event_name, source, traffic_source, visitor_id, created_at")
+      .select("event_name, source, traffic_source, visitor_id, created_at, event_time")
       .eq("project_id", projectId)
       .gte("created_at", from)
       .lte("created_at", to)
@@ -75,6 +75,7 @@ export async function GET(req: Request) {
       traffic_source: string | null;
       visitor_id: string | null;
       created_at: string;
+      event_time: string | null;
     };
 
     const rows = (data ?? []) as ConversionRow[];
@@ -89,6 +90,10 @@ export async function GET(req: Request) {
       created_at: string;
     };
 
+    const lookupFrom = new Date(`${start}T00:00:00.000Z`);
+    lookupFrom.setUTCDate(lookupFrom.getUTCDate() - 30);
+    const lookupFromIso = lookupFrom.toISOString();
+
     const visitsByVisitor = new Map<string, VisitRow[]>();
     if (visitorIds.length > 0) {
       const { data: visitData, error: visitError } = await admin
@@ -96,7 +101,7 @@ export async function GET(req: Request) {
         .select("visitor_id, source_classification, created_at")
         .eq("site_id", projectId)
         .in("visitor_id", visitorIds)
-        .gte("created_at", from)
+        .gte("created_at", lookupFromIso)
         .lte("created_at", to);
 
       if (!visitError && visitData?.length) {
@@ -120,7 +125,7 @@ export async function GET(req: Request) {
       if (r.visitor_id) {
         const visits = visitsByVisitor.get(r.visitor_id) ?? [];
         if (visits.length) {
-          const convTs = r.created_at;
+          const convTs = r.event_time ?? r.created_at;
           let chosen: VisitRow | null = null;
           for (const v of visits) {
             if (v.created_at <= convTs) chosen = v;
@@ -148,7 +153,7 @@ export async function GET(req: Request) {
 
     const byDate = new Map<string, { registrations: number; sales: number }>();
     for (const r of effectiveRows) {
-      const day = r.created_at.slice(0, 10);
+      const day = (r.event_time ?? r.created_at).slice(0, 10);
       const cur = byDate.get(day) ?? { registrations: 0, sales: 0 };
       if (r.event_name === "registration") cur.registrations += 1;
       if (r.event_name === "purchase") cur.sales += 1;

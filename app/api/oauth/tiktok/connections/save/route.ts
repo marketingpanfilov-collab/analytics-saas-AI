@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
 
 function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
@@ -28,6 +29,11 @@ export async function POST(req: Request) {
       { success: false, error: "project_id is required and must be a valid UUID" },
       { status: 400 }
     );
+  }
+
+  const access = await requireProjectAccessOrInternal(req, projectId, { allowInternalBypass: false });
+  if (!access.allowed) {
+    return NextResponse.json(access.body, { status: access.status });
   }
 
   const admin = supabaseAdmin();

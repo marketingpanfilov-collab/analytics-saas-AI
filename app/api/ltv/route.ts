@@ -13,6 +13,15 @@ import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccess } from "@/app/lib/auth/requireProjectAccess";
 import { getCanonicalSummary } from "@/app/lib/dashboardCanonical";
+import {
+  convertMoneyStrict,
+  createCurrencyDiagnostics,
+  getLatestUsdToKztRate,
+  getUsdToKztRateMapForDays,
+  normalizeCurrencyCode,
+  pushCurrencyReason,
+  resolveUsdToKztRateForDay,
+} from "@/app/lib/currencyNormalization";
 
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 50; // cap at 50k events
@@ -75,26 +84,6 @@ function isPlatformSource(v: string): v is (typeof PLATFORM_SOURCES)[number] {
   return PLATFORM_SOURCES.includes(v as (typeof PLATFORM_SOURCES)[number]);
 }
 
-function normalizeCurrency(raw: string | null | undefined): "USD" | "KZT" | null {
-  const v = String(raw ?? "").trim().toUpperCase();
-  if (v === "USD" || v === "KZT") return v;
-  return null;
-}
-
-function convertMoney(
-  amount: number,
-  fromCurrency: "USD" | "KZT",
-  toCurrency: "USD" | "KZT",
-  usdToKztRate: number | null
-): number {
-  if (!Number.isFinite(amount)) return 0;
-  if (fromCurrency === toCurrency) return amount;
-  if (!usdToKztRate || usdToKztRate <= 0) return amount;
-  return fromCurrency === "USD" && toCurrency === "KZT"
-    ? amount * usdToKztRate
-    : amount / usdToKztRate;
-}
-
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const projectId = searchParams.get("project_id")?.trim() ?? "";
@@ -136,23 +125,16 @@ export async function GET(req: Request) {
       .maybeSingle();
     const currency = (projectRow as { currency?: string } | null)?.currency ?? "USD";
     const displayCurrency = currency === "KZT" ? "KZT" : "USD";
-    let usdToKztRate: number | null = null;
+    let latestUsdToKztRate: number | null = null;
+    let usdToKztRateByDay = new Map<string, number>();
     if (displayCurrency === "KZT") {
-      const { data: rateRow } = await admin
-        .from("exchange_rates")
-        .select("rate")
-        .eq("base_currency", "USD")
-        .eq("quote_currency", "KZT")
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const rate = Number((rateRow as { rate?: number | null } | null)?.rate ?? 0);
-      usdToKztRate = Number.isFinite(rate) && rate > 0 ? rate : null;
+      latestUsdToKztRate = await getLatestUsdToKztRate(admin);
     }
+    const currencyDiagnostics = createCurrencyDiagnostics();
     const toProjectMoney = (v: number | null): number | null => {
       if (v == null || !Number.isFinite(v)) return v;
-      if (displayCurrency === "KZT" && usdToKztRate && usdToKztRate > 0) {
-        return v * usdToKztRate;
+      if (displayCurrency === "KZT" && latestUsdToKztRate && latestUsdToKztRate > 0) {
+        return v * latestUsdToKztRate;
       }
       return v;
     };
@@ -297,6 +279,10 @@ export async function GET(req: Request) {
       purchases.push(...chunk);
       if (chunk.length < PAGE_SIZE) break;
     }
+    if (displayCurrency === "KZT" && purchases.length > 0) {
+      const days = purchases.map((r) => String((r.event_time ?? r.created_at) ?? "").slice(0, 10));
+      usdToKztRateByDay = await getUsdToKztRateMapForDays(admin, days);
+    }
 
     // 4) Classify first/repeat by global first_purchase_time. Only include users in allowedUserKeys (acquisition_source filter).
     const byUser = new Map<string, { value: number; eventTime: string; campaignIntent: string | null }[]>();
@@ -314,8 +300,21 @@ export async function GET(req: Request) {
       if (!allowedUserKeys.has(key)) continue;
 
       const rawVal = r.value != null ? Number(r.value) : 0;
-      const rowCurrency = normalizeCurrency(r.currency) ?? displayCurrency;
-      const val = convertMoney(rawVal, rowCurrency, displayCurrency, usdToKztRate);
+      const normalized = normalizeCurrencyCode(r.currency);
+      const rowCurrency = normalized ?? displayCurrency;
+      if (!normalized && (r.currency == null || String(r.currency).trim() === "")) {
+        pushCurrencyReason(currencyDiagnostics, "currency_missing", "conversion_events.currency missing; fallback used.");
+      } else if (!normalized) {
+        pushCurrencyReason(currencyDiagnostics, "currency_unsupported", `Unsupported currency '${String(r.currency)}'; fallback used.`);
+      }
+      const day = String((r.event_time ?? r.created_at) ?? "").slice(0, 10);
+      const dayRate = resolveUsdToKztRateForDay(
+        day,
+        usdToKztRateByDay,
+        latestUsdToKztRate,
+        currencyDiagnostics
+      );
+      const val = convertMoneyStrict(rawVal, rowCurrency, displayCurrency, dayRate, currencyDiagnostics);
       totalRevenue += val;
       const eventTime = parseEventTime(r);
       const campaignIntent = (r.campaign_intent?.trim() === "retention" ? "retention" : null) || null;
@@ -338,6 +337,13 @@ export async function GET(req: Request) {
         repeatPurchaseCount += 1;
         repeatRevenue += val;
       }
+    }
+    if (currencyDiagnostics.reason_codes.length > 0) {
+      console.warn("[LTV_CURRENCY_DIAGNOSTICS]", {
+        projectId,
+        reason_codes: currencyDiagnostics.reason_codes,
+        warnings: currencyDiagnostics.warnings,
+      });
     }
 
     const totalPurchaseCount = firstPurchaseCount + repeatPurchaseCount;
@@ -636,6 +642,7 @@ export async function GET(req: Request) {
       cohortRows,
       cohortSizes,
       cohortRevenueRows,
+      currency_diagnostics: currencyDiagnostics,
     });
   } catch (e) {
     console.error("[LTV_FATAL]", e);

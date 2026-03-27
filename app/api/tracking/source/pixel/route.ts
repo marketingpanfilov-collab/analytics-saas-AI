@@ -10,6 +10,8 @@ import { randomUUID } from "crypto";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { classifySource } from "@/app/lib/sourceClassification";
 import { detectTrafficSource } from "@/app/lib/trafficSourceDetection";
+import { checkRateLimit, getRequestIp } from "@/app/lib/security/rateLimit";
+import { logTrackingTelemetry } from "@/app/lib/trackingTelemetry";
 
 const GIF_1X1 = Buffer.from(
   "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
@@ -28,8 +30,9 @@ export async function GET(req: Request) {
 
     const visitorId = safeStr(params.get("visitor_id"), 64);
     const siteId = safeStr(params.get("site_id"), 64);
+    const ingestKey = safeStr(params.get("ingest_key"), 256);
 
-    if (!visitorId || !siteId) {
+    if (!visitorId || !siteId || !ingestKey) {
       return new NextResponse(GIF_1X1, {
         status: 200,
         headers: {
@@ -79,7 +82,46 @@ export async function GET(req: Request) {
     });
 
     const admin = supabaseAdmin();
-    await admin.from("visit_source_events").insert({
+    const { data: project, error: projectError } = await admin
+      .from("projects")
+      .select("id, public_ingest_key")
+      .eq("id", siteId)
+      .maybeSingle();
+    if (projectError || !project || project.public_ingest_key !== ingestKey) {
+      await logTrackingTelemetry({
+        endpoint: "/api/tracking/source/pixel",
+        reason_code: "invalid_ingest_key",
+        site_id: siteId,
+      });
+      return new NextResponse(GIF_1X1, {
+        status: 200,
+        headers: {
+          "Content-Type": "image/gif",
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
+    const ip = getRequestIp(req);
+    const rate = await checkRateLimit(`tracking_source_pixel:${siteId}:${ip}`, 180, 60_000);
+    if (!rate.ok) {
+      await logTrackingTelemetry({
+        endpoint: "/api/tracking/source/pixel",
+        reason_code: "rate_limited",
+        site_id: siteId,
+        severity: "warn",
+        payload: { retry_after_seconds: rate.retryAfterSec },
+      });
+      return new NextResponse(GIF_1X1, {
+        status: 200,
+        headers: {
+          "Content-Type": "image/gif",
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+
+    const { error } = await admin.from("visit_source_events").upsert({
       visitor_id: visitorId,
       site_id: siteId,
       landing_url: landingUrl,
@@ -102,9 +144,23 @@ export async function GET(req: Request) {
       touch_type: touchType,
       traffic_source: trafficSource,
       traffic_platform: trafficPlatform,
-    });
+    }, { onConflict: "site_id,visit_id", ignoreDuplicates: true });
+    if (error) {
+      await logTrackingTelemetry({
+        endpoint: "/api/tracking/source/pixel",
+        reason_code: "insert_failed",
+        site_id: siteId,
+        message: error.message,
+        payload: { has_visit_id: !!visitIdParam, touch_type: touchType },
+      });
+    }
   } catch (e) {
     console.error("[TRACKING_PIXEL_ERROR]", e);
+    await logTrackingTelemetry({
+      endpoint: "/api/tracking/source/pixel",
+      reason_code: "fatal_error",
+      message: e instanceof Error ? e.message : String(e),
+    });
   }
 
   return new NextResponse(GIF_1X1, {

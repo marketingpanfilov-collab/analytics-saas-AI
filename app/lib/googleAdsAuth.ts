@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { fetchWithRetry } from "@/app/lib/networkRetry";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const EXPIRY_BUFFER_MS = 60 * 1000; // consider expired 1 min before actual expiry
@@ -59,11 +60,11 @@ export async function getValidGoogleAccessToken(
     grant_type: "refresh_token",
   });
 
-  const tokenRes = await fetch(TOKEN_URL, {
+  const tokenRes = await fetchWithRetry(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: body.toString(),
-  });
+  }, { retries: 2, initialDelayMs: 400 });
 
   const tokenJson = (await tokenRes.json().catch(() => ({}))) as {
     access_token?: string;

@@ -71,9 +71,19 @@ function SettingsPageContent() {
         setError(json?.error ?? "Не удалось сохранить валюту проекта");
         return;
       }
+      if (currency === "KZT") {
+        const rateRes = await fetch("/api/system/update-rates", { method: "POST" });
+        const rateJson = await rateRes.json().catch(() => null);
+        if (!rateRes.ok || !rateJson?.success) {
+          setError(rateJson?.error ?? "Валюта сохранена, но курс USD→KZT не обновился");
+          return;
+        }
+      }
       setInitialCurrency(currency);
       setSavedMessage("Валюта проекта сохранена.");
-      setTimeout(() => setSavedMessage(null), 2500);
+      setTimeout(() => {
+        if (typeof window !== "undefined") window.location.reload();
+      }, 350);
     } catch (e) {
       setError("Не удалось сохранить валюту проекта");
     } finally {

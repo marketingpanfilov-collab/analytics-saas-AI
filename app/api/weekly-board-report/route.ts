@@ -13,6 +13,16 @@ import { buildAttributionChains } from "@/app/lib/attributionDebugger";
 import { buildJourneysFromChains } from "@/app/lib/attributionJourney";
 import { buildBudgetOptimization, type JourneyForBudget } from "@/app/lib/budgetOptimizationInsights";
 import { buildWeeklyBoardReport } from "@/app/lib/weeklyBoardReport";
+import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import {
+  convertMoneyStrict,
+  createCurrencyDiagnostics,
+  getLatestUsdToKztRate,
+  getUsdToKztRateMapForDays,
+  normalizeCurrencyCode,
+  pushCurrencyReason,
+  resolveUsdToKztRateForDay,
+} from "@/app/lib/currencyNormalization";
 
 const JOURNEY_CHAINS_LIMIT = 400;
 const DAYS_CURRENT = 7;
@@ -24,24 +34,62 @@ async function getRevenueForPeriod(
   sinceIso: string,
   untilIso?: string
 ): Promise<{ revenue: number; currency: string }> {
+  const { data: projectRow } = await admin
+    .from("projects")
+    .select("currency")
+    .eq("id", projectId)
+    .maybeSingle();
+  const displayCurrency =
+    String((projectRow as { currency?: string | null } | null)?.currency ?? "USD")
+      .trim()
+      .toUpperCase() === "KZT"
+      ? "KZT"
+      : "USD";
+  const latestUsdToKztRate = displayCurrency === "KZT" ? await getLatestUsdToKztRate(admin) : null;
+  const diagnostics = createCurrencyDiagnostics();
+
   let q = admin
     .from("conversion_events")
-    .select("value, currency")
+    .select("value, currency, created_at")
     .eq("project_id", projectId)
     .eq("event_name", "purchase")
     .gte("created_at", sinceIso);
   if (untilIso) q = q.lte("created_at", untilIso);
   const { data } = await q;
   const rows = data ?? [];
+  const rateByDay =
+    displayCurrency === "KZT"
+      ? await getUsdToKztRateMapForDays(
+          admin,
+          rows.map((r) => String((r as { created_at?: string | null }).created_at ?? "").slice(0, 10))
+        )
+      : new Map<string, number>();
   let revenue = 0;
-  let currency = "USD";
   for (const r of rows) {
     const v = (r as { value?: number | null; currency?: string | null }).value;
-    if (typeof v === "number" && !Number.isNaN(v)) revenue += v;
+    if (typeof v !== "number" || Number.isNaN(v)) continue;
     const c = (r as { currency?: string | null }).currency;
-    if (c && typeof c === "string") currency = c;
+    const normalized = normalizeCurrencyCode(c);
+    const fromCurrency = normalized ?? displayCurrency;
+    if (!normalized && (c == null || String(c).trim() === "")) {
+      pushCurrencyReason(diagnostics, "currency_missing", "weekly-board-report: conversion_events.currency missing.");
+    } else if (!normalized) {
+      pushCurrencyReason(diagnostics, "currency_unsupported", `weekly-board-report: unsupported currency '${String(c)}'.`);
+    }
+    const day = String((r as { created_at?: string | null }).created_at ?? "").slice(0, 10);
+    const dayRate = resolveUsdToKztRateForDay(day, rateByDay, latestUsdToKztRate, diagnostics);
+    revenue += convertMoneyStrict(v, fromCurrency, displayCurrency, dayRate, diagnostics);
   }
-  return { revenue, currency };
+  if (diagnostics.reason_codes.length > 0) {
+    console.warn("[WEEKLY_REPORT_CURRENCY_DIAGNOSTICS]", {
+      projectId,
+      period_since: sinceIso,
+      period_until: untilIso ?? null,
+      reason_codes: diagnostics.reason_codes,
+      warnings: diagnostics.warnings,
+    });
+  }
+  return { revenue, currency: displayCurrency };
 }
 
 /** Build weekly report for a given period end (used by GET and by share public fetch). */
@@ -157,6 +205,10 @@ export async function GET(req: Request) {
         { success: false, error: "project_id is required" },
         { status: 400 }
       );
+    }
+    const access = await requireProjectAccessOrInternal(req, projectId, { allowInternalBypass: false });
+    if (!access.allowed) {
+      return NextResponse.json(access.body, { status: access.status });
     }
 
     const admin = supabaseAdmin();

@@ -35,6 +35,7 @@
   }
 
   var siteId = (script && script.getAttribute("data-project-id")) || scriptUrl.searchParams.get("site_id");
+  var ingestKey = (script && script.getAttribute("data-ingest-key")) || scriptUrl.searchParams.get("ingest_key");
   if (!siteId) return;
 
   console.log("[as-tracker] tracker initialized", { site_id: siteId });
@@ -158,6 +159,7 @@
   if (payload.fbc) params.set("fbc", payload.fbc);
   if (payload.click_id) params.set("click_id", payload.click_id);
   params.set("visit_id", payload.visit_id);
+  if (ingestKey) params.set("ingest_key", ingestKey);
 
   var pixelUrl = pixelEndpoint + "?" + params.toString();
   console.log("[as-tracker] pixel URL built", { url: pixelUrl.slice(0, 150) + (pixelUrl.length > 150 ? "..." : "") });
@@ -168,6 +170,48 @@
   console.log("[as-tracker] pixel beacon sent");
 
   if (typeof window !== "undefined") {
+    function sleep(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
+    function buildConversionIdempotency(eventName) {
+      var key = "boardiq_conv_" + eventName + "_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2);
+      return key;
+    }
+    async function postConversionWithRetry(payload, options) {
+      var endpoint = apiBase + "/api/tracking/conversion";
+      var maxAttempts = (options && options.maxAttempts) || 3;
+      var baseDelay = (options && options.baseDelayMs) || 300;
+      var idem = payload.external_event_id || buildConversionIdempotency(payload.event_name || "event");
+      payload.external_event_id = payload.external_event_id || idem;
+      for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          var res = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-BoardIQ-Key": ingestKey || "",
+              "X-BoardIQ-Idempotency-Token": idem,
+            },
+            body: JSON.stringify(payload),
+            keepalive: true,
+            credentials: "omit",
+          });
+          if (res.ok) return true;
+          if (res.status >= 400 && res.status < 500 && res.status !== 429) break;
+        } catch (e) {
+          // Continue retry loop below.
+        }
+        if (attempt < maxAttempts) {
+          await sleep(baseDelay * Math.pow(2, attempt - 1));
+        }
+      }
+      if (navigator && typeof navigator.sendBeacon === "function") {
+        try {
+          var blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+          return navigator.sendBeacon(endpoint, blob);
+        } catch (e2) {}
+      }
+      return false;
+    }
+
     window.BoardIQ = {
       getVisitorId: function() { return getOrCreateVisitorId(); },
       getSessionId: function() { return getSessionId(); },
@@ -175,6 +219,36 @@
         var q = getQueryParam("bqcid");
         if (q) return q;
         try { return sessionStorage.getItem("boardiq_click_id") || ""; } catch (e) { return ""; }
+      },
+      trackConversion: function(eventName, data) {
+        if (!ingestKey || !siteId) return Promise.resolve(false);
+        var d = data || {};
+        var payload = {
+          project_id: siteId,
+          event_name: eventName,
+          event_time: new Date().toISOString(),
+          visitor_id: (d.visitor_id || window.boardiqVisitorId || ""),
+          session_id: (d.session_id || getSessionId() || ""),
+          click_id: (d.click_id || window.BoardIQ.getClickId() || ""),
+          value: d.value != null ? d.value : undefined,
+          currency: d.currency || undefined,
+          user_external_id: d.user_external_id || undefined,
+          external_event_id: d.external_event_id || undefined,
+          utm_source: d.utm_source || getQueryParam("utm_source") || undefined,
+          utm_medium: d.utm_medium || getQueryParam("utm_medium") || undefined,
+          utm_campaign: d.utm_campaign || getQueryParam("utm_campaign") || undefined,
+          utm_content: d.utm_content || getQueryParam("utm_content") || undefined,
+          utm_term: d.utm_term || getQueryParam("utm_term") || undefined,
+          fbclid: d.fbclid || getQueryParam("fbclid") || undefined,
+          gclid: d.gclid || getQueryParam("gclid") || undefined,
+          ttclid: d.ttclid || getQueryParam("ttclid") || undefined,
+          yclid: d.yclid || getQueryParam("yclid") || undefined,
+          fbp: d.fbp || getFbCookie("_fbp") || undefined,
+          fbc: d.fbc || getFbCookie("_fbc") || undefined,
+          referrer: d.referrer || document.referrer || undefined,
+          metadata: d.metadata || {},
+        };
+        return postConversionWithRetry(payload, d.retry_options || undefined);
       },
     };
   }

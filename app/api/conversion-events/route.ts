@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccess } from "@/app/lib/auth/requireProjectAccess";
+import { utcDayRange } from "@/app/lib/utcDayRange";
 
 const ALLOWED_EVENTS = ["registration", "purchase"] as const;
 
@@ -52,16 +53,9 @@ export async function GET(req: Request) {
     let dayStartIso: string | null = null;
     let dayEndIso: string | null = null;
     if (dateFilter) {
-      const [yStr, mStr, dStr] = dateFilter.split("-");
-      const y = parseInt(yStr ?? "", 10);
-      const m = parseInt(mStr ?? "", 10);
-      const d = parseInt(dStr ?? "", 10);
-      if (Number.isFinite(y) && Number.isFinite(m) && Number.isFinite(d)) {
-        const start = new Date(y, m - 1, d, 0, 0, 0, 0);
-        const end = new Date(y, m - 1, d + 1, 0, 0, 0, 0);
-        dayStartIso = start.toISOString();
-        dayEndIso = end.toISOString();
-      }
+      const range = utcDayRange(dateFilter);
+      dayStartIso = range?.startIso ?? null;
+      dayEndIso = range?.endIso ?? null;
     }
 
     let query = admin
@@ -96,13 +90,33 @@ export async function GET(req: Request) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
+    type ConversionEventRow = {
+      id: string;
+      event_time: string | null;
+      created_at: string;
+      event_name: string;
+      external_event_id: string | null;
+      user_external_id: string | null;
+      value: number | null;
+      currency: string | null;
+      source: string | null;
+      utm_source: string | null;
+      utm_medium: string | null;
+      utm_campaign: string | null;
+      utm_content: string | null;
+      utm_term: string | null;
+      visitor_id: string | null;
+      click_id: string | null;
+      metadata: Record<string, unknown> | null;
+    };
+
     const items =
-      (data ?? []).map((row) => {
-        const meta = (row as any).metadata || {};
+      ((data ?? []) as ConversionEventRow[]).map((row) => {
+        const meta = row.metadata || {};
         const email = typeof meta === "object" && meta ? (meta.email as string | undefined) ?? null : null;
         const phone = typeof meta === "object" && meta ? (meta.phone as string | undefined) ?? null : null;
         return {
-          id: row.id as string,
+          id: row.id,
           event_time: row.event_time ?? row.created_at,
           created_at: row.created_at,
           event_name: row.event_name,
@@ -112,10 +126,10 @@ export async function GET(req: Request) {
           currency: row.currency ?? null,
           source: row.source ?? null,
           utm_source: row.utm_source ?? null,
-          utm_medium: (row as any).utm_medium ?? null,
+          utm_medium: row.utm_medium ?? null,
           utm_campaign: row.utm_campaign ?? null,
-          utm_content: (row as any).utm_content ?? null,
-          utm_term: (row as any).utm_term ?? null,
+          utm_content: row.utm_content ?? null,
+          utm_term: row.utm_term ?? null,
           visitor_id: row.visitor_id ?? null,
           click_id: row.click_id ?? null,
           metadata: row.metadata ?? null,

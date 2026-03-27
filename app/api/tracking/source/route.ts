@@ -9,6 +9,10 @@ import { randomUUID } from "crypto";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { classifySource } from "@/app/lib/sourceClassification";
 import { detectTrafficSource } from "@/app/lib/trafficSourceDetection";
+import { checkRateLimit, getRequestIp } from "@/app/lib/security/rateLimit";
+import { logTrackingTelemetry } from "@/app/lib/trackingTelemetry";
+
+const INGEST_KEY_HEADER = "x-boardiq-key";
 
 function safeStr(v: unknown, maxLen = 2048): string | null {
   if (v == null || v === "") return null;
@@ -22,7 +26,7 @@ export async function OPTIONS() {
     headers: {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Headers": "Content-Type, X-BoardIQ-Key",
       "Access-Control-Max-Age": "86400",
     },
   });
@@ -33,11 +37,19 @@ export async function POST(req: Request) {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
     const visitorId = safeStr(body.visitor_id, 64);
     const siteId = safeStr(body.site_id, 64);
+    const ingestKey = req.headers.get(INGEST_KEY_HEADER)?.trim() ?? "";
 
     if (!visitorId || !siteId) {
       return NextResponse.json(
         { success: false, error: "visitor_id and site_id required" },
         { status: 400, headers: { "Access-Control-Allow-Origin": "*" } }
+      );
+    }
+
+    if (!ingestKey) {
+      return NextResponse.json(
+        { success: false, error: "Missing ingest key" },
+        { status: 401, headers: { "Access-Control-Allow-Origin": "*" } }
       );
     }
 
@@ -83,7 +95,34 @@ export async function POST(req: Request) {
     });
 
     const admin = supabaseAdmin();
-    const { error } = await admin.from("visit_source_events").insert({
+    const { data: project, error: projectError } = await admin
+      .from("projects")
+      .select("id, public_ingest_key")
+      .eq("id", siteId)
+      .maybeSingle();
+    if (projectError || !project || project.public_ingest_key !== ingestKey) {
+      return NextResponse.json(
+        { success: false, error: "Invalid ingest key" },
+        { status: 403, headers: { "Access-Control-Allow-Origin": "*" } }
+      );
+    }
+
+    const ip = getRequestIp(req);
+    const rate = await checkRateLimit(`tracking_source_post:${siteId}:${ip}`, 120, 60_000);
+    if (!rate.ok) {
+      return NextResponse.json(
+        { success: false, error: "Rate limit exceeded", retry_after_seconds: rate.retryAfterSec },
+        {
+          status: 429,
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Retry-After": String(rate.retryAfterSec),
+          },
+        }
+      );
+    }
+
+    const { error } = await admin.from("visit_source_events").upsert({
       visitor_id: visitorId,
       site_id: siteId,
       landing_url: landingUrl,
@@ -107,10 +146,17 @@ export async function POST(req: Request) {
       traffic_source: trafficSource,
       traffic_platform: trafficPlatform,
       campaign_intent: campaign_intent ?? null,
-    });
+    }, { onConflict: "site_id,visit_id", ignoreDuplicates: true });
 
     if (error) {
       console.error("[TRACKING_SOURCE_INSERT_ERROR]", error);
+      await logTrackingTelemetry({
+        endpoint: "/api/tracking/source",
+        reason_code: "insert_failed",
+        site_id: siteId,
+        message: error.message,
+        payload: { has_visit_id: !!visitId, touch_type: touchType },
+      });
       return NextResponse.json(
         { success: false, error: error.message },
         { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }
@@ -118,11 +164,16 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json(
-      { success: true },
+      { success: true, duplicate: !!visitIdParam },
       { status: 201, headers: { "Access-Control-Allow-Origin": "*" } }
     );
   } catch (e) {
     console.error("[TRACKING_SOURCE_ERROR]", e);
+    await logTrackingTelemetry({
+      endpoint: "/api/tracking/source",
+      reason_code: "fatal_error",
+      message: e instanceof Error ? e.message : String(e),
+    });
     return NextResponse.json(
       { success: false, error: "Internal error" },
       { status: 500, headers: { "Access-Control-Allow-Origin": "*" } }

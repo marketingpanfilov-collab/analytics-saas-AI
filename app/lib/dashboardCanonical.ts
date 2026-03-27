@@ -3,6 +3,15 @@
  * Used for summary, timeseries, and metrics routes with legacy fallback.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  convertMoneyStrict,
+  createCurrencyDiagnostics,
+  getLatestUsdToKztRate,
+  getUsdToKztRateMapForDays,
+  normalizeCurrencyCode,
+  pushCurrencyReason,
+  resolveUsdToKztRateForDay,
+} from "@/app/lib/currencyNormalization";
 
 export type CanonicalSummary = {
   spend: number;
@@ -42,32 +51,14 @@ function normalizeSources(sources: string[] | null | undefined): string[] {
     .filter((s) => ALLOWED_PLATFORMS.includes(s as any));
 }
 
-function normalizeCurrency(raw: string | null | undefined): "USD" | "KZT" | null {
-  const v = String(raw ?? "").trim().toUpperCase();
-  if (v === "USD" || v === "KZT") return v;
-  return null;
-}
-
-async function getUsdToKztRate(admin: SupabaseClient): Promise<number | null> {
-  const { data, error } = await admin
-    .from("exchange_rates")
-    .select("rate")
-    .eq("base_currency", "USD")
-    .eq("quote_currency", "KZT")
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) return null;
-  const rate = Number((data as { rate?: number | null } | null)?.rate ?? 0);
-  return Number.isFinite(rate) && rate > 0 ? rate : null;
-}
-
 function convertToUsd(
   value: number,
   accountCurrency: "USD" | "KZT" | null,
   provider: string | null | undefined,
-  _projectCurrency: "USD" | "KZT",
-  usdToKztRate: number | null
+  day: string,
+  usdToKztRateByDay: Map<string, number>,
+  latestUsdToKztRate: number | null,
+  diagnostics?: ReturnType<typeof createCurrencyDiagnostics>
 ): number {
   if (!Number.isFinite(value)) return 0;
   const providerNorm = String(provider ?? "").trim().toLowerCase();
@@ -78,10 +69,15 @@ function convertToUsd(
   const fallbackByProvider: "USD" | "KZT" =
     providerNorm === "tiktok" || providerNorm === "yandex" ? "KZT" : "USD";
   const effectiveCurrency = accountCurrency ?? fallbackByProvider;
-  if (effectiveCurrency === "KZT" && usdToKztRate && usdToKztRate > 0) {
-    return value / usdToKztRate;
+  if (accountCurrency == null) {
+    pushCurrencyReason(
+      diagnostics,
+      "currency_missing",
+      `ad_accounts.currency missing; provider fallback '${fallbackByProvider}' used.`
+    );
   }
-  return value;
+  const rateForDay = resolveUsdToKztRateForDay(day, usdToKztRateByDay, latestUsdToKztRate, diagnostics);
+  return convertMoneyStrict(value, effectiveCurrency, "USD", rateForDay, diagnostics);
 }
 
 /**
@@ -223,7 +219,7 @@ async function fetchCanonicalRowsViaJoin(
     .select("currency")
     .eq("id", projectId)
     .maybeSingle();
-  const projectCurrency = normalizeCurrency((projectRow as { currency?: string | null } | null)?.currency) ?? "USD";
+  void projectRow; // reserved for future strict project-level currency policy.
   const accountMeta = new Map<string, { currency: "USD" | "KZT" | null; provider: string | null }>();
   if (adAccountIdsForCurrency.length > 0) {
     const { data: adAccountsData } = await admin
@@ -232,12 +228,17 @@ async function fetchCanonicalRowsViaJoin(
       .in("id", adAccountIdsForCurrency);
     for (const a of (adAccountsData ?? []) as { id: string; currency: string | null; provider: string | null }[]) {
       accountMeta.set(a.id, {
-        currency: normalizeCurrency(a.currency),
+        currency: normalizeCurrencyCode(a.currency),
         provider: a.provider ?? null,
       });
     }
   }
-  const usdToKztRate = await getUsdToKztRate(admin);
+  const daysInRange = rows.map((r) => String(r.date ?? "").slice(0, 10));
+  const [usdToKztRateByDay, latestUsdToKztRate] = await Promise.all([
+    getUsdToKztRateMapForDays(admin, daysInRange),
+    getLatestUsdToKztRate(admin),
+  ]);
+  const currencyDiagnostics = createCurrencyDiagnostics();
 
   console.log("[CANONICAL_FETCH]", {
     projectId,
@@ -286,8 +287,10 @@ async function fetchCanonicalRowsViaJoin(
       Number(r.spend ?? 0) || 0,
       accountMeta.get(r.ad_account_id)?.currency ?? null,
       accountMeta.get(r.ad_account_id)?.provider ?? r.platform ?? null,
-      projectCurrency,
-      usdToKztRate
+      String(r.date ?? "").slice(0, 10),
+      usdToKztRateByDay,
+      latestUsdToKztRate,
+      currencyDiagnostics
     ),
     impressions: Number(r.impressions ?? 0) || 0,
     clicks: Number(r.clicks ?? 0) || 0,
@@ -297,8 +300,10 @@ async function fetchCanonicalRowsViaJoin(
       Number(r.revenue ?? 0) || 0,
       accountMeta.get(r.ad_account_id)?.currency ?? null,
       accountMeta.get(r.ad_account_id)?.provider ?? r.platform ?? null,
-      projectCurrency,
-      usdToKztRate
+      String(r.date ?? "").slice(0, 10),
+      usdToKztRateByDay,
+      latestUsdToKztRate,
+      currencyDiagnostics
     ),
   }));
 }

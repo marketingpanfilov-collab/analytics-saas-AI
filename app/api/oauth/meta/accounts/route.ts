@@ -1,12 +1,18 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { getMetaIntegrationForProject } from "@/app/lib/metaIntegration";
+import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const projectId = searchParams.get("project_id");
   if (!projectId) {
     return NextResponse.json({ success: false, error: "project_id required" }, { status: 400 });
+  }
+
+  const access = await requireProjectAccessOrInternal(req, projectId, { allowInternalBypass: false });
+  if (!access.allowed) {
+    return NextResponse.json(access.body, { status: access.status });
   }
 
   const admin = supabaseAdmin();

@@ -13,8 +13,10 @@ import {
   parseIngestRateLimitError,
 } from "@/app/lib/rateLimit";
 import { detectTrafficSource } from "@/app/lib/trafficSourceDetection";
+import { logTrackingTelemetry } from "@/app/lib/trackingTelemetry";
 
 const INGEST_KEY_HEADER = "x-boardiq-key";
+const IDEMPOTENCY_TOKEN_HEADER = "x-boardiq-idempotency-token";
 const ALLOWED_EVENT_NAMES = ["registration", "purchase"] as const;
 
 function safeStr(v: unknown, maxLen = 2048): string | null {
@@ -149,6 +151,7 @@ export async function POST(req: Request) {
     const externalEventId = safeStr(body.external_event_id, 512);
     const userExternalId = safeStr(body.user_external_id, 512);
     const clickId = safeStr(body.click_id, 512);
+    const idempotencyToken = safeStr(req.headers.get(IDEMPOTENCY_TOKEN_HEADER), 512);
     const fbp = safeStr(body.fbp, 512);
     const fbc = safeStr(body.fbc, 512);
     const utmSource = safeStr(body.utm_source, 256);
@@ -173,20 +176,39 @@ export async function POST(req: Request) {
 
     const referrer = safeStr(body.referrer, 2048);
     const { traffic_source: trafficSource, traffic_platform: trafficPlatform } = detectTrafficSource({
-      fbclid: null,
-      gclid: null,
-      ttclid: null,
-      yclid: null,
+      fbclid: safeStr(body.fbclid, 512),
+      gclid: safeStr(body.gclid, 512),
+      ttclid: safeStr(body.ttclid, 512),
+      yclid: safeStr(body.yclid, 512),
       utm_source: utmSource,
       referrer,
     });
+
+    const externalEventIdEffective = externalEventId ?? idempotencyToken;
+
+    if (externalEventIdEffective) {
+      const { data: dupRow } = await admin
+        .from("conversion_events")
+        .select("id")
+        .eq("project_id", projectIdRaw)
+        .eq("event_name", eventNameRaw)
+        .eq("external_event_id", externalEventIdEffective)
+        .limit(1)
+        .maybeSingle();
+      if (dupRow?.id) {
+        return NextResponse.json(
+          { success: true, duplicate: true, id: dupRow.id },
+          { status: 200, headers: corsHeaders }
+        );
+      }
+    }
 
     const { error } = await admin.from("conversion_events").insert({
       project_id: projectIdRaw,
       source,
       event_name: eventNameRaw,
       event_time: eventTimeValid,
-      external_event_id: externalEventId,
+      external_event_id: externalEventIdEffective,
       user_external_id: userExternalId,
       visitor_id: visitorId,
       session_id: sessionId,
@@ -207,7 +229,25 @@ export async function POST(req: Request) {
     });
 
     if (error) {
+      if ((error as { code?: string }).code === "23505") {
+        return NextResponse.json(
+          { success: true, duplicate: true },
+          { status: 200, headers: corsHeaders }
+        );
+      }
       console.error("[TRACKING_CONVERSION_INSERT_ERROR]", error);
+      await logTrackingTelemetry({
+        endpoint: "/api/tracking/conversion",
+        reason_code: "insert_failed",
+        project_id: projectIdRaw,
+        event_name: eventNameRaw,
+        payload: {
+          event_name: eventNameRaw,
+          has_external_event_id: !!externalEventIdEffective,
+          has_click_id: !!clickId,
+        },
+        message: error.message,
+      });
       return NextResponse.json(
         { success: false, error: error.message },
         { status: 500, headers: corsHeaders }
@@ -220,6 +260,11 @@ export async function POST(req: Request) {
     );
   } catch (e) {
     console.error("[TRACKING_CONVERSION_ERROR]", e);
+    await logTrackingTelemetry({
+      endpoint: "/api/tracking/conversion",
+      reason_code: "fatal_error",
+      message: e instanceof Error ? e.message : String(e),
+    });
     return NextResponse.json(
       { success: false, error: "Internal error" },
       { status: 500, headers: corsHeaders }

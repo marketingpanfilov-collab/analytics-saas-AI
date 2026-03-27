@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { randomUUID, createHash } from "crypto";
 import { checkRedirectRateLimit } from "@/app/lib/redirectRateLimit";
 import { detectTrafficSource } from "@/app/lib/trafficSourceDetection";
+import { logTrackingTelemetry } from "@/app/lib/trackingTelemetry";
 
 function getClientIp(req: NextRequest): string | null {
   return (
@@ -91,34 +92,72 @@ export async function GET(
     referrer: referrer ?? null,
   });
 
-  await admin.from("redirect_click_events").insert({
-    project_id: link.project_id,
-    redirect_link_id: link.id,
-    bq_click_id: bqcid,
-    destination_url: link.destination_url,
-    full_url: requestUrl.length > 2048 ? requestUrl.slice(0, 2048) : requestUrl,
-    utm_source,
-    utm_medium,
-    utm_campaign,
-    utm_content,
-    utm_term,
-    utm_id,
-    campaign_intent,
-    fbclid,
-    gclid,
-    ttclid,
-    yclid,
-    referrer,
-    user_agent: userAgent,
-    ip,
-    fbp,
-    fbc,
-    fingerprint_hash: fingerprint,
-    traffic_source: detectedSource,
-    traffic_platform: detectedPlatform,
+  const { error: clickLogError } = await admin.rpc("log_redirect_click_and_increment", {
+    p_link_id: link.id,
+    p_project_id: link.project_id,
+    p_bq_click_id: bqcid,
+    p_destination_url: link.destination_url,
+    p_full_url: requestUrl.length > 2048 ? requestUrl.slice(0, 2048) : requestUrl,
+    p_utm_source: utm_source,
+    p_utm_medium: utm_medium,
+    p_utm_campaign: utm_campaign,
+    p_utm_content: utm_content,
+    p_utm_term: utm_term,
+    p_utm_id: utm_id,
+    p_campaign_intent: campaign_intent,
+    p_fbclid: fbclid,
+    p_gclid: gclid,
+    p_ttclid: ttclid,
+    p_yclid: yclid,
+    p_referrer: referrer,
+    p_user_agent: userAgent,
+    p_ip: ip,
+    p_fbp: fbp,
+    p_fbc: fbc,
+    p_fingerprint_hash: fingerprint,
+    p_traffic_source: detectedSource,
+    p_traffic_platform: detectedPlatform,
   });
-
-  await admin.rpc("increment_redirect_link_clicks", { p_link_id: link.id });
+  if (clickLogError) {
+    await logTrackingTelemetry({
+      endpoint: "/r/[token]",
+      reason_code: "redirect_log_rpc_failed",
+      project_id: link.project_id,
+      message: clickLogError.message,
+      payload: { link_id: link.id, token, bqcid },
+    });
+    if ((clickLogError as { code?: string }).code === "PGRST202") {
+      const { error: fallbackInsertError } = await admin.from("redirect_click_events").insert({
+        project_id: link.project_id,
+        redirect_link_id: link.id,
+        bq_click_id: bqcid,
+        destination_url: link.destination_url,
+        full_url: requestUrl.length > 2048 ? requestUrl.slice(0, 2048) : requestUrl,
+        utm_source,
+        utm_medium,
+        utm_campaign,
+        utm_content,
+        utm_term,
+        utm_id,
+        campaign_intent,
+        fbclid,
+        gclid,
+        ttclid,
+        yclid,
+        referrer,
+        user_agent: userAgent,
+        ip,
+        fbp,
+        fbc,
+        fingerprint_hash: fingerprint,
+        traffic_source: detectedSource,
+        traffic_platform: detectedPlatform,
+      });
+      if (!fallbackInsertError) {
+        await admin.rpc("increment_redirect_link_clicks", { p_link_id: link.id });
+      }
+    }
+  }
 
   const dest = new URL(link.destination_url);
   const addParam = (key: string, value: string | null) => {

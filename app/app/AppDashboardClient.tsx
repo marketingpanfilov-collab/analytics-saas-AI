@@ -510,11 +510,25 @@ type IntegrationStatusRow = {
   enabled_accounts: number;
   status: IntegrationStatusValue;
   reason: string | null;
+  token_reason_code?: string | null;
+  token_temporary?: boolean | null;
+  last_recovery_attempt_at?: string | null;
   last_sync_status?: string | null;
   last_sync_at?: string | null;
   last_sync_error?: string | null;
   data_max_date?: string | null;
 };
+
+function parseEnvMinutes(raw: string | undefined, fallback: number): number {
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.floor(parsed);
+}
+
+const ONLINE_STALE_MIN = parseEnvMinutes(process.env.NEXT_PUBLIC_SYNC_STATUS_ONLINE_STALE_MIN, 30);
+const ONLINE_ERROR_MIN = parseEnvMinutes(process.env.NEXT_PUBLIC_SYNC_STATUS_ONLINE_ERROR_MIN, 180);
+const OFFLINE_STALE_MIN = parseEnvMinutes(process.env.NEXT_PUBLIC_SYNC_STATUS_OFFLINE_STALE_MIN, 360);
+const OFFLINE_ERROR_MIN = parseEnvMinutes(process.env.NEXT_PUBLIC_SYNC_STATUS_OFFLINE_ERROR_MIN, 720);
 
 export default function AppDashboardClient() {
   const router = useRouter();
@@ -567,6 +581,7 @@ export default function AppDashboardClient() {
   const prevAccountCountRef = useRef<number>(0);
   const [connectionLost, setConnectionLost] = useState(false);
   const [dashboardIntegrationStatus, setDashboardIntegrationStatus] = useState<IntegrationStatusRow[]>([]);
+  const [isUserContextOnline, setIsUserContextOnline] = useState(true);
   const [projectCurrency, setProjectCurrency] = useState<ProjectCurrency>("USD");
   const [usdToKztRate, setUsdToKztRate] = useState<number | null>(null);
 
@@ -650,7 +665,7 @@ export default function AppDashboardClient() {
     (async () => {
       try {
         const res = await fetch(
-          `/api/dashboard/accounts?project_id=${encodeURIComponent(projectId)}`,
+          `/api/dashboard/accounts?project_id=${encodeURIComponent(projectId)}&selected_only=1`,
           { cache: "no-store" }
         );
         const json = (await res.json()) as { success?: boolean; accounts?: DashboardAccount[] };
@@ -662,6 +677,24 @@ export default function AppDashboardClient() {
     })();
     return () => { cancelled = true; };
   }, [projectId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const compute = () => {
+      const online = navigator.onLine;
+      const visible = document.visibilityState === "visible";
+      setIsUserContextOnline(online && visible);
+    };
+    compute();
+    window.addEventListener("online", compute);
+    window.addEventListener("offline", compute);
+    document.addEventListener("visibilitychange", compute);
+    return () => {
+      window.removeEventListener("online", compute);
+      window.removeEventListener("offline", compute);
+      document.removeEventListener("visibilitychange", compute);
+    };
+  }, []);
 
   useEffect(() => {
     if (!projectId) {
@@ -684,6 +717,34 @@ export default function AppDashboardClient() {
     })();
     return () => { cancelled = true; };
   }, [projectId]);
+
+  const adaptiveIntegrationStatus = useMemo(() => {
+    const staleMin = isUserContextOnline ? ONLINE_STALE_MIN : OFFLINE_STALE_MIN;
+    const errorMin = isUserContextOnline ? ONLINE_ERROR_MIN : OFFLINE_ERROR_MIN;
+    const now = Date.now();
+
+    function ageMinutes(iso: string | null | undefined): number | null {
+      if (!iso) return null;
+      const ms = Date.parse(iso);
+      if (!Number.isFinite(ms)) return null;
+      return Math.max(0, Math.floor((now - ms) / 60000));
+    }
+
+    return dashboardIntegrationStatus.map((row) => {
+      const current = row.status;
+      if (current === "not_connected" || current === "disconnected" || current === "no_accounts") {
+        return row;
+      }
+      if (row.reason === "sync_failed") {
+        return { ...row, status: "error" as const };
+      }
+      const ageMin = ageMinutes(row.last_sync_at);
+      if (ageMin == null) return row;
+      if (ageMin >= errorMin) return { ...row, status: "error" as const, reason: "sync_old" };
+      if (ageMin >= staleMin) return { ...row, status: "stale" as const, reason: "sync_old" };
+      return { ...row, status: "healthy" as const, reason: null };
+    });
+  }, [dashboardIntegrationStatus, isUserContextOnline]);
 
   // Source options (platforms + source classes) for Sources dropdown.
   useEffect(() => {
@@ -856,7 +917,7 @@ export default function AppDashboardClient() {
         });
       }
 
-      if (mySeq !== reqSeqRef.current) return;
+      if (mySeq !== reqSeqRef.current) return false;
 
       const apiUpdated = safeIso(sJson?.updated_at) || safeIso(sJson?.server_time);
       setUpdatedAt(apiUpdated || new Date().toISOString());
@@ -930,10 +991,10 @@ export default function AppDashboardClient() {
     }
   }
 
-  async function refreshAndReload() {
-    if (!projectId) return;
-    if (isInvalidApplied) return;
-    if (!isSupportedNow) return;
+  async function refreshAndReload(): Promise<boolean> {
+    if (!projectId) return false;
+    if (isInvalidApplied) return false;
+    if (!isSupportedNow) return false;
 
     const c = makeController();
     const mySeq = ++reqSeqRef.current;
@@ -941,6 +1002,7 @@ export default function AppDashboardClient() {
     setSyncLoading(true);
     setErrorText(null);
 
+    let ok = false;
     try {
       const r = await fetch("/api/dashboard/refresh", {
         method: "POST",
@@ -972,7 +1034,7 @@ export default function AppDashboardClient() {
         throw new Error(`Refresh failed (${r.status} ${r.statusText}): ${human}`.trim());
       }
 
-      if (mySeq !== reqSeqRef.current) return;
+      if (mySeq !== reqSeqRef.current) return false;
 
       const fromApi = safeIso(json?.refreshed_at) || safeIso(json?.sync?.refreshed_at);
       setUpdatedAt(fromApi || new Date().toISOString());
@@ -982,12 +1044,16 @@ export default function AppDashboardClient() {
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event(SIDEBAR_TODAY_REFRESH_EVENT));
       }
+      ok = true;
     } catch (e: any) {
-      if (isAbortError(e)) return;
+      if (isAbortError(e)) return false;
       setErrorText(toErrorText(e));
+      ok = false;
     } finally {
       setSyncLoading(false);
     }
+
+    return ok;
   }
 
   // Load metrics when applied range changes (not on draft changes). Do not run until access is validated.
@@ -1029,15 +1095,85 @@ export default function AppDashboardClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, appliedDateFrom, appliedDateTo, sourcesKey, accountIdsKey]);
 
-  // Auto-refresh every 30 min (uses applied range)
+  // Force sync once on entry (only when online & visible), with a 15-minute per-tab cooldown.
+  const FORCE_SYNC_COOLDOWN_MS = 15 * 60 * 1000;
+  const FORCE_SYNC_SESSION_KEY = "board_force_sync_last_ms";
+  const forceSyncDoneForProjectRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!projectId) return;
+    if (typeof window === "undefined") return;
+    if (!navigator.onLine) return;
+    if (document.visibilityState !== "visible") return;
+    if (forceSyncDoneForProjectRef.current === projectId) return;
+
+    let lastMs = 0;
+    try {
+      lastMs = Number(sessionStorage.getItem(FORCE_SYNC_SESSION_KEY) ?? 0) || 0;
+    } catch {
+      lastMs = 0;
+    }
+
+    const nowMs = Date.now();
+    // Cooldown prevents repeated forced sync when user refreshes quickly or navigates within the app.
+    if (nowMs - lastMs < FORCE_SYNC_COOLDOWN_MS) {
+      console.log("[BOARD_FORCE_SYNC_ENTRY_SKIPPED_COOLDOWN]", {
+        projectId,
+        ageMs: nowMs - lastMs,
+        cooldownMs: FORCE_SYNC_COOLDOWN_MS,
+      });
+      forceSyncDoneForProjectRef.current = projectId;
+      return;
+    }
+
+    forceSyncDoneForProjectRef.current = projectId;
+    console.log("[BOARD_FORCE_SYNC_ENTRY_TRIGGER]", { projectId, ageMs: nowMs - lastMs });
+    void (async () => {
+      const ok = await refreshAndReload();
+      if (!ok) return;
+      try {
+        sessionStorage.setItem(FORCE_SYNC_SESSION_KEY, String(Date.now()));
+      } catch {
+        // ignore
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  // Auto-refresh every 15 min while user is online & tab is visible (uses applied range)
   useEffect(() => {
     if (!projectId) return;
     if (!isSupportedNow) return;
 
-    const MS = 30 * 60 * 1000;
+    const MS = FORCE_SYNC_COOLDOWN_MS;
     const id = window.setInterval(() => {
+      if (typeof window === "undefined") return;
+      if (!navigator.onLine) return;
+      if (document.visibilityState !== "visible") return;
       if (loading || syncLoading) return;
-      refreshAndReload();
+
+      // Extra safety: respect last refresh timestamp to avoid double refresh
+      // when another effect triggered (force-sync on entry).
+      let lastMs = 0;
+      try {
+        lastMs = Number(sessionStorage.getItem(FORCE_SYNC_SESSION_KEY) ?? 0) || 0;
+      } catch {
+        lastMs = 0;
+      }
+      const nowMs = Date.now();
+      const ageMs = nowMs - lastMs;
+      if (ageMs < MS) return;
+
+      void (async () => {
+        console.log("[BOARD_AUTO_REFRESH_TRIGGER]", { projectId, ageMs });
+        const ok = await refreshAndReload();
+        if (!ok) return;
+        try {
+          sessionStorage.setItem(FORCE_SYNC_SESSION_KEY, String(Date.now()));
+        } catch {
+          // ignore
+        }
+      })();
     }, MS);
 
     return () => window.clearInterval(id);
@@ -1102,14 +1238,14 @@ export default function AppDashboardClient() {
     const count = dashboardAccounts.length;
     if (count === 0) return { status: "no_connections" as const, label: "No integrations", tooltip: "No advertising sources connected." };
     if (connectionLost) return { status: "connection_lost" as const, label: "Connection lost", tooltip: "One or more integrations lost connection." };
-    const hasError = dashboardIntegrationStatus.some((i) => i.status === "error");
-    const hasStale = dashboardIntegrationStatus.some((i) => i.status === "stale");
-    const hasDisconnected = dashboardIntegrationStatus.some((i) => i.status === "disconnected");
+    const hasError = adaptiveIntegrationStatus.some((i) => i.status === "error");
+    const hasStale = adaptiveIntegrationStatus.some((i) => i.status === "stale");
+    const hasDisconnected = adaptiveIntegrationStatus.some((i) => i.status === "disconnected");
     if (hasError) return { status: "error" as const, label: "Error", tooltip: "One or more integrations have sync errors or data not updated today." };
-    if (hasStale) return { status: "stale" as const, label: "Stale", tooltip: "Data is behind or last sync was over 20 minutes ago." };
+    if (hasStale) return { status: "stale" as const, label: "Stale", tooltip: "Data is behind or last sync was over ~3 hours ago." };
     if (hasDisconnected) return { status: "disconnected" as const, label: "Disconnected", tooltip: "One or more integrations are disconnected." };
     return { status: "healthy" as const, label: "Healthy", tooltip: "All integrations are connected and syncing normally." };
-  }, [dashboardAccounts.length, connectionLost, dashboardIntegrationStatus]);
+  }, [dashboardAccounts.length, connectionLost, adaptiveIntegrationStatus]);
 
   const dataFreshnessStr = useMemo(() => {
     const iso = safeIso(updatedAt);
@@ -1137,19 +1273,26 @@ export default function AppDashboardClient() {
 
   /** Data Status: count only healthy integrations (green). Total = Meta, Google, TikTok. */
   const healthyCount = useMemo(
-    () => dashboardIntegrationStatus.filter((i) => i.status === "healthy").length,
-    [dashboardIntegrationStatus]
+    () => adaptiveIntegrationStatus.filter((i) => i.status === "healthy").length,
+    [adaptiveIntegrationStatus]
   );
   const totalPlatformsCount = 3; // meta, google, tiktok
   const adPlatformsCount = healthyCount;
 
   const integrationStatusByPlatform = useMemo(() => {
     const map = new Map<string, IntegrationStatusValue>();
-    for (const i of dashboardIntegrationStatus) {
+    for (const i of adaptiveIntegrationStatus) {
       map.set(i.platform, i.status as IntegrationStatusValue);
     }
     return map;
-  }, [dashboardIntegrationStatus]);
+  }, [adaptiveIntegrationStatus]);
+  const integrationRowByPlatform = useMemo(() => {
+    const map = new Map<string, IntegrationStatusRow>();
+    for (const i of adaptiveIntegrationStatus) {
+      map.set(i.platform, i);
+    }
+    return map;
+  }, [adaptiveIntegrationStatus]);
 
   const platformStatusColor: Record<IntegrationStatusValue, string> = {
     healthy: "#22c55e",
@@ -1825,6 +1968,14 @@ export default function AppDashboardClient() {
                 const status = integrationStatusByPlatform.get(p.id) ?? "not_connected";
                 const dotColor = platformStatusColor[status];
                 const label = platformStatusLabel[status];
+                const row = integrationRowByPlatform.get(p.id);
+                const diagnostics = [
+                  row?.reason ? `reason: ${row.reason}` : null,
+                  row?.token_reason_code ? `token: ${row.token_reason_code}` : null,
+                  row?.last_sync_error ? `sync: ${row.last_sync_error}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" | ");
                 return (
                   <div
                     key={p.id}
@@ -1853,8 +2004,9 @@ export default function AppDashboardClient() {
                           background: dotColor,
                           flexShrink: 0,
                         }}
+                        title={diagnostics || undefined}
                       />
-                      {label}
+                      <span title={diagnostics || undefined}>{label}</span>
                     </span>
                   </div>
                 );
