@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 
 import { cn } from "@/components/landing/BaseButton";
 
@@ -116,11 +116,76 @@ function itemId(sectionIndex: number, itemIndex: number) {
   return `faq-${sectionIndex}-${itemIndex}`;
 }
 
+/** Парсит ответ: абзацы как <p>, блоки «• …» — список с выровненным по строке маркером. */
+function FaqAnswerBody({ text }: { text: string }) {
+  const lines = text.split("\n");
+  const out: ReactNode[] = [];
+  let i = 0;
+
+  const flushParagraph = (start: number, end: number) => {
+    if (start >= end) return;
+    const chunk = lines.slice(start, end).join("\n").replace(/\s+$/, "");
+    if (!chunk.trim()) return;
+    out.push(
+      <p key={`p-${out.length}`} className="mb-3 whitespace-pre-line leading-relaxed last:mb-0">
+        {chunk}
+      </p>
+    );
+  };
+
+  while (i < lines.length) {
+    const raw = lines[i] ?? "";
+    if (raw.trim() === "") {
+      i++;
+      continue;
+    }
+    if (/^\s*•\s?/.test(raw)) {
+      const items: string[] = [];
+      while (i < lines.length) {
+        const line = lines[i] ?? "";
+        const m = /^\s*•\s*(.*)$/.exec(line);
+        if (!m) break;
+        items.push(m[1] ?? "");
+        i++;
+      }
+      out.push(
+        <ul key={`ul-${out.length}`} className="mb-3 list-none space-y-2.5 last:mb-0">
+          {items.map((content, j) => (
+            <li
+              key={j}
+              className="grid items-start gap-x-2.5 [grid-template-columns:1rem_minmax(0,1fr)] sm:[grid-template-columns:1.125rem_minmax(0,1fr)]"
+            >
+              <span
+                className="flex min-h-[1.2em] h-[1lh] items-center justify-center text-[0.92em] leading-none text-white/65"
+                aria-hidden
+              >
+                •
+              </span>
+              <span className="min-w-0 leading-relaxed">{content}</span>
+            </li>
+          ))}
+        </ul>
+      );
+      continue;
+    }
+    const paraStart = i;
+    while (i < lines.length) {
+      const L = lines[i] ?? "";
+      if (L.trim() === "") break;
+      if (/^\s*•\s?/.test(L)) break;
+      i++;
+    }
+    flushParagraph(paraStart, i);
+  }
+
+  return <div>{out}</div>;
+}
+
 function Chevron({ open, reducedMotion }: { open: boolean; reducedMotion: boolean }) {
   return (
     <span
       className={cn(
-        "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-white/55 transition-[transform,background-color,border-color,color]",
+        "inline-flex h-8 w-8 shrink-0 items-center justify-center self-center rounded-lg border border-white/10 bg-white/[0.04] text-white/55 transition-[transform,background-color,border-color,color]",
         !reducedMotion && "duration-300 ease-out",
         open && "rotate-180 border-emerald-400/25 bg-emerald-500/[0.08] text-emerald-100/90"
       )}
@@ -191,13 +256,13 @@ export function LandingFaqSection() {
                         aria-controls={panelId}
                         onClick={() => toggle(id)}
                         className={cn(
-                          "flex w-full items-start gap-3 px-4 py-3.5 text-left md:gap-4 md:px-5 md:py-4",
+                          "flex w-full items-center gap-3 px-4 py-3.5 text-left md:gap-4 md:px-5 md:py-4",
                           "transition-[background-color] ease-out",
                           dur,
                           "hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303]"
                         )}
                       >
-                        <span className="min-w-0 flex-1 pt-0.5 text-[15px] font-semibold leading-snug text-white/92 md:text-base">
+                        <span className="min-w-0 flex-1 text-[15px] font-semibold leading-snug text-white/92 md:text-base">
                           {item.question}
                         </span>
                         <Chevron open={open} reducedMotion={reducedMotion} />
@@ -217,13 +282,13 @@ export function LandingFaqSection() {
                             aria-labelledby={buttonId}
                             aria-hidden={!open}
                             className={cn(
-                              "border-t border-white/[0.06] px-4 pb-4 pt-1 md:px-5 md:pb-5",
+                              "border-t border-white/[0.06] px-4 pb-4 pt-3 md:px-5 md:pb-5 md:pt-3.5",
                               "text-sm leading-relaxed text-white/65 transition-opacity ease-out md:text-[15px]",
                               dur,
                               open ? "opacity-100" : "pointer-events-none opacity-0"
                             )}
                           >
-                            <div className="whitespace-pre-line pt-2">{item.answer}</div>
+                            <FaqAnswerBody text={item.answer} />
                           </div>
                         </div>
                       </div>
