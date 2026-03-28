@@ -135,7 +135,8 @@ function Chevron({ open, reducedMotion }: { open: boolean; reducedMotion: boolea
 
 export function LandingFaqSection() {
   const baseId = useId();
-  const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
+  /** Только один открытый пункт — страница не растягивается по высоте. */
+  const [openId, setOpenId] = useState<string | null>(null);
   const [reducedMotion, setReducedMotion] = useState(false);
 
   useEffect(() => {
@@ -147,7 +148,7 @@ export function LandingFaqSection() {
   }, []);
 
   const toggle = (id: string) => {
-    setOpenMap((prev) => ({ ...prev, [id]: !prev[id] }));
+    setOpenId((prev) => (prev === id ? null : id));
   };
 
   const dur = reducedMotion ? "duration-0" : "duration-300";
@@ -155,7 +156,7 @@ export function LandingFaqSection() {
   return (
     <section
       id="faq"
-      className="landing-mid-scope relative z-10 scroll-mt-24 border-t border-white/10 py-14 md:py-20"
+      className="landing-mid-scope relative z-10 scroll-mt-28 border-t border-white/10 py-14 md:py-20 md:scroll-mt-32"
       aria-labelledby={`${baseId}-heading`}
     >
       <div className="mx-auto max-w-6xl px-5">
@@ -176,7 +177,7 @@ export function LandingFaqSection() {
                   const id = itemId(sIdx, iIdx);
                   const panelId = `${baseId}-${id}-panel`;
                   const buttonId = `${baseId}-${id}-btn`;
-                  const open = Boolean(openMap[id]);
+                  const open = openId === id;
 
                   return (
                     <div

@@ -1,4 +1,4 @@
- "use client";
+"use client";
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -59,9 +59,6 @@ export function LandingHeader() {
               <button type="button" onClick={() => scrollToSection("data")} className={landingNavLinkClass}>
                 Данные
               </button>
-              <button type="button" onClick={() => scrollToSection("dda")} className={landingNavLinkClass}>
-                DDA
-              </button>
               <button type="button" onClick={() => scrollToSection("pricing")} className={landingNavLinkClass}>
                 Тарифы
               </button>
@@ -69,11 +66,19 @@ export function LandingHeader() {
                 Демо
               </button>
               <PartnershipNavButton className={landingNavLinkClass} />
+              <button type="button" onClick={() => scrollToSection("faq")} className={landingNavLinkClass}>
+                FAQ
+              </button>
             </nav>
 
-            <div className="flex shrink-0 items-center gap-3 md:gap-4">
-              {/* На мобильных nav скрыт — «Партнёрам» только здесь; с md пункт внутри nav выше */}
-              <PartnershipNavButton className={`${landingNavLinkClass} md:hidden`} />
+            <div className="flex shrink-0 items-center gap-2 sm:gap-3 md:gap-4">
+              {/* На мобильных nav скрыт — «Партнёрам» и FAQ здесь; с md они в nav выше */}
+              <div className="flex items-center gap-2 md:hidden">
+                <PartnershipNavButton className={landingNavLinkClass} />
+                <button type="button" onClick={() => scrollToSection("faq")} className={landingNavLinkClass}>
+                  FAQ
+                </button>
+              </div>
               <BaseButton
                 href="/login"
                 variant="secondary"
