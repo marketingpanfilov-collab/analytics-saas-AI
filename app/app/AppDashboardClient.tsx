@@ -978,6 +978,15 @@ export default function AppDashboardClient() {
         timeseries: tJson,
         params: { projectId, start, end, effectiveSources, effectiveAccountIds },
       });
+
+      // Sidebar «Сегодня» грузит свои цифры отдельно; без события оно остаётся старым после смены фильтра на главном борде.
+      const utcToday = new Date().toISOString().slice(0, 10);
+      const localToday = toISO(new Date());
+      const rangeTouchesToday =
+        (start <= utcToday && end >= utcToday) || (start <= localToday && end >= localToday);
+      if (rangeTouchesToday && typeof window !== "undefined") {
+        window.dispatchEvent(new Event(SIDEBAR_TODAY_REFRESH_EVENT));
+      }
     } catch (e: any) {
       if (isAbortError(e)) return;
       clearBackfillPolling();
