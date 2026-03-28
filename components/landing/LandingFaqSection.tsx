@@ -1,0 +1,239 @@
+"use client";
+
+import { useEffect, useId, useState } from "react";
+
+import { cn } from "@/components/landing/BaseButton";
+
+type FaqItem = { question: string; answer: string };
+
+type FaqSection = { title: string | null; items: FaqItem[] };
+
+/** Текст FAQ — дословно по ТЗ. */
+const FAQ_SECTIONS: FaqSection[] = [
+  {
+    title: null,
+    items: [
+      {
+        question: "Кто мы?",
+        answer:
+          "BoardIQ Analytics — это SaaS-платформа управленческой аналитики для бизнеса.\nМы объединяем данные из рекламы, сайтов и CRM в единую систему, чтобы ты видел реальную картину: сколько зарабатываешь, сколько тратишь и где теряешь деньги.",
+      },
+      {
+        question: "Наша методология",
+        answer:
+          "Мы используем сложные архитектурные и математические модели, чтобы показать тебе максимально точную картину бизнеса.\n\nВ основе:\n\nобъединение данных из разных источников в единую модель\nData-Driven Attribution (DDA)\nсобственный трекинг и идентификация пользователей\nанализ цепочек касаний и вклад каждого канала\n\n👉 Мы не просто собираем данные — мы восстанавливаем реальную экономику бизнеса, убирая искажения.",
+      },
+      {
+        question: "Почему наша аналитика прозрачная?",
+        answer:
+          'Мы не "пересчитываем" данные как это делают рекламные кабинеты.\nBoardIQ показывает чистую экономику бизнеса, объединяя:\n\nрасходы (Meta, Google, TikTok и др.)\nдоходы (CRM, сайт, оплаты)\nреальные покупки и LTV\n\n👉 Ты видишь не клики и лиды, а деньги, ROI и вклад каждого канала.',
+      },
+      {
+        question: "В чем наше преимущество?",
+        answer:
+          "Сквозная аналитика вместо разрозненных отчётов\nDDA вместо last-click\nКонтроль качества данных\nЕдиный дашборд для собственника\nСистема рекомендаций\n\n👉 Это не просто аналитика — это система управления маркетингом через цифры.",
+      },
+    ],
+  },
+  {
+    title: "Зачем это нужно",
+    items: [
+      {
+        question: "Для чего мне нужна эта аналитика?",
+        answer:
+          "BoardIQ отвечает на ключевые вопросы бизнеса:\n\nкакой канал приносит деньги, а не просто лиды\nна каком этапе воронки участвует канал и какова его реальная ценность\nсколько касаний нужно до покупки\nгде теряются пользователи\n\nДополнительно ты получаешь:\n\nотслеживание план / факт показателей\nконтроль юнит-экономики и финансовой модели\nпонимание окупаемости в разрезе каналов\n\n👉 Это инструмент, который превращает маркетинг из \"расхода\" в управляемую систему прибыли.",
+      },
+      {
+        question: "Насколько точные данные показывает BoardIQ?",
+        answer:
+          "Мы стремимся к максимально точной модели:\n\nсобственный трекинг\nобъединение источников\nучёт потерь данных\n\n👉 Плюс есть оценка качества данных, чтобы ты понимал уровень доверия к цифрам.",
+      },
+      {
+        question: "Чем вы лучше GA4 и рекламных кабинетов?",
+        answer:
+          "GA4 и рекламные кабинеты:\n\nпоказывают часть данных\nне считают прибыль\nискажают атрибуцию\n\nBoardIQ:\n\nобъединяет всё\nсчитает деньги\nпоказывает реальную эффективность",
+      },
+      {
+        question: "Подходит ли это для малого бизнеса?",
+        answer:
+          "Да.\n\nТы получаешь:\n\nконтроль расходов\nпонимание окупаемости\nточки роста\n\n👉 Особенно важно, если бюджет ограничен.",
+      },
+      {
+        question: "Можно ли масштабировать бизнес с помощью BoardIQ?",
+        answer:
+          "Да — и это одна из ключевых задач нашего продукта.\n\nBoardIQ помогает:\n\nнаходить точки роста\nмасштабировать прибыльные каналы\nотключать неэффективные\n\nДополнительно:\n\nотслеживать план / факт финансовых показателей\nконтролировать рост бизнеса на уровне экономики\n\n👉 Ты масштабируешься не на ощущениях, а на цифрах.",
+      },
+    ],
+  },
+  {
+    title: "Настройка и интеграция",
+    items: [
+      {
+        question: "Сколько времени занимает настройка?",
+        answer:
+          "В среднем:\n\nбазовая настройка — 1–2 часа\nполный запуск — до 1 дня\n\nЕсли ты используешь серверную отправку событий (BQ Pixel):\n\nнастройка может занять 1–2 дня\nможет потребоваться участие разработчиков\n\n👉 Но это даёт максимальную точность данных.",
+      },
+      {
+        question: "Мне нужны разработчики?",
+        answer:
+          "Зависит от твоей инфраструктуры:\n\nесли работаешь только с CRM — не нужны\nесли есть сайт и онлайн-оплаты — рекомендуется подключение разработчиков\n\nОни помогут:\n\nвнедрить BQ Pixel\nнастроить отправку событий (покупки, лиды и т.д.)\nобеспечить корректный трекинг",
+      },
+      {
+        question: "Как часто обновляются данные?",
+        answer:
+          "обновление — почти в реальном времени\nполная синхронизация — каждые 10–20 минут\n\n👉 Ты всегда видишь актуальную картину бизнеса.",
+      },
+    ],
+  },
+  {
+    title: "Тарифы и проекты",
+    items: [
+      {
+        question: "У меня несколько направлений (B2B / B2C). Какой тариф выбрать?",
+        answer:
+          "Рекомендуем разделять:\n\nЕсли у тебя несколько направлений:\n\nсоздавай отдельные проекты\nиспользуй отдельные рекламные кабинеты (чтобы не смешивать расходы)\n\n👉 Подойдут тарифы:\n\nGrowth\nAgency\n\nЕсли одно направление:\n\nодин проект (B2B или B2C)\n\n👉 Подойдет:\n\nStarter",
+      },
+    ],
+  },
+  {
+    title: "Поддержка",
+    items: [
+      {
+        question: "Могу ли я заказать внедрение у вас?",
+        answer:
+          "Да.\n\nЧтобы заказать внедрение:\n\nобратись в раздел Поддержка внутри платформы\nили напиши на почту: support@boardiq.kz\n\nМы можем:\n\nнастроить систему под ключ\nподключить все источники\nвыстроить аналитику\nобучить команду",
+      },
+      {
+        question: "Что делать, если возникли проблемы?",
+        answer:
+          "Ты всегда можешь рассчитывать на поддержку:\n\nчат внутри системы\nпомощь с настройкой\nдиагностика данных\nсопровождение\n\n👉 Мы не просто даём инструмент — мы помогаем им пользоваться.",
+      },
+    ],
+  },
+];
+
+function itemId(sectionIndex: number, itemIndex: number) {
+  return `faq-${sectionIndex}-${itemIndex}`;
+}
+
+function Chevron({ open, reducedMotion }: { open: boolean; reducedMotion: boolean }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.04] text-white/55 transition-[transform,background-color,border-color,color]",
+        !reducedMotion && "duration-300 ease-out",
+        open && "rotate-180 border-emerald-400/25 bg-emerald-500/[0.08] text-emerald-100/90"
+      )}
+      aria-hidden
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M6 9l6 6 6-6" />
+      </svg>
+    </span>
+  );
+}
+
+export function LandingFaqSection() {
+  const baseId = useId();
+  const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
+  const [reducedMotion, setReducedMotion] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReducedMotion(mq.matches);
+    const h = () => setReducedMotion(mq.matches);
+    mq.addEventListener("change", h);
+    return () => mq.removeEventListener("change", h);
+  }, []);
+
+  const toggle = (id: string) => {
+    setOpenMap((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const dur = reducedMotion ? "duration-0" : "duration-300";
+
+  return (
+    <section
+      id="faq"
+      className="landing-mid-scope relative z-10 scroll-mt-24 border-t border-white/10 py-14 md:py-20"
+      aria-labelledby={`${baseId}-heading`}
+    >
+      <div className="mx-auto max-w-6xl px-5">
+        <h2 id={`${baseId}-heading`} className="text-center text-3xl font-semibold tracking-tight text-white/95 md:text-4xl">
+          FAQ
+        </h2>
+
+        <div className="mx-auto mt-10 max-w-3xl space-y-12 md:mt-12 md:space-y-14">
+          {FAQ_SECTIONS.map((section, sIdx) => (
+            <div key={sIdx}>
+              {section.title ? (
+                <h3 className="mb-5 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-400/85 md:mb-6 md:text-sm">
+                  {section.title}
+                </h3>
+              ) : null}
+              <div className="space-y-2 md:space-y-2.5">
+                {section.items.map((item, iIdx) => {
+                  const id = itemId(sIdx, iIdx);
+                  const panelId = `${baseId}-${id}-panel`;
+                  const buttonId = `${baseId}-${id}-btn`;
+                  const open = Boolean(openMap[id]);
+
+                  return (
+                    <div
+                      key={id}
+                      className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.025] shadow-[0_12px_40px_rgba(0,0,0,0.2)] transition-[border-color,box-shadow] duration-300 ease-out hover:border-white/[0.12]"
+                    >
+                      <button
+                        id={buttonId}
+                        type="button"
+                        aria-expanded={open}
+                        aria-controls={panelId}
+                        onClick={() => toggle(id)}
+                        className={cn(
+                          "flex w-full items-start gap-3 px-4 py-3.5 text-left md:gap-4 md:px-5 md:py-4",
+                          "transition-[background-color] ease-out",
+                          dur,
+                          "hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303]"
+                        )}
+                      >
+                        <span className="min-w-0 flex-1 pt-0.5 text-[15px] font-semibold leading-snug text-white/92 md:text-base">
+                          {item.question}
+                        </span>
+                        <Chevron open={open} reducedMotion={reducedMotion} />
+                      </button>
+
+                      <div
+                        className={cn(
+                          "grid transition-[grid-template-rows] ease-out",
+                          dur,
+                          open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+                        )}
+                      >
+                        <div className="min-h-0 overflow-hidden">
+                          <div
+                            id={panelId}
+                            role="region"
+                            aria-labelledby={buttonId}
+                            aria-hidden={!open}
+                            className={cn(
+                              "border-t border-white/[0.06] px-4 pb-4 pt-1 md:px-5 md:pb-5",
+                              "text-sm leading-relaxed text-white/65 transition-opacity ease-out md:text-[15px]",
+                              dur,
+                              open ? "opacity-100" : "pointer-events-none opacity-0"
+                            )}
+                          >
+                            <div className="whitespace-pre-line pt-2">{item.answer}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}

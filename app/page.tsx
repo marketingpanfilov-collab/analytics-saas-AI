@@ -7,6 +7,7 @@ import { buildLoginPurchaseHref, type PricingPlanId } from "@/app/lib/auth/login
 import { getPaddle } from "@/app/lib/paddle";
 import { BaseButton, cn } from "@/components/landing/BaseButton";
 import { LandingDemoSection } from "@/components/landing/LandingDemoBoard";
+import { LandingFaqSection } from "@/components/landing/LandingFaqSection";
 import { LandingPartnershipCta } from "@/components/landing/LandingPartnershipCta";
 import { PartnershipLeadProvider } from "@/components/landing/PartnershipLeadProvider";
 import { AdvantagesSection, DataInsightsSection, DDASection } from "@/components/landing/LandingMidSections";
@@ -468,6 +469,8 @@ export default function Page() {
       <LandingDemoSection />
 
       <LandingPartnershipCta />
+
+      <LandingFaqSection />
 
       <section className="relative z-10">
         <div className="mx-auto max-w-6xl px-5 pb-10">
