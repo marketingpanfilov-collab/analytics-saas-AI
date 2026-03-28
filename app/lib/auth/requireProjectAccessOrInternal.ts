@@ -32,36 +32,16 @@ export async function requireProjectAccessOrInternal(
   const allowInternalBypass = options?.allowInternalBypass === true;
   const secret = process.env.INTERNAL_SYNC_SECRET;
   const headerSecret = request.headers.get(INTERNAL_HEADER) ?? request.headers.get(INTERNAL_HEADER.toLowerCase());
-  const hasHeader = !!headerSecret;
-
-  console.log("[BACKFILL_INTERNAL_SECRET_PRESENT]", {
-    projectId,
-    allowInternalBypass,
-    hasHeader,
-  });
 
   if (allowInternalBypass) {
     const envPresent = typeof secret === "string" && secret.length > 0;
-    console.log("[INTERNAL_BYPASS_CHECK]", {
-      projectId,
-      allowInternalBypass,
-      hasHeader,
-      envSecretPresent: envPresent,
-    });
-    if (!envPresent) {
-      console.log("[INTERNAL_SYNC_SECRET_MISSING]", {
+    if (!envPresent && headerSecret) {
+      console.warn("[INTERNAL_SYNC_SECRET_MISSING]", {
         projectId,
-        message: "INTERNAL_SYNC_SECRET is not set; internal bypass disabled",
+        message: "INTERNAL_SYNC_SECRET is not set but x-internal-sync-secret was sent",
       });
     }
     if (envPresent && headerSecret === secret) {
-      console.log("[INTERNAL_BYPASS_CHECK]", {
-        projectId,
-        allowInternalBypass,
-        hasHeader,
-        envSecretPresent: envPresent,
-        outcome: "allowed_internal",
-      });
       return { allowed: true, source: "internal" };
     }
   }
@@ -95,9 +75,6 @@ export async function requireProjectAccessOrInternal(
 export function getInternalSyncHeaders(): Record<string, string> {
   const secret = process.env.INTERNAL_SYNC_SECRET;
   const hasSecret = typeof secret === "string" && secret.length > 0;
-  console.log("[INTERNAL_SYNC_HEADERS_BUILD]", {
-    hasSecret,
-  });
   if (!hasSecret) return {};
   return { [INTERNAL_HEADER]: secret };
 }

@@ -1,17 +1,12 @@
 import { NextResponse } from "next/server";
+import { parseBearerToken } from "@/app/lib/auth/parseBearerAuth";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
-
-function parseBearerAuth(authHeader: string | null): string | null {
-  if (!authHeader) return null;
-  const m = authHeader.match(/^Bearer\s+(.+)$/i);
-  return m?.[1] ?? null;
-}
 
 function isAuthorized(req: Request): boolean {
   const internalSecret = process.env.INTERNAL_SYNC_SECRET;
   const cronSecret = process.env.CRON_SECRET;
   const headerSecret = req.headers.get("x-internal-sync-secret");
-  const bearer = parseBearerAuth(req.headers.get("authorization"));
+  const bearer = parseBearerToken(req.headers.get("authorization"));
   if (internalSecret && headerSecret === internalSecret) return true;
   if (cronSecret && bearer === cronSecret) return true;
   if (internalSecret && bearer === internalSecret) return true;

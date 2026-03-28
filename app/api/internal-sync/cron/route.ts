@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { checkRateLimit } from "@/app/lib/security/rateLimit";
 import { getInternalSyncHeaders } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { parseBearerToken } from "@/app/lib/auth/parseBearerAuth";
 
 const INTERNAL_HEADER = "x-internal-sync-secret";
 
@@ -41,12 +42,6 @@ function isProviderSubscriptionActive(row: {
   return true;
 }
 
-function parseBearerAuth(authHeader: string | null): string | null {
-  if (!authHeader) return null;
-  const m = authHeader.match(/^Bearer\\s+(.+)$/i);
-  return m?.[1] ?? null;
-}
-
 async function authorizeInternalCron(req: Request): Promise<boolean> {
   const internalSecret = process.env.INTERNAL_SYNC_SECRET;
   const cronSecret = process.env.CRON_SECRET;
@@ -54,7 +49,7 @@ async function authorizeInternalCron(req: Request): Promise<boolean> {
   const headerSecret = req.headers.get(INTERNAL_HEADER) ?? req.headers.get(INTERNAL_HEADER.toLowerCase());
   if (typeof internalSecret === "string" && internalSecret.length > 0 && headerSecret === internalSecret) return true;
 
-  const bearer = parseBearerAuth(req.headers.get("authorization"));
+  const bearer = parseBearerToken(req.headers.get("authorization"));
   if (typeof cronSecret === "string" && cronSecret.length > 0 && bearer === cronSecret) return true;
 
   // Convenience fallback: if CRON_SECRET is not set in Vercel, allow Bearer INTERNAL_SYNC_SECRET.

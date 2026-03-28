@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { parseBearerToken } from "@/app/lib/auth/parseBearerAuth";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 
 const INTERNAL_HEADER = "x-internal-sync-secret";
@@ -13,12 +14,6 @@ function ymdUtc(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-function parseBearerAuth(authHeader: string | null): string | null {
-  if (!authHeader) return null;
-  const m = authHeader.match(/^Bearer\\s+(.+)$/i);
-  return m?.[1] ?? null;
-}
-
 async function authorizeInternalCron(req: Request): Promise<boolean> {
   const internalSecret = process.env.INTERNAL_SYNC_SECRET;
   const cronSecret = process.env.CRON_SECRET;
@@ -28,7 +23,7 @@ async function authorizeInternalCron(req: Request): Promise<boolean> {
     return true;
   }
 
-  const bearer = parseBearerAuth(req.headers.get("authorization"));
+  const bearer = parseBearerToken(req.headers.get("authorization"));
   if (typeof cronSecret === "string" && cronSecret.length > 0 && bearer === cronSecret) return true;
   if (typeof internalSecret === "string" && internalSecret.length > 0 && bearer === internalSecret) return true;
 

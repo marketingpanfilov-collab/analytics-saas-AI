@@ -1,28 +1,44 @@
 import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { getCurrentSystemRoleCheck } from "@/app/lib/auth/systemRoles";
+import { parseBearerToken } from "@/app/lib/auth/parseBearerAuth";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { checkRateLimit, getRequestIp } from "@/app/lib/security/rateLimit";
 
-export async function POST(req: Request) {
+async function authorizeUpdateRates(req: Request): Promise<boolean> {
+  const internalSecret = process.env.INTERNAL_SYNC_SECRET?.trim() ?? "";
+  const cronSecret = process.env.CRON_SECRET?.trim() ?? "";
+  const receivedSecret = req.headers.get("x-internal-sync-secret")?.trim() ?? "";
+  if (internalSecret && receivedSecret === internalSecret) return true;
+
+  const bearer = parseBearerToken(req.headers.get("authorization"));
+  if (cronSecret && bearer === cronSecret) return true;
+  if (internalSecret && bearer === internalSecret) return true;
+
+  const supabase = await createServerSupabase();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (user) return true;
+
+  const sys = await getCurrentSystemRoleCheck(["service_admin"]);
+  return sys.hasAnyAllowedRole;
+}
+
+async function handleUpdateRates(req: Request): Promise<NextResponse> {
   try {
-    const internalSecret = process.env.INTERNAL_SYNC_SECRET?.trim();
-    const receivedSecret = req.headers.get("x-internal-sync-secret")?.trim() ?? "";
-    const bySecret = !!internalSecret && receivedSecret === internalSecret;
+    const ok = await authorizeUpdateRates(req);
+    if (!ok) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
 
     const supabase = await createServerSupabase();
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    const byAuth = !!user;
-    const sys = await getCurrentSystemRoleCheck(["service_admin"]);
-    const bySystemRole = sys.hasAnyAllowedRole;
-    if (!bySecret && !byAuth && !bySystemRole) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
 
     const ip = getRequestIp(req);
-    const rlKey = byAuth && user?.id ? `rates:update:${user.id}:${ip}` : `rates:update:anon:${ip}`;
+    const rlKey = user?.id ? `rates:update:${user.id}:${ip}` : `rates:update:anon:${ip}`;
     const rl = await checkRateLimit(rlKey, 15, 60_000);
     if (!rl.ok) {
       return NextResponse.json(
@@ -34,7 +50,6 @@ export async function POST(req: Request) {
     const admin = supabaseAdmin();
     const currencyApiKey = process.env.CURRENCYAPI_KEY?.trim();
     if (!currencyApiKey) {
-      // Degraded mode: allow flow to continue with latest persisted rate if available.
       const { data: existingRate } = await admin
         .from("exchange_rates")
         .select("rate,updated_at,rate_date")
@@ -112,3 +127,11 @@ export async function POST(req: Request) {
   }
 }
 
+/** Vercel Cron invokes GET for paths in `vercel.json`. */
+export async function GET(req: Request) {
+  return handleUpdateRates(req);
+}
+
+export async function POST(req: Request) {
+  return handleUpdateRates(req);
+}

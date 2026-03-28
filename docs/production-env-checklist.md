@@ -60,4 +60,7 @@
 
 ## Соответствие `vercel.json` crons
 
-Cron-и вызывают защищённые routes — в проде должны быть заданы `INTERNAL_SYNC_SECRET` и желательно `CRON_SECRET` (см. код каждого handler’а).
+Cron-и вызывают защищённые routes — в проде должны быть заданы **`INTERNAL_SYNC_SECRET`** (обязательно: server-to-server `POST /api/dashboard/sync` из `/api/internal-sync/cron` и заголовок для части jobs) и **`CRON_SECRET`** (Vercel подставляет `Authorization: Bearer …`).
+
+- `/api/system/update-rates` — Vercel дергает **GET**; поддерживаются те же способы auth, что и у `POST` (заголовок internal, Bearer `CRON_SECRET` / `INTERNAL_SYNC_SECRET`, сессия или system role).
+- `/api/internal-sync/cron` и связанные internal routes — см. [`app/api/internal-sync/cron/route.ts`](../app/api/internal-sync/cron/route.ts).
