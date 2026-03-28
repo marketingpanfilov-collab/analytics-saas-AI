@@ -151,17 +151,15 @@ function FaqAnswerBody({ text }: { text: string }) {
       out.push(
         <ul key={`ul-${out.length}`} className="mb-3 list-none space-y-2.5 last:mb-0">
           {items.map((content, j) => (
-            <li
-              key={j}
-              className="grid items-start gap-x-2.5 [grid-template-columns:1rem_minmax(0,1fr)] sm:[grid-template-columns:1.125rem_minmax(0,1fr)]"
-            >
+            <li key={j} className="flex gap-2.5 leading-relaxed">
+              {/* Колонка высотой 1lh как у текста — точка по центру строки (уровень заглавной) */}
               <span
-                className="flex min-h-[1.2em] h-[1lh] items-center justify-center text-[0.92em] leading-none text-white/65"
+                className="flex h-[1lh] w-[0.65em] shrink-0 items-center justify-center text-white/65 select-none sm:w-[0.7em]"
                 aria-hidden
               >
-                •
+                <span className="text-[0.92em] leading-none">•</span>
               </span>
-              <span className="min-w-0 leading-relaxed">{content}</span>
+              <span className="min-w-0 flex-1">{content}</span>
             </li>
           ))}
         </ul>
