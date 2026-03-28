@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { SIDEBAR_TODAY_REFRESH_EVENT } from "@/app/lib/sidebarTodayRefreshEvent";
 import { supabase } from "@/app/lib/supabaseClient";
@@ -530,6 +530,11 @@ const ONLINE_ERROR_MIN = parseEnvMinutes(process.env.NEXT_PUBLIC_SYNC_STATUS_ONL
 const OFFLINE_STALE_MIN = parseEnvMinutes(process.env.NEXT_PUBLIC_SYNC_STATUS_OFFLINE_STALE_MIN, 360);
 const OFFLINE_ERROR_MIN = parseEnvMinutes(process.env.NEXT_PUBLIC_SYNC_STATUS_OFFLINE_ERROR_MIN, 720);
 
+/** UTC calendar day; must match `resolveDataStatus` in `/api/oauth/integration/status`. */
+function utcTodayYmd(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default function AppDashboardClient() {
   const router = useRouter();
   const sp = useSearchParams();
@@ -584,6 +589,26 @@ export default function AppDashboardClient() {
   const [isUserContextOnline, setIsUserContextOnline] = useState(true);
   const [projectCurrency, setProjectCurrency] = useState<ProjectCurrency>("USD");
   const [usdToKztRate, setUsdToKztRate] = useState<number | null>(null);
+
+  const fetchDashboardIntegrationStatus = useCallback(async (pid: string, opts?: { signal?: AbortSignal }) => {
+    const signal = opts?.signal;
+    if (!pid) {
+      if (!signal?.aborted) setDashboardIntegrationStatus([]);
+      return;
+    }
+    try {
+      const res = await fetch(
+        `/api/oauth/integration/status?project_id=${encodeURIComponent(pid)}`,
+        { cache: "no-store", signal }
+      );
+      const json = (await res.json()) as { success?: boolean; integrations?: IntegrationStatusRow[] };
+      if (signal?.aborted) return;
+      setDashboardIntegrationStatus(json?.integrations ?? []);
+    } catch (e) {
+      if (signal?.aborted || isAbortError(e)) return;
+      setDashboardIntegrationStatus([]);
+    }
+  }, []);
 
   /** Historical backfill: source of truth is summary + timeseries backfill metadata. Used for banner and refetch polling. */
   const [historicalBackfill, setHistoricalBackfill] = useState<{
@@ -701,27 +726,16 @@ export default function AppDashboardClient() {
       setDashboardIntegrationStatus([]);
       return;
     }
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(
-          `/api/oauth/integration/status?project_id=${encodeURIComponent(projectId)}`,
-          { cache: "no-store" }
-        );
-        const json = (await res.json()) as { success?: boolean; integrations?: IntegrationStatusRow[] };
-        if (cancelled) return;
-        setDashboardIntegrationStatus(json?.integrations ?? []);
-      } catch {
-        if (!cancelled) setDashboardIntegrationStatus([]);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [projectId]);
+    const ac = new AbortController();
+    void fetchDashboardIntegrationStatus(projectId, { signal: ac.signal });
+    return () => ac.abort();
+  }, [projectId, fetchDashboardIntegrationStatus]);
 
   const adaptiveIntegrationStatus = useMemo(() => {
     const staleMin = isUserContextOnline ? ONLINE_STALE_MIN : OFFLINE_STALE_MIN;
     const errorMin = isUserContextOnline ? ONLINE_ERROR_MIN : OFFLINE_ERROR_MIN;
     const now = Date.now();
+    const todayUtc = utcTodayYmd();
 
     function ageMinutes(iso: string | null | undefined): number | null {
       if (!iso) return null;
@@ -738,6 +752,10 @@ export default function AppDashboardClient() {
       if (row.reason === "sync_failed") {
         return { ...row, status: "error" as const };
       }
+      // Same rule as server `resolveDataStatus`: fresh data for UTC today → healthy; do not downgrade by sync age.
+      if (row.data_max_date && row.data_max_date >= todayUtc) {
+        return { ...row, status: "healthy" as const, reason: null };
+      }
       const ageMin = ageMinutes(row.last_sync_at);
       if (ageMin == null) return row;
       if (ageMin >= errorMin) return { ...row, status: "error" as const, reason: "sync_old" };
@@ -745,6 +763,12 @@ export default function AppDashboardClient() {
       return { ...row, status: "healthy" as const, reason: null };
     });
   }, [dashboardIntegrationStatus, isUserContextOnline]);
+
+  const staleStatusTooltip = useMemo(() => {
+    const on = `online: stale after ${ONLINE_STALE_MIN} min without sync, error after ${ONLINE_ERROR_MIN} min`;
+    const off = `offline: stale after ${OFFLINE_STALE_MIN} min, error after ${OFFLINE_ERROR_MIN} min`;
+    return `Data may be behind, or last sync passed the threshold (${on}; ${off}). Data for UTC today is treated as healthy.`;
+  }, []);
 
   // Source options (platforms + source classes) for Sources dropdown.
   useEffect(() => {
@@ -1045,6 +1069,8 @@ export default function AppDashboardClient() {
 
       await loadFromDb(c.signal);
 
+      await fetchDashboardIntegrationStatus(projectId);
+
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event(SIDEBAR_TODAY_REFRESH_EVENT));
       }
@@ -1234,10 +1260,10 @@ export default function AppDashboardClient() {
     const hasStale = adaptiveIntegrationStatus.some((i) => i.status === "stale");
     const hasDisconnected = adaptiveIntegrationStatus.some((i) => i.status === "disconnected");
     if (hasError) return { status: "error" as const, label: "Error", tooltip: "One or more integrations have sync errors or data not updated today." };
-    if (hasStale) return { status: "stale" as const, label: "Stale", tooltip: "Data is behind or last sync was over ~3 hours ago." };
+    if (hasStale) return { status: "stale" as const, label: "Stale", tooltip: staleStatusTooltip };
     if (hasDisconnected) return { status: "disconnected" as const, label: "Disconnected", tooltip: "One or more integrations are disconnected." };
     return { status: "healthy" as const, label: "Healthy", tooltip: "All integrations are connected and syncing normally." };
-  }, [dashboardAccounts.length, connectionLost, adaptiveIntegrationStatus]);
+  }, [dashboardAccounts.length, connectionLost, adaptiveIntegrationStatus, staleStatusTooltip]);
 
   const dataFreshnessStr = useMemo(() => {
     const iso = safeIso(updatedAt);
