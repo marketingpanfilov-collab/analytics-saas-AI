@@ -163,7 +163,7 @@ export function LandingFaqSection() {
           FAQ
         </h2>
 
-        <div className="mx-auto mt-10 max-w-3xl space-y-12 md:mt-12 md:space-y-14">
+        <div className="mt-10 space-y-12 md:mt-12 md:space-y-14">
           {FAQ_SECTIONS.map((section, sIdx) => (
             <div key={sIdx}>
               {section.title ? (
