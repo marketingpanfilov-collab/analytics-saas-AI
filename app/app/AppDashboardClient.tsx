@@ -798,8 +798,6 @@ export default function AppDashboardClient() {
   // Abort + гонки
   const abortRef = useRef<AbortController | null>(null);
   const reqSeqRef = useRef(0);
-  /** Prevents duplicate loadFromDb for the same applied key (e.g. Strict Mode double effect). */
-  const loadingKeyRef = useRef<string | null>(null);
 
   const effectiveSources = useMemo(
     () => selectedSources.filter((s) => activeSourceOptions.some((o) => o.id === s)),
@@ -858,7 +856,6 @@ export default function AppDashboardClient() {
     const end = overrideEnd ?? appliedDateTo;
     if (!start || !end || start > end) return;
 
-    const fetchKey = `${projectId}:${start}:${end}:${sourcesKey}:${accountIdsKey}`;
     setLoading(true);
     setErrorText(null);
 
@@ -993,8 +990,8 @@ export default function AppDashboardClient() {
       setErrorText(toErrorText(e));
       // Keep previous summary/points visible on error
     } finally {
-      if (loadingKeyRef.current === fetchKey) loadingKeyRef.current = null;
-      setLoading(false);
+      // Only the latest in-flight request may clear loading (avoids stale requests turning spinner off early).
+      if (mySeq === reqSeqRef.current) setLoading(false);
     }
   }
 
@@ -1074,8 +1071,6 @@ export default function AppDashboardClient() {
       sourcesKey,
       accountIdsKey,
       key,
-      loadingKeyRef: loadingKeyRef.current,
-      guardBlocks: loadingKeyRef.current === key,
       noProject: !projectId,
       invalidApplied: isInvalidApplied,
     });
@@ -1083,20 +1078,13 @@ export default function AppDashboardClient() {
     if (!isSupportedNow) return;
     if (isInvalidApplied) return;
 
-    if (loadingKeyRef.current === key) {
-      console.log("[LOAD_BLOCKED_BY_GUARD]", { key, loadingKeyRef: loadingKeyRef.current });
-      return;
-    }
-
     hasLoadedRef.current = true;
-    loadingKeyRef.current = key;
     const c = makeController();
     console.log("[LOAD_FROM_DB_CALL]", { start: appliedDateFrom, end: appliedDateTo, key });
     loadFromDb(c.signal, appliedDateFrom, appliedDateTo);
 
     return () => {
       abortInFlight();
-      loadingKeyRef.current = null;
       clearBackfillPolling();
     };
   }, [projectId, appliedDateFrom, appliedDateTo, sourcesKey, accountIdsKey]);
