@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccessOrInternal, getInternalSyncHeaders } from "@/app/lib/auth/requireProjectAccessOrInternal";
 import { checkRateLimit } from "@/app/lib/security/rateLimit";
+import { resolveEnabledAdAccountIdsForProject } from "@/app/lib/dashboardCanonical";
+import { dashboardCacheInvalidateProject } from "@/app/lib/dashboardCache";
 
 function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -11,6 +13,28 @@ function isUuid(v: string) {
 
 function isYmd(v: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(v);
+}
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function fetchInsightsSyncWithOptionalRetry(
+  url: string,
+  headers: HeadersInit
+): Promise<{ res: Response; json: unknown }> {
+  const run = async () => {
+    const res = await fetch(url, { method: "GET", headers });
+    const json = await res.json().catch(() => ({}));
+    return { res, json };
+  };
+  let { res, json } = await run();
+  const retryable = res.status === 503 && (json as { retryable?: boolean })?.retryable === true;
+  if (retryable) {
+    await sleepMs(650);
+    ({ res, json } = await run());
+  }
+  return { res, json };
 }
 
 /**
@@ -82,17 +106,11 @@ export async function POST(req: Request) {
   const baseUrl = new URL(req.url).origin;
   const warnings: { platform: string; ad_account_id?: string; error: string; status?: number }[] = [];
 
-  // --- Unified: only sync accounts with ad_account_settings.is_enabled = true ---
-  const { data: settingsRows } = await admin
-    .from("ad_account_settings")
-    .select("ad_account_id")
-    .eq("project_id", projectId)
-    .eq("is_enabled", true);
-
-  const enabledAdAccountIds = (settingsRows ?? []).map((r: { ad_account_id: string }) => r.ad_account_id);
+  // Same rules as canonical dashboard: TikTok/Google/Yandex default-on without ad_account_settings row.
+  const enabledAdAccountIds = await resolveEnabledAdAccountIdsForProject(admin, projectId);
   if (enabledAdAccountIds.length === 0) {
     return NextResponse.json(
-      { success: false, error: "No enabled ad accounts; enable accounts in Settings or Accounts" },
+      { success: false, error: "No enabled ad accounts; connect integrations or enable accounts in Settings" },
       { status: 404 }
     );
   }
@@ -145,6 +163,31 @@ export async function POST(req: Request) {
       if (!syncRes.ok || syncJson?.success === false) {
         const errMsg = syncJson?.error ?? syncJson?.meta_error?.message ?? "Meta sync failed";
         warnings.push({ platform: "meta", ad_account_id: externalId, error: errMsg, status: syncRes.status });
+      } else {
+        try {
+          const intentUrl = new URL("/api/oauth/meta/campaign-marketing-intent/sync", req.url);
+          intentUrl.searchParams.set("project_id", projectId);
+          intentUrl.searchParams.set("ad_account_id", externalId);
+          const ir = await fetch(intentUrl.toString(), {
+            method: "GET",
+            headers: getInternalSyncHeaders(),
+          });
+          if (!ir.ok) {
+            const ij = await ir.json().catch(() => ({}));
+            warnings.push({
+              platform: "meta",
+              ad_account_id: externalId,
+              error: `marketing_intent sync: ${ij?.error ?? ir.status}`,
+              status: ir.status,
+            });
+          }
+        } catch (e) {
+          warnings.push({
+            platform: "meta",
+            ad_account_id: externalId,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
       }
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : String(e);
@@ -163,13 +206,13 @@ export async function POST(req: Request) {
     googleSyncUrl.searchParams.set("date_end", end);
     console.log("[DASHBOARD_SYNC_GOOGLE]", { projectId, start, end, ad_account_id: externalId });
     try {
-      const gRes = await fetch(googleSyncUrl.toString(), {
-        method: "GET",
-        headers: getInternalSyncHeaders(),
-      });
-      const gJson = await gRes.json().catch(() => ({}));
-      if (!gRes.ok || gJson?.success === false) {
-        const errMsg = gJson?.error ?? "Google sync failed";
+      const { res: gRes, json: gJson } = await fetchInsightsSyncWithOptionalRetry(
+        googleSyncUrl.toString(),
+        getInternalSyncHeaders()
+      );
+      const gBody = gJson as { success?: boolean; error?: string };
+      if (!gRes.ok || gBody.success === false) {
+        const errMsg = gBody.error ?? "Google sync failed";
         warnings.push({ platform: "google", ad_account_id: externalId, error: errMsg, status: gRes.status });
       }
     } catch (e) {
@@ -191,13 +234,13 @@ export async function POST(req: Request) {
     console.log("[DASHBOARD_SYNC_TIKTOK]", { projectId, start, end, ad_account_id: externalId });
 
     try {
-      const tRes = await fetch(tiktokSyncUrl.toString(), {
-        method: "GET",
-        headers: getInternalSyncHeaders(),
-      });
-      const tJson = await tRes.json().catch(() => ({}));
-      if (!tRes.ok || tJson?.success === false) {
-        const errMsg = tJson?.error ?? tJson?.step ?? "TikTok sync failed";
+      const { res: tRes, json: tJson } = await fetchInsightsSyncWithOptionalRetry(
+        tiktokSyncUrl.toString(),
+        getInternalSyncHeaders()
+      );
+      const tBody = tJson as { success?: boolean; error?: string; step?: string };
+      if (!tRes.ok || tBody.success === false) {
+        const errMsg = tBody.error ?? tBody.step ?? "TikTok sync failed";
         warnings.push({ platform: "tiktok", ad_account_id: externalId, error: errMsg, status: tRes.status });
       }
     } catch (e) {
@@ -205,6 +248,8 @@ export async function POST(req: Request) {
       warnings.push({ platform: "tiktok", ad_account_id: externalId, error: errMsg });
     }
   }
+
+  dashboardCacheInvalidateProject(projectId);
 
   return NextResponse.json({
     success: true,

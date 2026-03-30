@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
-import { getValidTikTokAccessToken } from "@/app/lib/tiktokAdsAuth";
+import { getTikTokAccessTokenForApi } from "@/app/lib/tiktokAdsAuth";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { logCabinetState } from "@/app/lib/cabinetAuditLog";
 
 function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
@@ -134,12 +135,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: "TikTok integration not found; connect OAuth first" }, { status: 404 });
   }
 
-  const token = await getValidTikTokAccessToken(admin, integration.id);
-  if (!token) {
-    return NextResponse.json({ success: false, error: "TikTok auth token not found or expired; reconnect TikTok OAuth" }, { status: 401 });
+  const tr = await getTikTokAccessTokenForApi(admin, integration.id);
+  if (!tr.ok) {
+    if (tr.kind === "transient") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "TikTok token refresh temporarily failed; retry shortly",
+          retryable: true,
+        },
+        { status: 503 }
+      );
+    }
+    return NextResponse.json(
+      { success: false, error: "TikTok auth token not found or expired; reconnect TikTok OAuth" },
+      { status: 401 }
+    );
   }
 
-  const listResult = await fetchAdvertisers(appId, secret, token.access_token);
+  const listResult = await fetchAdvertisers(appId, secret, tr.access_token);
   const listJson = listResult.payload as TikTokAdvertiserResponseLegacy;
   if (!listResult.ok) {
     return NextResponse.json(
@@ -184,28 +198,60 @@ export async function POST(req: Request) {
     currency: a.currency,
   }));
 
+  logCabinetState("tiktok_accounts_discover_start", {
+    project_id: projectId,
+    integration_id: integration.id,
+    advertiser_count: adAccountRows.length,
+  });
+
   if (adAccountRows.length > 0) {
     const { error: adErr } = await admin
       .from("ad_accounts")
       .upsert(adAccountRows, { onConflict: "integration_id,external_account_id" });
     if (adErr) return NextResponse.json({ success: false, error: adErr.message ?? "ad_accounts upsert failed" }, { status: 500 });
 
-    const { data: insertedAccounts } = await admin
+    const { data: allAccounts } = await admin
       .from("ad_accounts")
       .select("id")
       .eq("integration_id", integration.id);
-    const settingsRows = (insertedAccounts ?? []).map(({ id }: { id: string }) => ({
-      ad_account_id: id,
-      project_id: projectId,
-      is_enabled: false,
-      selected_for_reporting: false,
-      sync_enabled: false,
-      updated_at: new Date().toISOString(),
-    }));
-    if (settingsRows.length > 0) {
-      await admin.from("ad_account_settings").upsert(settingsRows, { onConflict: "ad_account_id" });
+    const ids = ((allAccounts ?? []) as { id: string }[]).map((r) => r.id);
+    if (ids.length > 0) {
+      const { data: existingSettings } = await admin
+        .from("ad_account_settings")
+        .select("ad_account_id")
+        .in("ad_account_id", ids);
+      const haveSettings = new Set(
+        ((existingSettings ?? []) as { ad_account_id: string }[]).map((r) => r.ad_account_id)
+      );
+      const needDefaults = ids.filter((id) => !haveSettings.has(id));
+      if (needDefaults.length > 0) {
+        const now = new Date().toISOString();
+        const settingsRows = needDefaults.map((id) => ({
+          ad_account_id: id,
+          project_id: projectId,
+          is_enabled: false,
+          selected_for_reporting: false,
+          sync_enabled: false,
+          updated_at: now,
+        }));
+        const { error: settingsErr } = await admin
+          .from("ad_account_settings")
+          .upsert(settingsRows, { onConflict: "ad_account_id" });
+        if (settingsErr) {
+          return NextResponse.json(
+            { success: false, error: settingsErr.message ?? "ad_account_settings upsert failed" },
+            { status: 500 }
+          );
+        }
+      }
     }
   }
+
+  logCabinetState("tiktok_accounts_discover_ok", {
+    project_id: projectId,
+    integration_id: integration.id,
+    advertisers: advertisers.length,
+  });
 
   return NextResponse.json({
     success: true,

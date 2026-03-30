@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "verify:cabinet-migrations": "node -e \"console.log('Run scripts/verify-cabinet-migrations.sql in the Supabase SQL Editor (staging/prod).')\"",
+    "verify:meta-connections-smoke": "bash scripts/smoke-meta-connections-save.sh"
   },
   "dependencies": {
     "@paddle/paddle-js": "^1.6.2",

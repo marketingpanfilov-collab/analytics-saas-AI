@@ -25,7 +25,14 @@ const TOOLTIP_STYLE: React.CSSProperties = {
   boxSizing: "border-box",
 };
 
-export default function HelpTooltip({ content }: { content: React.ReactNode }) {
+export default function HelpTooltip({
+  content,
+  /** Отступ слева от текста до кружка «?», px (по умолчанию 6). */
+  triggerMarginLeft = 6,
+}: {
+  content: React.ReactNode;
+  triggerMarginLeft?: number;
+}) {
   const [visible, setVisible] = useState(false);
   const [positionReady, setPositionReady] = useState(false);
   const [position, setPosition] = useState({ left: 0, top: 0 });
@@ -102,7 +109,13 @@ export default function HelpTooltip({ content }: { content: React.ReactNode }) {
     <>
       <span
         ref={triggerRef}
-        style={{ position: "relative", display: "inline-flex", alignItems: "center", flexShrink: 0, marginLeft: 6 }}
+        style={{
+          position: "relative",
+          display: "inline-flex",
+          alignItems: "center",
+          flexShrink: 0,
+          marginLeft: triggerMarginLeft,
+        }}
         onMouseEnter={open}
         onMouseLeave={close}
       >

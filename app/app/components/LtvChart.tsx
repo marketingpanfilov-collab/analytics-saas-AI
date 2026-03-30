@@ -80,12 +80,12 @@ function LtvTooltipContent({
           <span style={{ fontWeight: 600, color: "rgb(96,165,250)" }}>{arpu != null ? formatMoney(arpu) : "—"}</span>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 16 }}>
-          <span style={{ opacity: 0.6 }}>Cohort</span>
+          <span style={{ opacity: 0.6 }}>Когорта</span>
           <span style={{ fontWeight: 500 }}>{cohortLabel}</span>
         </div>
         {growthLtv != null && (
           <div style={{ display: "flex", justifyContent: "space-between", gap: 16, paddingTop: 6, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-            <span style={{ opacity: 0.6 }}>Growth vs prev.</span>
+            <span style={{ opacity: 0.6 }}>Прирост к пред. точке</span>
             <span style={{ fontWeight: 500, color: growthLtv >= 0 ? "rgb(16,185,129)" : "rgb(239,68,68)" }}>
               {growthLtv >= 0 ? "+" : ""}{formatMoney(growthLtv)}
             </span>
@@ -93,7 +93,7 @@ function LtvTooltipContent({
         )}
         {isDemo && (
           <div style={{ fontSize: 9, fontWeight: 700, opacity: 0.7, color: "rgb(251,113,133)", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 4 }}>
-            Demo data
+            Демо-данные
           </div>
         )}
       </div>

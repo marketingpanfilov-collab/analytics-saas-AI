@@ -209,8 +209,15 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
       {isSection && (
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-white">Участники организации</h2>
-            <p className="mt-1 text-sm text-zinc-500">Роли на уровне аккаунта (вся организация)</p>
+            <h2
+              className="text-white"
+              style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}
+            >
+              Участники организации
+            </h2>
+            <p style={{ margin: 0, fontSize: 13, color: "rgba(255,255,255,0.72)" }}>
+              Роли на уровне аккаунта (вся организация)
+            </p>
           </div>
           <button
             type="button"
@@ -220,14 +227,14 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
               setAddEmail("");
               setAddRole("member");
             }}
-            className="inline-flex h-10 shrink-0 items-center rounded-xl bg-white/10 px-5 text-sm font-medium text-white hover:bg-white/15"
+            className="settings-primary-btn shrink-0"
           >
             Добавить участника
           </button>
         </div>
       )}
 
-      <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
+      <div className="settings-surface overflow-hidden">
         {members.length === 0 ? (
           <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
             <p className="text-zinc-400">В организации пока нет участников</p>
@@ -276,7 +283,7 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
                             value={row.role}
                             onChange={(e) => handleRoleChange(row.id, e.target.value)}
                             disabled={busy}
-                            className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white focus:border-white/20 focus:outline-none disabled:opacity-50"
+                            className="settings-page-select settings-page-select-sm min-w-[10rem] disabled:opacity-50"
                           >
                             {ORG_ROLES_DROPDOWN.map((r) => (
                               <option key={r.value} value={r.value}>
@@ -337,7 +344,7 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
                     if (addError) setAddError(null);
                   }}
                   placeholder="user@example.com"
-                  className="mt-2 w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-white/20 focus:outline-none"
+                  className="settings-page-input mt-2 placeholder:text-zinc-500"
                   autoFocus
                 />
               </div>
@@ -357,17 +364,13 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
               </div>
               {addError && <p className="text-sm text-red-400">{addError}</p>}
               <div className="flex flex-wrap gap-3 pt-2">
-                <button
-                  type="submit"
-                  disabled={addLoading}
-                  className="h-11 rounded-xl bg-white/10 px-6 text-sm font-medium text-white hover:bg-white/15 disabled:opacity-50"
-                >
+                <button type="submit" disabled={addLoading} className="settings-primary-btn">
                   {addLoading ? "Добавление…" : "Добавить"}
                 </button>
                 <button
                   type="button"
                   onClick={() => !addLoading && setModalOpen(false)}
-                  className="h-11 rounded-xl border border-white/10 px-6 text-sm text-zinc-300 hover:bg-white/[0.04]"
+                  className="settings-secondary-btn"
                 >
                   Отмена
                 </button>

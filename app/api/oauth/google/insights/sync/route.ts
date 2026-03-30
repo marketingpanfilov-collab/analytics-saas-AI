@@ -8,10 +8,13 @@
  * Campaign identity: shared campaigns table with external_campaign_id (per ad_account_id).
  * Uniqueness: account-level (ad_account_id, date) WHERE campaign_id IS NULL; campaign-level
  * (ad_account_id, campaign_id, date). Delete-then-insert per range. sync_runs: running -> ok/error, meta.
+ *
+ * campaigns.marketing_intent (retention vs acquisition for LTV spend): Meta is filled from ad/creative URL sync.
+ * Google: phase 2 — derive from ad final URLs when this pipeline fetches ad_group_ad (reuse detectRetentionInSnippet).
  */
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
-import { getValidGoogleAccessToken } from "@/app/lib/googleAdsAuth";
+import { getGoogleAccessTokenForApi } from "@/app/lib/googleAdsAuth";
 import { withSyncLock } from "@/app/lib/syncLock";
 import { datesInRange } from "@/app/lib/dashboardBackfill";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
@@ -29,6 +32,42 @@ function isYmd(v: string) {
 /** Google Ads customer id: digits optionally with hyphen (e.g. 1234567890 or 123-456-7890). */
 function isGoogleCustomerId(v: string) {
   return /^\d+(-?\d*)$/.test(String(v).trim());
+}
+
+class GoogleAdsApiRequestError extends Error {
+  readonly httpStatus: number;
+  readonly googleStatus?: string;
+
+  constructor(message: string, httpStatus: number, googleStatus?: string) {
+    super(message);
+    this.name = "GoogleAdsApiRequestError";
+    this.httpStatus = httpStatus;
+    this.googleStatus = googleStatus;
+  }
+}
+
+function isGoogleAdsAuthFailure(e: unknown): boolean {
+  if (e instanceof GoogleAdsApiRequestError) {
+    if (e.httpStatus === 401) return true;
+    const s = String(e.googleStatus ?? "").toUpperCase();
+    if (s === "UNAUTHENTICATED") return true;
+    const m = e.message.toUpperCase();
+    return (
+      m.includes("UNAUTHENTICATED") ||
+      m.includes("INVALID_GRANT") ||
+      (m.includes("OAUTH") && m.includes("TOKEN"))
+    );
+  }
+  return false;
+}
+
+function isGoogleAdsTransientFailure(e: unknown): boolean {
+  if (e instanceof GoogleAdsApiRequestError) {
+    if (e.httpStatus === 429 || (e.httpStatus >= 500 && e.httpStatus <= 599) || e.httpStatus === 408) return true;
+    const s = String(e.googleStatus ?? "").toUpperCase();
+    return ["RESOURCE_EXHAUSTED", "UNAVAILABLE", "INTERNAL", "DEADLINE_EXCEEDED"].includes(s);
+  }
+  return false;
 }
 
 async function googleAdsSearch<T>(
@@ -55,13 +94,39 @@ async function googleAdsSearch<T>(
     const data = (await res.json().catch(() => ({}))) as {
       results?: unknown[];
       nextPageToken?: string;
-      error?: { message?: string };
+      error?: { message?: string; status?: string };
     };
-    if (!res.ok) throw new Error(data?.error?.message ?? `Google Ads API: ${res.status}`);
+    if (!res.ok) {
+      const err = data?.error;
+      throw new GoogleAdsApiRequestError(
+        err?.message ?? `Google Ads API: ${res.status}`,
+        res.status,
+        err?.status
+      );
+    }
     if (Array.isArray(data.results)) rows.push(...(data.results as T[]));
     pageToken = data.nextPageToken;
   } while (pageToken);
   return rows;
+}
+
+async function googleAdsSearchWithOptionalTokenHeal<T>(
+  admin: ReturnType<typeof supabaseAdmin>,
+  integrationId: string,
+  tokenRef: { access_token: string },
+  customerId: string,
+  developerToken: string,
+  query: string
+): Promise<T[]> {
+  try {
+    return await googleAdsSearch<T>(customerId, tokenRef.access_token, developerToken, query);
+  } catch (e) {
+    if (!isGoogleAdsAuthFailure(e)) throw e;
+    const gr2 = await getGoogleAccessTokenForApi(admin, integrationId, { forceRefresh: true });
+    if (!gr2.ok) throw e;
+    tokenRef.access_token = gr2.access_token;
+    return googleAdsSearch<T>(customerId, tokenRef.access_token, developerToken, query);
+  }
 }
 
 async function syncRunErrorAndReturn(
@@ -73,7 +138,7 @@ async function syncRunErrorAndReturn(
   status: number
 ) {
   await finishSyncRunError(admin, runId, errorMessage, meta);
-  return NextResponse.json(body, { status: status as 400 | 404 | 500 });
+  return NextResponse.json(body, { status: status as 400 | 404 | 500 | 503 });
 }
 
 export async function GET(req: Request) {
@@ -159,8 +224,8 @@ export async function GET(req: Request) {
     );
   }
 
-  const token = await getValidGoogleAccessToken(admin, integration.id);
-  const hasValidToken = !!token?.access_token;
+  const gr = await getGoogleAccessTokenForApi(admin, integration.id);
+  const hasValidToken = gr.ok;
 
   const { data: adAcc, error: adErr } = await admin
     .from("ad_accounts")
@@ -182,7 +247,17 @@ export async function GET(req: Request) {
     customer_id_format_valid: customerIdValid,
   });
 
-  if (!token) {
+  if (!gr.ok) {
+    if (gr.kind === "transient") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Google token refresh temporarily failed; retry shortly",
+          retryable: true,
+        },
+        { status: 503 }
+      );
+    }
     console.log("[GOOGLE_SYNC_401_NO_TOKEN]", {
       projectId,
       ad_account_id: externalAccountId,
@@ -193,6 +268,8 @@ export async function GET(req: Request) {
       { status: 401 }
     );
   }
+
+  const tokenRef = { access_token: gr.access_token };
 
   if (adErr || !adAcc?.id) {
     console.log("[GOOGLE_SYNC_404_NO_AD_ACCOUNT]", {
@@ -256,11 +333,19 @@ export async function GET(req: Request) {
   const query = `SELECT segments.date, metrics.cost_micros, metrics.impressions, metrics.clicks FROM customer WHERE segments.date BETWEEN '${since}' AND '${until}'`;
   let rows: GoogleRow[];
   try {
-    rows = await googleAdsSearch<GoogleRow>(externalAccountId, token.access_token, developerToken, query);
+    rows = await googleAdsSearchWithOptionalTokenHeal<GoogleRow>(
+      admin,
+      integration.id,
+      tokenRef,
+      externalAccountId,
+      developerToken,
+      query
+    );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const stack = e instanceof Error ? e.stack : undefined;
-    console.log("[GOOGLE_SYNC_400_ADS_FETCH]", {
+    const transient = isGoogleAdsTransientFailure(e);
+    console.log(transient ? "[GOOGLE_SYNC_503_ADS_FETCH]" : "[GOOGLE_SYNC_400_ADS_FETCH]", {
       projectId,
       ad_account_id: externalAccountId,
       message: msg,
@@ -272,8 +357,16 @@ export async function GET(req: Request) {
       step: "google_ads_fetch",
       error: msg,
       period: { since, until },
+      ...(transient ? { retryable: true } : {}),
     };
-    return syncRunErrorAndReturn(admin, syncRunId, "google_ads_fetch", { error: msg, period: { since, until } }, body, 400);
+    return syncRunErrorAndReturn(
+      admin,
+      syncRunId,
+      "google_ads_fetch",
+      { error: msg, period: { since, until } },
+      body,
+      transient ? 503 : 400
+    );
   }
 
   const toNum = (v: unknown): number => (v != null && v !== "" ? Number(v) : 0);
@@ -463,11 +556,19 @@ export async function GET(req: Request) {
   });
   let campaignRows: CampaignRow[];
   try {
-    campaignRows = await googleAdsSearch<CampaignRow>(externalAccountId, token.access_token, developerToken, campaignQuery);
+    campaignRows = await googleAdsSearchWithOptionalTokenHeal<CampaignRow>(
+      admin,
+      integration.id,
+      tokenRef,
+      externalAccountId,
+      developerToken,
+      campaignQuery
+    );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const stack = e instanceof Error ? e.stack : undefined;
-    console.log("[GOOGLE_SYNC_400_CAMPAIGN_FETCH]", {
+    const transient = isGoogleAdsTransientFailure(e);
+    console.log(transient ? "[GOOGLE_SYNC_503_CAMPAIGN_FETCH]" : "[GOOGLE_SYNC_400_CAMPAIGN_FETCH]", {
       projectId,
       ad_account_id: externalAccountId,
       message: msg,
@@ -479,8 +580,16 @@ export async function GET(req: Request) {
       step: "google_ads_campaign_fetch",
       error: msg,
       period: { since, until },
+      ...(transient ? { retryable: true } : {}),
     };
-    return syncRunErrorAndReturn(admin, syncRunId, "google_ads_campaign_fetch", { error: msg, period: { since, until } }, body, 400);
+    return syncRunErrorAndReturn(
+      admin,
+      syncRunId,
+      "google_ads_campaign_fetch",
+      { error: msg, period: { since, until } },
+      body,
+      transient ? 503 : 400
+    );
   }
 
   /** Resolve and normalize campaign external id: trim; empty string -> null. One external id -> one canonical internal id. */

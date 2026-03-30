@@ -228,6 +228,7 @@ const [sRes, tRes, kRes, cRes] = await Promise.all([
 ### 4. Кэширование summary/timeseries
 
 - В **summary** и **timeseries**: если в теле ответа есть `backfill.historical_sync_started === true`, ответ **не** записывается в кэш (`dashboardCacheSet` не вызывается). Следующий refetch с теми же параметрами получает свежие данные из БД после завершения sync.
+- Если в этом запросе `ensureBackfill` **запустил** sync (`triggered === true`, в т.ч. **fresh** TTL / «хвост»), ответ **тоже не кэшируется** (`didSync`): фоновый sync не ждётся, снимок из БД может быть неполным; кэширование такого ответа давало заниженный spend до истечения TTL. **Bundle** и **metrics** следуют тому же правилу.
 
 ### 5. Как пользователь видит, что данные догружаются
 

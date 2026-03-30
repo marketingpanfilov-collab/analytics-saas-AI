@@ -553,9 +553,15 @@ export default function UtmBuilderPageClient() {
                   <option value="retention">Retention</option>
                 </select>
                 {campaignIntent === "retention" && (
-                  <p className="mt-1.5 text-xs text-neutral-500">
-                    Retention — ссылки для повторных продаж, реактивации и возврата клиентов.
-                  </p>
+                  <div className="mt-2 space-y-2 text-xs text-neutral-500 leading-relaxed">
+                    <p>Retention — ссылки для повторных продаж, реактивации и возврата клиентов.</p>
+                    <p>
+                      <strong className="text-neutral-400">Tracking-ссылка</strong> нужна, чтобы в аналитике{" "}
+                      <strong className="text-neutral-400">связать клик с покупкой</strong>. В режиме Retention в адрес
+                      добавляется пометка удержания — используйте эту же финальную ссылку в объявлении в рекламном
+                      кабинете: после синхронизации кабинета расход кампании можно отнести к удержанию в отчётах.
+                    </p>
+                  </div>
                 )}
               </div>
               <div>

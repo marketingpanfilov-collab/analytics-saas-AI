@@ -60,7 +60,7 @@ function formatDateTime(iso: string): string {
 }
 
 export type ProjectMembersPageClientProps = {
-  /** Встроенная страница (например /app/manage-access) — без лишних отступов контейнера */
+  /** Встроенный блок (например раздел «Управление доступом» в настройках) — без лишних отступов контейнера */
   variant?: "page" | "embedded";
 };
 
@@ -369,56 +369,327 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
     return (
       <div className={isEmbedded ? "" : "mx-auto max-w-4xl p-6"}>
         <div className="h-10 w-64 rounded-2xl bg-white/[0.04]" />
-        <div className="mt-6 h-48 rounded-2xl border border-white/10 bg-white/[0.03]" />
+        <div
+          className={
+            isEmbedded
+              ? "settings-surface mt-6 h-48"
+              : "mt-6 h-48 rounded-2xl border border-white/10 bg-white/[0.03]"
+          }
+        />
       </div>
     );
   }
 
-  return (
-    <div className={isEmbedded ? "space-y-8" : "mx-auto max-w-4xl space-y-8 p-6"}>
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-white">
-            Участники проекта
-          </h1>
-          <p className="mt-1 text-sm text-zinc-400">
-            Управляйте доступом к этому проекту
-          </p>
-        </div>
-        {tab === "members" && (
-          <button
-            type="button"
-            onClick={() => {
-              setModalOpen(true);
-              setAddError(null);
-              setAddEmail("");
-              setAddRole("marketer");
-            }}
-            className="inline-flex h-10 items-center rounded-xl bg-white/10 px-5 text-sm font-medium text-white hover:bg-white/15"
-          >
-            Добавить участника
-          </button>
-        )}
-      </header>
+  const tableFrame = isEmbedded
+    ? "settings-surface overflow-hidden"
+    : "rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden";
 
-      <div className="flex gap-2 border-b border-white/10">
+  const openAddMemberModal = () => {
+    setModalOpen(true);
+    setAddError(null);
+    setAddEmail("");
+    setAddRole("marketer");
+  };
+
+  const invitesTableInner =
+    invites.length === 0 ? (
+      <div className="py-12 text-center text-sm text-zinc-400">
+        Нет активных приглашений. Создайте приглашение по email или ссылке.
+      </div>
+    ) : (
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px]">
+          <thead>
+            <tr className="border-b border-white/10">
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+                Кому / тип
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+                Роль
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+                Создано
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+                Истекает
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+                Статус
+              </th>
+              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
+                Действия
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {invites.map((inv) => {
+              const isPending = inv.status === "pending";
+              const busy = revokeLoadingId === inv.id;
+              const inviteUrl =
+                inv.invite_type === "link" && inv.token
+                  ? `${typeof window !== "undefined" ? window.location.origin : ""}/app/invite/accept?token=${encodeURIComponent(inv.token)}`
+                  : null;
+              return (
+                <tr key={inv.id} className="border-b border-white/5 hover:bg-white/[0.04]">
+                  <td className="px-4 py-3 text-sm text-white">
+                    {inv.invite_type === "link" ? "Ссылка" : inv.email ?? "—"}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-zinc-300">
+                    {PROJECT_ROLES.find((r) => r.value === inv.role)?.label ?? inv.role}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-zinc-400">{formatDateTime(inv.created_at)}</td>
+                  <td className="px-4 py-3 text-sm text-zinc-400">{formatDateTime(inv.expires_at)}</td>
+                  <td className="px-4 py-3 text-sm text-zinc-400">{inv.status}</td>
+                  <td className="px-4 py-3 text-right">
+                    {inviteUrl && isPending && (
+                      <button
+                        type="button"
+                        onClick={() => copyInviteLink(inviteUrl)}
+                        className="mr-2 rounded-lg border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/10"
+                      >
+                        Копировать ссылку
+                      </button>
+                    )}
+                    {isPending && (
+                      <button
+                        type="button"
+                        onClick={() => handleRevokeInvite(inv.id)}
+                        disabled={busy}
+                        className="rounded-lg border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/10 disabled:opacity-50"
+                      >
+                        Отозвать
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
+
+  const membersTableInner =
+    members.length === 0 ? (
+      <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+        <p className="text-zinc-400">В проекте пока нет участников</p>
         <button
           type="button"
-          onClick={() => setTab("members")}
-          className={`px-4 py-2 text-sm font-medium ${tab === "members" ? "text-white border-b-2 border-white/30" : "text-zinc-400 hover:text-white"}`}
+          onClick={openAddMemberModal}
+          className={
+            isEmbedded
+              ? "settings-primary-btn mt-4"
+              : "mt-4 inline-flex h-10 items-center rounded-xl bg-white/10 px-5 text-sm font-medium text-white hover:bg-white/15"
+          }
         >
-          Участники
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("invites")}
-          className={`px-4 py-2 text-sm font-medium ${tab === "invites" ? "text-white border-b-2 border-white/30" : "text-zinc-400 hover:text-white"}`}
-        >
-          Приглашения
+          Добавить первого участника
         </button>
       </div>
+    ) : (
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[500px]">
+          <thead>
+            <tr className="border-b border-white/10">
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+                Пользователь
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+                Роль
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+                Добавлен
+              </th>
+              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
+                Действия
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {members.map((row) => {
+              const isSelf = row.user_id === currentUserId;
+              const cannotRemove = isSelf && row.role === "project_admin";
+              const busy = actionLoadingId === row.id;
+              return (
+                <tr
+                  key={row.id}
+                  className="border-b border-white/5 transition-colors hover:bg-white/[0.04]"
+                >
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="h-9 w-9 shrink-0 rounded-full bg-white/10 flex items-center justify-center text-sm font-medium text-zinc-300"
+                        aria-hidden
+                      >
+                        {(row.email ?? row.user_id).slice(0, 1).toUpperCase()}
+                      </div>
+                      <span className="text-sm text-white">
+                        {row.email ?? row.user_id}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <select
+                      value={row.role}
+                      onChange={(e) => handleRoleChange(row.id, e.target.value)}
+                      disabled={busy}
+                      className={
+                        isEmbedded
+                          ? "settings-page-select settings-page-select-sm min-w-[10rem] disabled:opacity-50"
+                          : "rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white focus:border-white/20 focus:outline-none disabled:opacity-50"
+                      }
+                    >
+                      {PROJECT_ROLES.map((r) => (
+                        <option key={r.value} value={r.value}>
+                          {r.label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-zinc-400">
+                    {formatJoined(row.created_at)}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => handleRemove(row)}
+                      disabled={cannotRemove || busy}
+                      className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-white/10 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Удалить
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    );
 
-      {tab === "invites" && (
+  return (
+    <div className={isEmbedded ? "space-y-6" : "mx-auto max-w-4xl space-y-8 p-6"}>
+      {isEmbedded ? (
+        <section className="settings-surface" style={{ padding: 0 }}>
+          <div style={{ padding: "20px 20px 0 20px" }}>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: "#fff", margin: 0 }}>Участники проекта</h2>
+            <p style={{ marginTop: 6, fontSize: 13, color: "rgba(255,255,255,0.72)", marginBottom: 16 }}>
+              Управляйте доступом к этому проекту
+            </p>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                borderBottom: "1px solid rgba(255,255,255,0.1)",
+                paddingBottom: 12,
+              }}
+            >
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setTab("members")}
+                  data-active={tab === "members" ? "true" : undefined}
+                  className="settings-subtab-btn"
+                >
+                  Участники
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab("invites")}
+                  data-active={tab === "invites" ? "true" : undefined}
+                  className="settings-subtab-btn"
+                >
+                  Приглашения
+                </button>
+              </div>
+              {tab === "members" && (
+                <button type="button" onClick={openAddMemberModal} className="settings-primary-btn shrink-0">
+                  Добавить участника
+                </button>
+              )}
+            </div>
+          </div>
+
+          {tab === "invites" && (
+            <>
+              <div style={{ padding: "16px 20px" }} className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInviteByEmailModal(true);
+                    setInviteByEmailError(null);
+                    setInviteByEmailFallbackUrl(null);
+                    setInviteEmail("");
+                    setInviteRole("marketer");
+                  }}
+                  className="settings-primary-btn"
+                >
+                  Пригласить по email
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInviteByLinkModal(true);
+                    setInviteByLinkUrl(null);
+                    setInviteByLinkRole("marketer");
+                  }}
+                  className="settings-secondary-btn"
+                >
+                  Создать ссылку
+                </button>
+              </div>
+              <div className="border-t border-white/10 overflow-hidden">{invitesTableInner}</div>
+            </>
+          )}
+
+          {tab === "members" && (
+            <div className="border-t border-white/10 overflow-x-auto">{membersTableInner}</div>
+          )}
+        </section>
+      ) : (
+        <>
+          <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-white">
+                Участники проекта
+              </h1>
+              <p className="mt-1 text-sm text-zinc-400">
+                Управляйте доступом к этому проекту
+              </p>
+            </div>
+            {tab === "members" && (
+              <button
+                type="button"
+                onClick={openAddMemberModal}
+                className="inline-flex h-10 items-center rounded-xl bg-white/10 px-5 text-sm font-medium text-white hover:bg-white/15"
+              >
+                Добавить участника
+              </button>
+            )}
+          </header>
+
+          <div className="flex gap-2 border-b border-white/10">
+            <button
+              type="button"
+              onClick={() => setTab("members")}
+              className={`px-4 py-2 text-sm font-medium ${tab === "members" ? "text-white border-b-2 border-white/30" : "text-zinc-400 hover:text-white"}`}
+            >
+              Участники
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("invites")}
+              className={`px-4 py-2 text-sm font-medium ${tab === "invites" ? "text-white border-b-2 border-white/30" : "text-zinc-400 hover:text-white"}`}
+            >
+              Приглашения
+            </button>
+          </div>
+        </>
+      )}
+
+      {!isEmbedded && tab === "invites" && (
         <>
           <div className="flex flex-wrap gap-3">
             <button
@@ -446,179 +717,22 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
               Создать ссылку
             </button>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden">
-            {invites.length === 0 ? (
-              <div className="py-12 text-center text-sm text-zinc-400">
-                Нет активных приглашений. Создайте приглашение по email или ссылке.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[560px]">
-                  <thead>
-                    <tr className="border-b border-white/10">
-                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Кому / тип</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Роль</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Создано</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Истекает</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Статус</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500">Действия</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {invites.map((inv) => {
-                      const isPending = inv.status === "pending";
-                      const busy = revokeLoadingId === inv.id;
-                      const inviteUrl = inv.invite_type === "link" && inv.token
-                        ? `${typeof window !== "undefined" ? window.location.origin : ""}/app/invite/accept?token=${encodeURIComponent(inv.token)}`
-                        : null;
-                      return (
-                        <tr key={inv.id} className="border-b border-white/5 hover:bg-white/[0.04]">
-                          <td className="px-4 py-3 text-sm text-white">
-                            {inv.invite_type === "link" ? "Ссылка" : inv.email ?? "—"}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-zinc-300">
-                            {PROJECT_ROLES.find((r) => r.value === inv.role)?.label ?? inv.role}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-zinc-400">{formatDateTime(inv.created_at)}</td>
-                          <td className="px-4 py-3 text-sm text-zinc-400">{formatDateTime(inv.expires_at)}</td>
-                          <td className="px-4 py-3 text-sm text-zinc-400">{inv.status}</td>
-                          <td className="px-4 py-3 text-right">
-                            {inviteUrl && isPending && (
-                              <button
-                                type="button"
-                                onClick={() => copyInviteLink(inviteUrl)}
-                                className="mr-2 rounded-lg border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/10"
-                              >
-                                Копировать ссылку
-                              </button>
-                            )}
-                            {isPending && (
-                              <button
-                                type="button"
-                                onClick={() => handleRevokeInvite(inv.id)}
-                                disabled={busy}
-                                className="rounded-lg border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/10 disabled:opacity-50"
-                              >
-                                Отозвать
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+          <div className={tableFrame}>{invitesTableInner}</div>
         </>
       )}
 
-      {tab === "members" && (
-      <div className="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden">
-        {members.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
-            <p className="text-zinc-400">В проекте пока нет участников</p>
-            <button
-              type="button"
-              onClick={() => {
-                setModalOpen(true);
-                setAddError(null);
-                setAddEmail("");
-                setAddRole("marketer");
-              }}
-              className="mt-4 inline-flex h-10 items-center rounded-xl bg-white/10 px-5 text-sm font-medium text-white hover:bg-white/15"
-            >
-              Добавить первого участника
-            </button>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[500px]">
-              <thead>
-                <tr className="border-b border-white/10">
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
-                    Пользователь
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
-                    Роль
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
-                    Добавлен
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
-                    Действия
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {members.map((row) => {
-                  const isSelf = row.user_id === currentUserId;
-                  const cannotRemove = isSelf && row.role === "project_admin";
-                  const busy = actionLoadingId === row.id;
-                  return (
-                    <tr
-                      key={row.id}
-                      className="border-b border-white/5 transition-colors hover:bg-white/[0.04]"
-                    >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className="h-9 w-9 shrink-0 rounded-full bg-white/10 flex items-center justify-center text-sm font-medium text-zinc-300"
-                            aria-hidden
-                          >
-                            {(row.email ?? row.user_id).slice(0, 1).toUpperCase()}
-                          </div>
-                          <span className="text-sm text-white">
-                            {row.email ?? row.user_id}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <select
-                          value={row.role}
-                          onChange={(e) => handleRoleChange(row.id, e.target.value)}
-                          disabled={busy}
-                          className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white focus:border-white/20 focus:outline-none disabled:opacity-50"
-                        >
-                          {PROJECT_ROLES.map((r) => (
-                            <option key={r.value} value={r.value}>
-                              {r.label}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-zinc-400">
-                        {formatJoined(row.created_at)}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => handleRemove(row)}
-                          disabled={cannotRemove || busy}
-                          className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-white/10 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Удалить
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-      )}
+      {!isEmbedded && tab === "members" && <div className={tableFrame}>{membersTableInner}</div>}
 
-      <div>
-        <Link
-          href={`/app?project_id=${encodeURIComponent(projectId)}`}
-          className="text-sm text-zinc-400 hover:text-white"
-        >
-          ← Назад к дашборду
-        </Link>
-      </div>
+      {!isEmbedded && (
+        <div>
+          <Link
+            href={`/app?project_id=${encodeURIComponent(projectId)}`}
+            className="text-sm text-zinc-400 hover:text-white"
+          >
+            ← Назад к дашборду
+          </Link>
+        </div>
+      )}
 
       {modalOpen && (
         <div

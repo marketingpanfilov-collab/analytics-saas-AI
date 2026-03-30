@@ -4,6 +4,7 @@ import { getCurrentSystemRoleCheck } from "@/app/lib/auth/systemRoles";
 import { parseBearerToken } from "@/app/lib/auth/parseBearerAuth";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { checkRateLimit, getRequestIp } from "@/app/lib/security/rateLimit";
+import { fetchAndStoreLatestUsdKztRate } from "@/app/lib/exchangeRatesUsdKzt";
 
 async function authorizeUpdateRates(req: Request): Promise<boolean> {
   const internalSecret = process.env.INTERNAL_SYNC_SECRET?.trim() ?? "";
@@ -78,46 +79,15 @@ async function handleUpdateRates(req: Request): Promise<NextResponse> {
       );
     }
 
-    const url = `https://api.currencyapi.com/v3/latest?apikey=${encodeURIComponent(
-      currencyApiKey
-    )}&base_currency=USD&currencies=KZT`;
-
-    const res = await fetch(url);
-    if (!res.ok) {
-      const text = await res.text();
+    const rate = await fetchAndStoreLatestUsdKztRate(admin);
+    if (rate == null || !Number.isFinite(rate) || rate <= 0) {
       return NextResponse.json(
-        { success: false, error: `currencyapi.com error: ${res.status} ${text}` },
+        { success: false, error: "Invalid KZT rate from provider or database" },
         { status: 502 }
       );
     }
 
-    const json = (await res.json()) as any;
-    const rate = Number(json?.data?.KZT?.value ?? json?.data?.KZT?.rate ?? 0);
-    if (!rate || !Number.isFinite(rate) || rate <= 0) {
-      return NextResponse.json(
-        { success: false, error: "Invalid KZT rate in response" },
-        { status: 500 }
-      );
-    }
-
     const rateDate = new Date().toISOString().slice(0, 10);
-    const { error } = await admin
-      .from("exchange_rates")
-      .upsert(
-        {
-          base_currency: "USD",
-          quote_currency: "KZT",
-          rate,
-          rate_date: rateDate,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "base_currency,quote_currency,rate_date" }
-      );
-
-    if (error) {
-      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-    }
-
     return NextResponse.json({ success: true, base: "USD", quote: "KZT", rate, rate_date: rateDate });
   } catch (err) {
     return NextResponse.json(

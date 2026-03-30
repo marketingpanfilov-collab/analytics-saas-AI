@@ -576,7 +576,7 @@ ${generatedPurchaseJson}`;
     <div className="mx-auto w-full max-w-7xl p-6 pb-12">
       {/* Hero */}
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight text-white">BQ Pixel</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-white">Pixel &amp; CRM</h1>
         <p className="mt-1 max-w-2xl text-sm text-neutral-400">
           Подключите пиксель для отслеживания визитов, регистраций и покупок. Это позволит считать CAC, ROAS и реальную эффективность каналов.
         </p>

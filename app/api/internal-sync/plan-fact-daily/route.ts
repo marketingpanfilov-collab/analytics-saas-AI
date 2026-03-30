@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { parseBearerToken } from "@/app/lib/auth/parseBearerAuth";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { getCanonicalSummary } from "@/app/lib/dashboardCanonical";
 
 const INTERNAL_HEADER = "x-internal-sync-secret";
 const SCALE = 6;
@@ -47,11 +48,6 @@ type PlanRow = {
 type PurchaseRow = {
   project_id: string | null;
   value: number | null;
-};
-
-type SpendRow = {
-  project_id: string | null;
-  spend: number | null;
 };
 
 async function runSnapshotForDate(targetYmd: string) {
@@ -104,22 +100,16 @@ async function runSnapshotForDate(targetYmd: string) {
     purchaseAgg.set(projectId, cur);
   }
 
-  const { data: spendRows, error: spendError } = await admin
-    .from("daily_ad_metrics")
-    .select("project_id, spend")
-    .in("project_id", projectIds)
-    .eq("day", targetYmd)
-    .limit(100000);
-  if (spendError) {
-    return { success: false, error: spendError.message };
-  }
-
   const spendAgg = new Map<string, number>();
-  for (const row of (spendRows ?? []) as SpendRow[]) {
-    const projectId = String(row.project_id ?? "");
-    if (!projectId) continue;
-    const cur = spendAgg.get(projectId) ?? 0;
-    spendAgg.set(projectId, cur + (Number(row.spend ?? 0) || 0));
+  const chunk = 20;
+  for (let i = 0; i < projectIds.length; i += chunk) {
+    const slice = projectIds.slice(i, i + chunk);
+    await Promise.all(
+      slice.map(async (pid) => {
+        const r = await getCanonicalSummary(admin, pid, targetYmd, targetYmd, null);
+        spendAgg.set(pid, r?.data.spend ?? 0);
+      })
+    );
   }
 
   const payload = planRows.map((plan) => {

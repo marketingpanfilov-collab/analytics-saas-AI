@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { logCabinetState } from "@/app/lib/cabinetAuditLog";
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
@@ -18,6 +19,12 @@ export async function POST(req: Request) {
     return NextResponse.json(access.body, { status: access.status });
   }
 
+  logCabinetState("meta_connections_save_request", {
+    project_id: projectId,
+    integration_id: integrationId,
+    selected_count: adAccountIds.length,
+  });
+
   const admin = supabaseAdmin();
 
   // 0) проверим что интеграция реально существует и в ней есть токен
@@ -32,27 +39,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: "integration not found or no token" }, { status: 400 });
   }
 
-  // 1) meta_ad_accounts: keep in sync for backward compatibility during transition
-  const { error: offErr } = await admin
-    .from("meta_ad_accounts")
-    .update({ is_enabled: false })
-    .eq("project_id", projectId)
-    .eq("is_enabled", true);
+  // 1) meta_ad_accounts: single DB transaction (see save_meta_ad_account_selection migration)
+  const { error: rpcErr } = await admin.rpc("save_meta_ad_account_selection", {
+    p_project_id: projectId,
+    p_integration_meta_id: integrationId,
+    p_ad_account_ids: adAccountIds,
+  });
 
-  if (offErr) {
-    return NextResponse.json({ success: false, error: offErr }, { status: 500 });
-  }
-
-  if (adAccountIds.length > 0) {
-    const { error: onErr } = await admin
-      .from("meta_ad_accounts")
-      .update({ is_enabled: true, integration_id: integrationId })
-      .eq("project_id", projectId)
-      .in("ad_account_id", adAccountIds);
-
-    if (onErr) {
-      return NextResponse.json({ success: false, error: onErr }, { status: 500 });
-    }
+  if (rpcErr) {
+    logCabinetState("meta_connections_save_rpc_error", {
+      project_id: projectId,
+      integration_id: integrationId,
+      message: rpcErr.message ?? String(rpcErr),
+    });
+    return NextResponse.json({ success: false, error: rpcErr }, { status: 500 });
   }
 
   // 2) Platform-agnostic source of truth: ad_account_settings
@@ -84,9 +84,25 @@ export async function POST(req: Request) {
     });
 
     if (settingsRows.length > 0) {
-      await admin.from("ad_account_settings").upsert(settingsRows, { onConflict: "ad_account_id" });
+      const { error: settingsErr } = await admin
+        .from("ad_account_settings")
+        .upsert(settingsRows, { onConflict: "ad_account_id" });
+      if (settingsErr) {
+        logCabinetState("meta_connections_save_settings_error", {
+          project_id: projectId,
+          integration_id: integrationId,
+          message: settingsErr.message ?? String(settingsErr),
+        });
+        return NextResponse.json({ success: false, error: settingsErr }, { status: 500 });
+      }
     }
   }
+
+  logCabinetState("meta_connections_save_ok", {
+    project_id: projectId,
+    integration_id: integrationId,
+    saved: adAccountIds.length,
+  });
 
   return NextResponse.json({ success: true, saved: adAccountIds.length });
 }

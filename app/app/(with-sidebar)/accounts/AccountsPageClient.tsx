@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { IntegrationStatusRow, IntegrationStatusValue } from "@/app/api/oauth/integration/status/route";
 
@@ -342,16 +342,29 @@ export default function AccountsPageClient() {
   const googleStatus = (googleRow?.status ?? "not_connected") as IntegrationStatusValue;
   const tiktokStatus = (tiktokRow?.status ?? "not_connected") as IntegrationStatusValue;
 
-  const metaSyncEnabled = metaStatus === "healthy" || metaStatus === "stale" || metaStatus === "error";
-  const googleSyncEnabled = googleStatus === "healthy" || googleStatus === "stale" || googleStatus === "error";
-  const tiktokSyncEnabled = tiktokStatus === "healthy" || tiktokStatus === "stale" || tiktokStatus === "error";
+  /** Allow sync attempts whenever the platform row exists (not never connected); server runs refresh inside sync. */
+  const metaSyncEnabled = metaStatus !== "not_connected";
+  const googleSyncEnabled = googleStatus !== "not_connected";
+  const tiktokSyncEnabled = tiktokStatus !== "not_connected";
 
   const metaCanShowAccountSelection =
-    metaStatus === "healthy" || metaStatus === "stale" || metaStatus === "no_accounts" || metaStatus === "error";
+    metaStatus === "healthy" ||
+    metaStatus === "stale" ||
+    metaStatus === "no_accounts" ||
+    metaStatus === "error" ||
+    metaStatus === "disconnected";
   const googleCanShowAccountSelection =
-    googleStatus === "healthy" || googleStatus === "stale" || googleStatus === "no_accounts" || googleStatus === "error";
+    googleStatus === "healthy" ||
+    googleStatus === "stale" ||
+    googleStatus === "no_accounts" ||
+    googleStatus === "error" ||
+    googleStatus === "disconnected";
   const tiktokCanShowAccountSelection =
-    tiktokStatus === "healthy" || tiktokStatus === "stale" || tiktokStatus === "no_accounts" || tiktokStatus === "error";
+    tiktokStatus === "healthy" ||
+    tiktokStatus === "stale" ||
+    tiktokStatus === "no_accounts" ||
+    tiktokStatus === "error" ||
+    tiktokStatus === "disconnected";
 
   const metaConnectedLike = metaCanShowAccountSelection;
   const googleConnectedLike = googleCanShowAccountSelection;
@@ -415,27 +428,30 @@ export default function AccountsPageClient() {
     if (metaStatus === "healthy") return "Подключено";
     if (metaStatus === "no_accounts") return "Подключено — выбери кабинеты";
     if (metaStatus === "error") return "Ошибка синка";
-    if (metaStatus === "stale") return "Данные устарели";
-    if (metaStatus === "disconnected") return "Отключено";
+    if (metaStatus === "stale")
+      return metaRow?.token_temporary ? "Временная ошибка OAuth" : "Данные устарели";
+    if (metaStatus === "disconnected") return "Требуется переподключение";
     return "Не подключено";
-  }, [metaStatus]);
+  }, [metaStatus, metaRow?.token_temporary]);
 
   const googleStatusLabel = useMemo(() => {
     if (googleStatus === "healthy") return "Подключено";
     if (googleStatus === "no_accounts") return "Подключено — выбери аккаунты";
     if (googleStatus === "error") return "Ошибка синка";
-    if (googleStatus === "stale") return "Данные устарели";
-    if (googleStatus === "disconnected") return "Отключено";
+    if (googleStatus === "stale")
+      return googleRow?.token_temporary ? "Временная ошибка OAuth" : "Данные устарели";
+    if (googleStatus === "disconnected") return "Требуется переподключение";
     return "Не подключено";
-  }, [googleStatus]);
+  }, [googleStatus, googleRow?.token_temporary]);
   const tiktokStatusLabel = useMemo(() => {
     if (tiktokStatus === "healthy") return "Подключено";
     if (tiktokStatus === "no_accounts") return "Подключено — выбери аккаунты";
     if (tiktokStatus === "error") return "Ошибка синка";
-    if (tiktokStatus === "stale") return "Данные устарели";
-    if (tiktokStatus === "disconnected") return "Отключено";
+    if (tiktokStatus === "stale")
+      return tiktokRow?.token_temporary ? "Временная ошибка OAuth" : "Данные устарели";
+    if (tiktokStatus === "disconnected") return "Требуется переподключение";
     return "Не подключено";
-  }, [tiktokStatus]);
+  }, [tiktokStatus, tiktokRow?.token_temporary]);
 
   const statusToStyles: Record<IntegrationStatusValue, React.CSSProperties> = useMemo(
     () => ({
@@ -568,6 +584,22 @@ export default function AccountsPageClient() {
     }
   }
 
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  const lastAccountsVisRefreshRef = useRef(0);
+  useEffect(() => {
+    if (!projectId) return;
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastAccountsVisRefreshRef.current < 45_000) return;
+      lastAccountsVisRefreshRef.current = now;
+      void refreshRef.current();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [projectId]);
+
   useEffect(() => {
     if (!projectId) return;
     refresh();
@@ -595,13 +627,26 @@ export default function AccountsPageClient() {
     return map;
   }, [accounts]);
 
-  /** Hide enabled accounts for platforms that are disconnected/not_connected (unified status). */
+  /** Show enabled accounts for all statuses except not_connected (disconnected still lists cabinets + reconnect CTA). */
   const platformActiveForList = useMemo(() => {
-    const metaOk = metaStatus === "healthy" || metaStatus === "stale" || metaStatus === "no_accounts" || metaStatus === "error";
+    const metaOk =
+      metaStatus === "healthy" ||
+      metaStatus === "stale" ||
+      metaStatus === "no_accounts" ||
+      metaStatus === "error" ||
+      metaStatus === "disconnected";
     const googleOk =
-      googleStatus === "healthy" || googleStatus === "stale" || googleStatus === "no_accounts" || googleStatus === "error";
+      googleStatus === "healthy" ||
+      googleStatus === "stale" ||
+      googleStatus === "no_accounts" ||
+      googleStatus === "error" ||
+      googleStatus === "disconnected";
     const tiktokOk =
-      tiktokStatus === "healthy" || tiktokStatus === "stale" || tiktokStatus === "no_accounts" || tiktokStatus === "error";
+      tiktokStatus === "healthy" ||
+      tiktokStatus === "stale" ||
+      tiktokStatus === "no_accounts" ||
+      tiktokStatus === "error" ||
+      tiktokStatus === "disconnected";
     return { meta: metaOk, google: googleOk, tiktok: tiktokOk };
   }, [metaStatus, googleStatus, tiktokStatus]);
 
@@ -640,7 +685,7 @@ export default function AccountsPageClient() {
 
   async function saveGoogleSelection() {
     if (!projectId) return;
-    if (googleStatus === "disconnected" || googleStatus === "not_connected") {
+    if (googleStatus === "not_connected") {
       setToast({ type: "error", text: "Google не подключён. Подключи OAuth и нажми «Обновить»." });
       return;
     }
@@ -664,7 +709,14 @@ export default function AccountsPageClient() {
       });
       const j = await r.json();
       if (!j?.success) {
-        setToast({ type: "error", text: j?.error ?? "Не удалось сохранить выбор Google" });
+        setToast({
+          type: "error",
+          text:
+            j?.error ??
+            (googleStatus === "disconnected"
+              ? "Не удалось сохранить: переподключи Google OAuth и попробуй снова."
+              : "Не удалось сохранить выбор Google"),
+        });
       } else {
         setToast({ type: "success", text: `Сохранено аккаунтов Google: ${j.saved ?? selectedGoogleIds.length}` });
         await refresh();
@@ -678,7 +730,7 @@ export default function AccountsPageClient() {
 
   async function saveTikTokSelection() {
     if (!projectId) return;
-    if (tiktokStatus === "disconnected" || tiktokStatus === "not_connected") {
+    if (tiktokStatus === "not_connected") {
       setToast({ type: "error", text: "TikTok не подключён. Подключи OAuth и нажми «Обновить»." });
       return;
     }
@@ -702,7 +754,14 @@ export default function AccountsPageClient() {
       });
       const j = await r.json();
       if (!j?.success) {
-        setToast({ type: "error", text: j?.error ?? "Не удалось сохранить выбор TikTok" });
+        setToast({
+          type: "error",
+          text:
+            j?.error ??
+            (tiktokStatus === "disconnected"
+              ? "Не удалось сохранить: переподключи TikTok OAuth и попробуй снова."
+              : "Не удалось сохранить выбор TikTok"),
+        });
       } else {
         setToast({ type: "success", text: `Сохранено TikTok аккаунтов: ${j.saved ?? selectedTikTokIds.length}` });
         await refresh();
@@ -743,7 +802,6 @@ export default function AccountsPageClient() {
       } else {
         setToast({ type: "success", text: `Сохранено кабинетов: ${j.saved ?? selectedIds.length}. Синхронизация…` });
         await refresh();
-        // Auto sync after save: unified dispatcher for each saved account
         const toSync = selectedIds;
         let totalRows = 0;
         for (const ad of toSync) {
@@ -865,9 +923,9 @@ export default function AccountsPageClient() {
   }
 
   const hasAnyEnabledAccounts =
-    (metaSyncEnabled && activeIds.length > 0) ||
-    (googleSyncEnabled && selectedGoogleIds.length > 0) ||
-    (tiktokSyncEnabled && selectedTikTokIds.length > 0);
+    (metaSyncEnabled && enabledMetaIds.length > 0) ||
+    (googleSyncEnabled && enabledGoogleIds.length > 0) ||
+    (tiktokSyncEnabled && enabledTikTokIds.length > 0);
 
   async function syncAll() {
     if (!projectId) return;
@@ -880,7 +938,7 @@ export default function AccountsPageClient() {
     try {
       let totalRows = 0;
 
-      for (const ad of activeIds) {
+      for (const ad of enabledMetaIds) {
         const r = await fetch("/api/sync/run", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -900,7 +958,7 @@ export default function AccountsPageClient() {
         totalRows += Number(j?.rows_written ?? 0);
       }
 
-      for (const ad of selectedGoogleIds) {
+      for (const ad of enabledGoogleIds) {
         const r = await fetch("/api/sync/run", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -920,7 +978,7 @@ export default function AccountsPageClient() {
         totalRows += Number(j?.rows_written ?? 0);
       }
 
-      for (const ad of selectedTikTokIds) {
+      for (const ad of enabledTikTokIds) {
         const r = await fetch("/api/sync/run", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -975,9 +1033,9 @@ export default function AccountsPageClient() {
 
   async function syncOneAccount(platformAccountId: string, platform: "meta" | "google" | "tiktok") {
     if (!projectId) return;
-    if (platform === "meta" && !metaSyncEnabled) return;
-    if (platform === "google" && !googleSyncEnabled) return;
-    if (platform === "tiktok" && !tiktokSyncEnabled) return;
+    if (platform === "meta" && metaStatus === "not_connected") return;
+    if (platform === "google" && googleStatus === "not_connected") return;
+    if (platform === "tiktok" && tiktokStatus === "not_connected") return;
     setSyncingAccountId(platformAccountId);
     try {
       const r = await fetch("/api/sync/run", {
@@ -1284,6 +1342,10 @@ export default function AccountsPageClient() {
               Причина: {metaRow.reason}
             </div>
           ) : null}
+          {metaRow?.token_reason_code &&
+          (metaStatus === "stale" || metaStatus === "disconnected" || metaStatus === "error") ? (
+            <div style={{ ...smallMuted, marginTop: 6, opacity: 0.8 }}>Диагностика: {metaRow.token_reason_code}</div>
+          ) : null}
 
           <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
             <div style={smallMuted}>1) Нажми «Подключить» → авторизуйся в Meta</div>
@@ -1370,6 +1432,10 @@ export default function AccountsPageClient() {
               Причина: {googleRow.reason}
             </div>
           ) : null}
+          {googleRow?.token_reason_code &&
+          (googleStatus === "stale" || googleStatus === "disconnected" || googleStatus === "error") ? (
+            <div style={{ ...smallMuted, marginTop: 6, opacity: 0.8 }}>Диагностика: {googleRow.token_reason_code}</div>
+          ) : null}
 
           <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
             <div style={smallMuted}>1) Нажми «Подключить» → авторизуйся в Google</div>
@@ -1449,6 +1515,10 @@ export default function AccountsPageClient() {
             <div style={{ ...badgeBase, ...tiktokStatusStyles }}>{tiktokStatusLabel}</div>
           </div>
           <div style={{ opacity: 0.8, marginTop: 6 }}>Расходы, показы, клики TikTok</div>
+          {tiktokRow?.token_reason_code &&
+          (tiktokStatus === "stale" || tiktokStatus === "disconnected" || tiktokStatus === "error") ? (
+            <div style={{ ...smallMuted, marginTop: 8, opacity: 0.8 }}>Диагностика: {tiktokRow.token_reason_code}</div>
+          ) : null}
           <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
             <div style={smallMuted}>1) Нажми «Подключить» → авторизуйся в TikTok</div>
             <div style={smallMuted}>2) Вернёшься назад → нажми «Обновить»</div>
@@ -1756,7 +1826,7 @@ export default function AccountsPageClient() {
                 : metaStatus === "error"
                   ? "ошибка синка"
                   : metaStatus === "disconnected"
-                    ? "отключено"
+                    ? "нужно переподключение"
                     : "не подключено"}
               {", "}
               Google{" "}
@@ -1765,7 +1835,7 @@ export default function AccountsPageClient() {
                 : googleStatus === "error"
                   ? "ошибка синка"
                   : googleStatus === "disconnected"
-                    ? "отключено"
+                    ? "нужно переподключение"
                     : "не подключено"}
               {", "}
               TikTok{" "}
@@ -1774,19 +1844,31 @@ export default function AccountsPageClient() {
                 : tiktokStatus === "error"
                   ? "ошибка синка"
                   : tiktokStatus === "disconnected"
-                    ? "отключено"
+                    ? "нужно переподключение"
                     : "не подключено"}
             </b>
           </div>
 
           <div style={{ ...smallMuted, marginTop: 8 }}>
-            Сохранено для sync:
+            Сохранено для sync (из БД):
             <br />
-            Meta: <b>{metaSyncEnabled && enabledMetaIds.length ? enabledMetaIds.join(", ") : "—"}</b>
+            Meta:{" "}
+            <b>{enabledMetaIds.length ? enabledMetaIds.join(", ") : "—"}</b>
+            {enabledMetaIds.length > 0 && metaRow?.oauth_valid === false ? (
+              <span style={{ opacity: 0.9 }}> — ожидает валидный токен, переподключи OAuth</span>
+            ) : null}
             <br />
-            Google: <b>{googleSyncEnabled && enabledGoogleIds.length ? enabledGoogleIds.join(", ") : "—"}</b>
+            Google:{" "}
+            <b>{enabledGoogleIds.length ? enabledGoogleIds.join(", ") : "—"}</b>
+            {enabledGoogleIds.length > 0 && googleRow?.oauth_valid === false ? (
+              <span style={{ opacity: 0.9 }}> — ожидает валидный токен, переподключи OAuth</span>
+            ) : null}
             <br />
-            TikTok: <b>{tiktokSyncEnabled && enabledTikTokIds.length ? enabledTikTokIds.join(", ") : "—"}</b>
+            TikTok:{" "}
+            <b>{enabledTikTokIds.length ? enabledTikTokIds.join(", ") : "—"}</b>
+            {enabledTikTokIds.length > 0 && tiktokRow?.oauth_valid === false ? (
+              <span style={{ opacity: 0.9 }}> — ожидает валидный токен, переподключи OAuth</span>
+            ) : null}
           </div>
 
           <div style={{ ...smallMuted, marginTop: 12 }}>

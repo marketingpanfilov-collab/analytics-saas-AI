@@ -44,6 +44,17 @@ export function dashboardCacheSet(key: string, value: unknown, ttlMs: number): v
   });
 }
 
+/** Remove all cached dashboard entries for a project (after sync writes new metrics). */
+export function dashboardCacheInvalidateProject(projectId: string): void {
+  if (!projectId) return;
+  for (const key of [...store.keys()]) {
+    const parts = key.split(":");
+    if (parts.length >= 2 && parts[1] === projectId) {
+      store.delete(key);
+    }
+  }
+}
+
 /** TTLs in milliseconds (summary 30s, metrics 30s, timeseries 60s, bundle 60s) */
 export const DASHBOARD_CACHE_TTL = {
   summary: 30_000,

@@ -1,17 +1,14 @@
 import { NextResponse } from "next/server";
+import { deleteCanonicalIntegrationById } from "@/app/lib/disconnectCanonicalIntegration";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 
 /**
  * POST /api/oauth/google/integration/disconnect
  * Body: { project_id: string }
  *
- * Fully removes project-bound Google integration data so the UI shows no Google accounts/counters.
- * Deletion order (respects FKs):
- * 1) integration_entities for this integration + platform = google
- * 2) ad_account_settings for Google ad_accounts of this integration (before deleting ad_accounts)
- * 3) ad_accounts for this integration (Google only; CASCADE will remove daily_ad_metrics for those accounts)
- * 4) integrations_auth for this integration
- * We keep the integrations row so reconnecting creates/uses the same slot; no orphan row is visible because auth and accounts are gone.
+ * Removes the Google integration row and dependent data: `integration_entities`,
+ * `ad_account_settings` for linked accounts, then `integrations` (CASCADE:
+ * `integrations_auth`, `ad_accounts`, `daily_ad_metrics` for those accounts).
  */
 export async function POST(req: Request) {
   let body: unknown;
@@ -51,8 +48,8 @@ export async function POST(req: Request) {
     console.error("[GOOGLE_DISCONNECT_DB_ERROR]", {
       step: "resolve_integration",
       message: intErr.message,
-      details: (intErr as any).details ?? null,
-      hint: (intErr as any).hint ?? null,
+      details: (intErr as { details?: string }).details ?? null,
+      hint: (intErr as { hint?: string }).hint ?? null,
     });
     return NextResponse.json(
       {
@@ -72,103 +69,22 @@ export async function POST(req: Request) {
   const integrationId = integration.id as string;
 
   console.log("[GOOGLE_DISCONNECT_BEFORE_DB]", { projectId, integrationId });
-  logStep("before_db", { projectId, integrationId });
+  logStep("delete_canonical_integration", { projectId, integrationId });
 
-  logStep("select_ad_accounts", { projectId, integrationId });
+  const { error: delErr } = await deleteCanonicalIntegrationById(admin, integrationId, {
+    integrationEntitiesPlatform: "google",
+  });
 
-  const { data: googleAdAccounts, error: adAccountsSelectErr } = await admin
-    .from("ad_accounts")
-    .select("id")
-    .eq("integration_id", integrationId);
-  if (adAccountsSelectErr) {
+  if (delErr) {
     console.error("[GOOGLE_DISCONNECT_DB_ERROR]", {
-      step: "select_ad_accounts",
-      message: adAccountsSelectErr.message,
-      details: (adAccountsSelectErr as any).details ?? null,
-      hint: (adAccountsSelectErr as any).hint ?? null,
+      step: "delete_canonical_integration",
+      message: delErr.message,
     });
     return NextResponse.json(
       {
         success: false,
-        step: "select_ad_accounts",
-        error: adAccountsSelectErr.message ?? "Failed to load Google ad_accounts",
-      },
-      { status: 500 }
-    );
-  }
-  const adAccountIds = (googleAdAccounts ?? []).map((r: { id: string }) => r.id);
-
-  if (adAccountIds.length > 0) {
-    logStep("delete_ad_account_settings", {
-      projectId,
-      integrationId,
-      adAccountIdsCount: adAccountIds.length,
-    });
-
-    const { error: settingsErr } = await admin
-      .from("ad_account_settings")
-      .delete()
-      .in("ad_account_id", adAccountIds);
-    if (settingsErr) {
-      console.error("[GOOGLE_DISCONNECT_DB_ERROR]", {
-        step: "delete_ad_account_settings",
-        message: settingsErr.message,
-        details: (settingsErr as any).details ?? null,
-        hint: (settingsErr as any).hint ?? null,
-      });
-      return NextResponse.json(
-        {
-          success: false,
-          step: "delete_ad_account_settings",
-          error: settingsErr.message ?? "Failed to delete ad_account_settings",
-        },
-        { status: 500 }
-      );
-    }
-  }
-
-  logStep("delete_integration_entities", { projectId, integrationId });
-
-  const { error: entitiesErr } = await admin
-    .from("integration_entities")
-    .delete()
-    .eq("integration_id", integrationId)
-    .eq("platform", "google");
-  if (entitiesErr) {
-    console.error("[GOOGLE_DISCONNECT_DB_ERROR]", {
-      step: "delete_integration_entities",
-      message: entitiesErr.message,
-      details: (entitiesErr as any).details ?? null,
-      hint: (entitiesErr as any).hint ?? null,
-    });
-    return NextResponse.json(
-      {
-        success: false,
-        step: "delete_integration_entities",
-        error: entitiesErr.message ?? "Failed to delete integration_entities",
-      },
-      { status: 500 }
-    );
-  }
-
-  logStep("delete_integrations_auth", { projectId, integrationId });
-
-  const { error: authErr } = await admin
-    .from("integrations_auth")
-    .delete()
-    .eq("integration_id", integrationId);
-  if (authErr) {
-    console.error("[GOOGLE_DISCONNECT_DB_ERROR]", {
-      step: "delete_integrations_auth",
-      message: authErr.message,
-      details: (authErr as any).details ?? null,
-      hint: (authErr as any).hint ?? null,
-    });
-    return NextResponse.json(
-      {
-        success: false,
-        step: "delete_integrations_auth",
-        error: authErr.message ?? "Failed to delete integrations_auth",
+        step: "delete_canonical_integration",
+        error: delErr.message ?? "Failed to disconnect Google integration",
       },
       { status: 500 }
     );

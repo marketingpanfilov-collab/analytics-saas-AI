@@ -691,7 +691,7 @@ export default function Sidebar() {
   const elapsedDaysBeforeToday = Math.max(0, utcDay - 1);
   const remainingDays = Math.max(1, daysInMonth - elapsedDaysBeforeToday);
 
-  // Кумулятивный план: вчера недобрали -> сегодня план выше; вчера перевыполнили -> ниже.
+  /** Остаток плана и дневная цель: (план месяца − факт с 1-го до вчера) / оставшиеся дни (вкл. сегодня), UTC как в API. */
   const remainingSalesPlan = Math.max(0, totalSalesPlan - (factSalesToYesterday ?? 0));
   const remainingBudgetPlan = Math.max(0, totalBudgetPlan - (factSpendToYesterday ?? 0));
   const hasSpendPlan = currentMonthPlan != null && (currentMonthPlan.sales_plan_budget != null || currentMonthPlan.repeat_sales_budget != null);
@@ -710,7 +710,7 @@ export default function Sidebar() {
     ? "noPlan"
     : spendPlanLoading
       ? "loadingFact"
-      : dailyBudgetPlan <= 0
+      : totalBudgetPlan > 0 && remainingBudgetPlan <= 0
         ? "planExhausted"
         : "activePlan";
 
@@ -1208,12 +1208,16 @@ export default function Sidebar() {
           📈 LTV
         </Link>
 
-        <Link href={withProjectId("/app/utm-builder")} style={itemStyle(pathname.startsWith("/app/utm-builder"))}>
-          🔗 UTM Builder
+        <Link href={withProjectId("/app/weekly-report")} style={itemStyle(pathname.startsWith("/app/weekly-report"))}>
+          📊 Shared Board Report
         </Link>
 
-        <Link href={withProjectId("/app/pixels")} style={itemStyle(pathname.startsWith("/app/pixels"))}>
-          🛜 BQ Pixel
+        <Link href={withProjectId("/app/conversion-data")} style={itemStyle(pathname.startsWith("/app/conversion-data"))}>
+          🧾 Conversion Data
+        </Link>
+
+        <Link href={withProjectId("/app/attribution-debugger")} style={itemStyle(pathname.startsWith("/app/attribution-debugger"))}>
+          🔍 Проверка атрибуции
         </Link>
 
         <div
@@ -1225,31 +1229,22 @@ export default function Sidebar() {
           }}
         />
 
+        <Link href={withProjectId("/app/utm-builder")} style={itemStyle(pathname.startsWith("/app/utm-builder"))}>
+          🔗 UTM Builder
+        </Link>
+
         <Link href={withProjectId("/app/accounts")} style={itemStyle(pathname.startsWith("/app/accounts"))}>
           🌎 Аккаунты
         </Link>
 
-        <Link href={withProjectId("/app/manage-access")} style={itemStyle(pathname.startsWith("/app/manage-access"))}>
-          🔐 Управление доступом
+        <Link href={withProjectId("/app/pixels")} style={itemStyle(pathname.startsWith("/app/pixels"))}>
+          {"🛜 Pixel & CRM"}
         </Link>
 
-        <Link href={withProjectId("/app/conversion-data")} style={itemStyle(pathname.startsWith("/app/conversion-data"))}>
-          🧾 Conversion Data
-        </Link>
-
-        <Link href={withProjectId("/app/attribution-debugger")} style={itemStyle(pathname.startsWith("/app/attribution-debugger"))}>
-          🔍 Проверка атрибуции
-        </Link>
-
-        <Link href={withProjectId("/app/weekly-report")} style={itemStyle(pathname.startsWith("/app/weekly-report"))}>
-          📊 Weekly Board Report
-        </Link>
-
-        <Link href={withProjectId("/app/api")} style={itemStyle(pathname.startsWith("/app/api"))}>
-          🔑 API
-        </Link>
-
-        <Link href={withProjectId("/app/settings")} style={itemStyle(pathname.startsWith("/app/settings"))}>
+        <Link
+          href={withProjectId("/app/settings")}
+          style={itemStyle(pathname.startsWith("/app/settings"))}
+        >
           ⚙️ Настройки
         </Link>
 
@@ -1268,6 +1263,8 @@ export default function Sidebar() {
           month={new Date().getMonth() + 1}
           year={new Date().getFullYear()}
           initialPlan={currentMonthPlan}
+          factSpendToYesterday={factSpendToYesterday}
+          remainingDaysInMonth={remainingDays}
           onSaved={() => {
             void handlePlanSaved();
           }}

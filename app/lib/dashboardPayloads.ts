@@ -12,58 +12,21 @@ import {
   DASHBOARD_CACHE_TTL,
 } from "@/app/lib/dashboardCache";
 import {
-  convertMoneyStrict,
-  createCurrencyDiagnostics,
-  getLatestUsdToKztRate,
-  getUsdToKztRateMapForDays,
-  normalizeCurrencyCode,
-  pushCurrencyReason,
-  resolveUsdToKztRateForDay,
-} from "@/app/lib/currencyNormalization";
-import {
-  fetchConversionEventsPaginated,
-  fetchVisitSourceEventsForVisitors,
-} from "@/app/lib/dashboardConversionQueries";
+  fetchAndEnrichKpiConversionRows,
+  filterEnrichedRowsByDashboardSources,
+  sumPurchaseRevenueProjectCurrency,
+} from "@/app/lib/dashboardKpiAttribution";
+import type { DashboardRangeParams } from "@/app/lib/dashboardRangeParams";
 
-export const PLATFORM_SOURCES = ["meta", "google", "tiktok", "yandex"] as const;
+export type { DashboardRangeParams } from "@/app/lib/dashboardRangeParams";
+export {
+  PLATFORM_SOURCES,
+  toISODate,
+  parseDashboardRangeParams,
+  isNonPlatformSourcesOnly,
+} from "@/app/lib/dashboardRangeParams";
 
-export function toISODate(s: string | null) {
-  if (!s) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
-  return s;
-}
-
-export type DashboardRangeParams = {
-  projectId: string;
-  start: string;
-  end: string;
-  sources?: string[];
-  accountIds?: string[];
-  sourcesKey: string;
-  accountIdsKey: string;
-};
-
-export function parseDashboardRangeParams(searchParams: URLSearchParams): DashboardRangeParams | null {
-  const projectId = searchParams.get("project_id")?.trim() ?? searchParams.get("project_id");
-  const start = toISODate(searchParams.get("start"));
-  const end = toISODate(searchParams.get("end"));
-  const sourcesRaw = searchParams.get("sources");
-  const sources = sourcesRaw ? sourcesRaw.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
-  const accountIdsRaw = searchParams.get("account_ids");
-  const accountIds = accountIdsRaw ? accountIdsRaw.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
-  if (!projectId || !start || !end) return null;
-  const sourcesKey = sources?.length ? [...sources].sort().join(",") : "all";
-  const accountIdsKey = accountIds?.length ? [...accountIds].sort().join(",") : "all";
-  return { projectId, start, end, sources, accountIds, sourcesKey, accountIdsKey };
-}
-
-/** When user selected sources but none are ad platforms — paid spend series must be empty/zero. */
-export function isNonPlatformSourcesOnly(sources: string[] | undefined): boolean {
-  if (!sources?.length) return false;
-  return !sources.some((s) => PLATFORM_SOURCES.includes(s.toLowerCase() as (typeof PLATFORM_SOURCES)[number]));
-}
-
-/** Match summary/timeseries routes: skip cache only when historical sync was started (not only range_partially_covered). */
+/** Skip writing cache when historical gap sync is in progress (body carries historical_sync_started). */
 function shouldSkipCanonicalCache(body: Record<string, unknown>): boolean {
   const b = body.backfill as { historical_sync_started?: boolean } | undefined;
   return Boolean(b?.historical_sync_started);
@@ -142,7 +105,7 @@ export async function buildSummaryPayload(
     },
   };
   applyBackfillMetadata(body, backfillResult);
-  if (!shouldSkipCanonicalCache(body)) {
+  if (!didSync && !shouldSkipCanonicalCache(body)) {
     dashboardCacheSet(cacheKey, body, DASHBOARD_CACHE_TTL.summary);
   }
   return body;
@@ -179,7 +142,7 @@ export async function buildTimeseriesPayload(
       points,
     };
     applyBackfillMetadata(body, backfillResult);
-    if (!shouldSkipCanonicalCache(body)) {
+    if (!didSync && !shouldSkipCanonicalCache(body)) {
       dashboardCacheSet(cacheKey, body, DASHBOARD_CACHE_TTL.timeseries);
     }
     return body;
@@ -193,42 +156,6 @@ export async function buildTimeseriesPayload(
   return applyBackfillMetadata(emptyBody, backfillResult);
 }
 
-const PLATFORM_SOURCE_VALUES = ["meta", "google", "tiktok", "yandex"] as const;
-
-function normalizePlatformSource(raw: string | null): string | null {
-  const v = (raw ?? "").trim().toLowerCase();
-  if (!v) return null;
-  return PLATFORM_SOURCE_VALUES.includes(v as (typeof PLATFORM_SOURCE_VALUES)[number]) ? v : null;
-}
-
-/** DB stores e.g. facebook_ads / google_ads on traffic_platform; dashboard filters use meta / google / … */
-function platformForDashboardFilter(row: {
-  traffic_source?: string | null;
-  traffic_platform?: string | null;
-  source?: string | null;
-}): string | null {
-  const fromTs = normalizePlatformSource(row.traffic_source ?? null);
-  if (fromTs) return fromTs;
-  const tp = (row.traffic_platform ?? "").trim().toLowerCase();
-  if (tp === "facebook_ads") return "meta";
-  if (tp === "google_ads") return "google";
-  if (tp === "tiktok_ads") return "tiktok";
-  if (tp === "yandex_ads") return "yandex";
-  return normalizePlatformSource(row.source ?? null);
-}
-
-function rangeDayCountInclusive(start: string, end: string): number {
-  const a = new Date(start + "T12:00:00.000Z").getTime();
-  const b = new Date(end + "T12:00:00.000Z").getTime();
-  return Math.floor((b - a) / 86400000) + 1;
-}
-
-/** Optional: skip visit_source_events join for long ranges when DASHBOARD_KPI_FAST_CONVERSIONS=1 (faster, attribution from conversion fields only). */
-function shouldSkipVisitAttributionForKpi(start: string, end: string): boolean {
-  if (process.env.DASHBOARD_KPI_FAST_CONVERSIONS !== "1") return false;
-  return rangeDayCountInclusive(start, end) >= 90;
-}
-
 export async function buildKpiPayload(
   admin: SupabaseClient,
   projectId: string,
@@ -236,17 +163,13 @@ export async function buildKpiPayload(
   end: string,
   sources: string[] | undefined
 ): Promise<Record<string, unknown>> {
-  const from = `${start}T00:00:00.000Z`;
-  const to = `${end}T23:59:59.999Z`;
-  const skipVisits = shouldSkipVisitAttributionForKpi(start, end);
-
   const convSelect =
-    "event_name, value, currency, source, traffic_source, traffic_platform, visitor_id, created_at, event_time";
-  const { rows: convRows, pagesFetched: convPages } = await fetchConversionEventsPaginated(
+    "id, event_name, value, currency, source, traffic_source, traffic_platform, visitor_id, user_external_id, created_at, event_time";
+  const { rows: enriched, pagesFetched: convPages } = await fetchAndEnrichKpiConversionRows(
     admin,
     projectId,
-    from,
-    to,
+    start,
+    end,
     convSelect
   );
   if (convPages > 1) {
@@ -255,161 +178,24 @@ export async function buildKpiPayload(
       start,
       end,
       convPages,
-      rowCount: convRows.length,
+      rowCount: enriched.length,
       note: "H3: KPI conversions required multiple PostgREST pages; pre-fix counts were capped at ~1000.",
     });
   }
 
-  type ConversionRow = {
-    event_name: string;
-    value: number | null;
-    currency?: string | null;
-    source: string | null;
-    traffic_source: string | null;
-    traffic_platform: string | null;
-    visitor_id: string | null;
-    created_at: string;
-    event_time: string | null;
-  };
-
-  const rows = convRows as ConversionRow[];
-
-  const visitorIds = Array.from(new Set(rows.map((r) => r.visitor_id).filter((v): v is string => !!v)));
-
-  type VisitRow = {
-    visitor_id: string | null;
-    source_classification: string | null;
-    traffic_source: string | null;
-    traffic_platform: string | null;
-    created_at: string;
-  };
-
-  const lookupFrom = new Date(`${start}T00:00:00.000Z`);
-  lookupFrom.setUTCDate(lookupFrom.getUTCDate() - 30);
-  const lookupFromIso = lookupFrom.toISOString();
-
-  const visitsByVisitor = new Map<string, VisitRow[]>();
-  if (!skipVisits && visitorIds.length > 0) {
-    try {
-      const { rows: visitRows, batches: visitBatches } = await fetchVisitSourceEventsForVisitors(
-        admin,
-        projectId,
-        visitorIds,
-        lookupFromIso,
-        to
-      );
-      if (visitBatches > 1) {
-        console.log("[KPI_VISITS_BATCH]", { projectId, visitBatches, visitorIdCount: visitorIds.length });
-      }
-      for (const v of visitRows as VisitRow[]) {
-        if (!v.visitor_id) continue;
-        const list = visitsByVisitor.get(v.visitor_id) ?? [];
-        list.push(v);
-        visitsByVisitor.set(v.visitor_id, list);
-      }
-      for (const [key, list] of visitsByVisitor.entries()) {
-        list.sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
-        visitsByVisitor.set(key, list);
-      }
-    } catch (visitError) {
-      console.warn("[DASHBOARD_KPI_VISITS_ERROR]", visitError);
-    }
-  } else if (skipVisits) {
-    console.log("[KPI_FAST_CONVERSIONS]", { projectId, start, end, rangeDays: rangeDayCountInclusive(start, end) });
-  }
-
-  const enriched = rows.map((r) => {
-    let platformSource = platformForDashboardFilter(r);
-
-    let sourceClass: string | null = null;
-    if (r.visitor_id) {
-      const visits = visitsByVisitor.get(r.visitor_id) ?? [];
-      if (visits.length) {
-        const convTs = r.event_time ?? r.created_at;
-        let chosen: VisitRow | null = null;
-        for (const v of visits) {
-          if (v.created_at <= convTs) {
-            chosen = v;
-          } else {
-            break;
-          }
-        }
-        sourceClass = (chosen?.source_classification ?? null)?.trim().toLowerCase() || null;
-        if (!platformSource && chosen) {
-          platformSource = platformForDashboardFilter({
-            traffic_source: chosen.traffic_source,
-            traffic_platform: chosen.traffic_platform,
-            source: null,
-          });
-        }
-      }
-    }
-
-    if (!sourceClass && !platformSource) {
-      sourceClass = "direct";
-    }
-
-    return {
-      ...r,
-      _platform_source: platformSource,
-      _source_class: sourceClass,
-    };
-  });
-
   const hasDirect = enriched.some((r) => r._source_class === "direct");
-
-  const effectiveRows =
-    sources && sources.length > 0
-      ? enriched.filter((r) => {
-          const platformHit = r._platform_source && sources.includes(r._platform_source);
-          const classHit = r._source_class && sources.includes(r._source_class);
-          return platformHit || classHit;
-        })
-      : enriched;
+  const effectiveRows = filterEnrichedRowsByDashboardSources(enriched, sources);
 
   const registrations = effectiveRows.filter((r) => r.event_name === "registration");
   const purchases = effectiveRows.filter((r) => r.event_name === "purchase");
   const registrationsCount = registrations.length;
   const salesCount = purchases.length;
 
-  const { data: projectRow } = await admin
-    .from("projects")
-    .select("currency")
-    .eq("id", projectId)
-    .maybeSingle();
-  const projectCurrency =
-    String((projectRow as { currency?: string | null } | null)?.currency ?? "USD")
-      .trim()
-      .toUpperCase() === "KZT"
-      ? "KZT"
-      : "USD";
-  let latestUsdToKztRate: number | null = null;
-  let usdToKztRateByDay = new Map<string, number>();
-  if (projectCurrency === "KZT") {
-    const days = purchases.map((r) => String(r.created_at ?? "").slice(0, 10));
-    [usdToKztRateByDay, latestUsdToKztRate] = await Promise.all([
-      getUsdToKztRateMapForDays(admin, days),
-      getLatestUsdToKztRate(admin),
-    ]);
-  }
-  const currencyDiagnostics = createCurrencyDiagnostics();
-  const revenue = purchases.reduce((sum, r) => {
-    const amount = Number(r.value ?? 0) || 0;
-    const normalized = normalizeCurrencyCode(r.currency);
-    const fromCurrency = normalized ?? projectCurrency;
-    if (!normalized && (r.currency == null || String(r.currency).trim() === "")) {
-      pushCurrencyReason(currencyDiagnostics, "currency_missing", "conversion_events.currency missing; fallback used.");
-    } else if (!normalized) {
-      pushCurrencyReason(
-        currencyDiagnostics,
-        "currency_unsupported",
-        `Unsupported currency '${String(r.currency)}'; fallback used.`
-      );
-    }
-    const day = String(r.event_time ?? r.created_at ?? "").slice(0, 10);
-    const dayRate = resolveUsdToKztRateForDay(day, usdToKztRateByDay, latestUsdToKztRate, currencyDiagnostics);
-    return sum + convertMoneyStrict(amount, fromCurrency, projectCurrency, dayRate, currencyDiagnostics);
-  }, 0);
+  const { revenue, currency_diagnostics: currencyDiagnostics } = await sumPurchaseRevenueProjectCurrency(
+    admin,
+    projectId,
+    purchases
+  );
   if (currencyDiagnostics.reason_codes.length > 0) {
     console.warn("[KPI_CURRENCY_DIAGNOSTICS]", {
       projectId,
@@ -435,17 +221,13 @@ export async function buildTimeseriesConversionsPayload(
   end: string,
   sources: string[] | undefined
 ): Promise<Record<string, unknown>> {
-  const from = `${start}T00:00:00.000Z`;
-  const to = `${end}T23:59:59.999Z`;
-  const skipVisits = shouldSkipVisitAttributionForKpi(start, end);
-
   const convSelect =
-    "event_name, source, traffic_source, traffic_platform, visitor_id, created_at, event_time";
-  const { rows: convRows, pagesFetched: convPages } = await fetchConversionEventsPaginated(
+    "id, event_name, source, traffic_source, traffic_platform, visitor_id, created_at, event_time";
+  const { rows: enriched, pagesFetched: convPages } = await fetchAndEnrichKpiConversionRows(
     admin,
     projectId,
-    from,
-    to,
+    start,
+    end,
     convSelect
   );
   if (convPages > 1) {
@@ -454,103 +236,12 @@ export async function buildTimeseriesConversionsPayload(
       start,
       end,
       convPages,
-      rowCount: convRows.length,
+      rowCount: enriched.length,
       note: "H3: timeseries conversions required multiple PostgREST pages; pre-fix series were capped at ~1000.",
     });
   }
 
-  type ConversionRow = {
-    event_name: string;
-    source: string | null;
-    traffic_source: string | null;
-    traffic_platform: string | null;
-    visitor_id: string | null;
-    created_at: string;
-    event_time: string | null;
-  };
-
-  const rows = convRows as ConversionRow[];
-
-  const visitorIds = Array.from(new Set(rows.map((r) => r.visitor_id).filter((v): v is string => !!v)));
-
-  type VisitRow = {
-    visitor_id: string | null;
-    source_classification: string | null;
-    traffic_source: string | null;
-    traffic_platform: string | null;
-    created_at: string;
-  };
-
-  const lookupFrom = new Date(`${start}T00:00:00.000Z`);
-  lookupFrom.setUTCDate(lookupFrom.getUTCDate() - 30);
-  const lookupFromIso = lookupFrom.toISOString();
-
-  const visitsByVisitor = new Map<string, VisitRow[]>();
-  if (!skipVisits && visitorIds.length > 0) {
-    try {
-      const { rows: visitRows, batches: visitBatches } = await fetchVisitSourceEventsForVisitors(
-        admin,
-        projectId,
-        visitorIds,
-        lookupFromIso,
-        to
-      );
-      if (visitBatches > 1) {
-        console.log("[TIMESERIES_VISITS_BATCH]", { projectId, visitBatches, visitorIdCount: visitorIds.length });
-      }
-      for (const v of visitRows as VisitRow[]) {
-        if (!v.visitor_id) continue;
-        const list = visitsByVisitor.get(v.visitor_id) ?? [];
-        list.push(v);
-        visitsByVisitor.set(v.visitor_id, list);
-      }
-      for (const [key, list] of visitsByVisitor.entries()) {
-        list.sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
-        visitsByVisitor.set(key, list);
-      }
-    } catch (visitError) {
-      console.warn("[TIMESERIES_CONVERSIONS_VISITS_ERROR]", visitError);
-    }
-  }
-
-  const enriched = rows.map((r) => {
-    let platformSource = platformForDashboardFilter(r);
-    let sourceClass: string | null = null;
-    if (r.visitor_id) {
-      const visits = visitsByVisitor.get(r.visitor_id) ?? [];
-      if (visits.length) {
-        const convTs = r.event_time ?? r.created_at;
-        let chosen: VisitRow | null = null;
-        for (const v of visits) {
-          if (v.created_at <= convTs) chosen = v;
-          else break;
-        }
-        sourceClass = (chosen?.source_classification ?? null)?.trim().toLowerCase() || null;
-        if (!platformSource && chosen) {
-          platformSource = platformForDashboardFilter({
-            traffic_source: chosen.traffic_source,
-            traffic_platform: chosen.traffic_platform,
-            source: null,
-          });
-        }
-      }
-    }
-    if (!sourceClass && !platformSource) sourceClass = "direct";
-    return {
-      ...r,
-      _platform_source: platformSource,
-      _source_class: sourceClass,
-    };
-  });
-
-  const effectiveRows =
-    sources && sources.length > 0
-      ? enriched.filter((r) => {
-          const platformHit = r._platform_source && sources.includes(r._platform_source);
-          const classHit = r._source_class && sources.includes(r._source_class);
-          return platformHit || classHit;
-        })
-      : enriched;
+  const effectiveRows = filterEnrichedRowsByDashboardSources(enriched, sources);
 
   const byDate = new Map<string, { registrations: number; sales: number }>();
   for (const r of effectiveRows) {

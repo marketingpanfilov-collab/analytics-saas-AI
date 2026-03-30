@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getValidGoogleAccessToken } from "@/app/lib/googleAdsAuth";
-import { getValidTikTokAccessToken } from "@/app/lib/tiktokAdsAuth";
+import { getGoogleAccessTokenForApi } from "@/app/lib/googleAdsAuth";
+import { getTikTokAccessTokenForApi } from "@/app/lib/tiktokAdsAuth";
 
 const EXPIRY_BUFFER_MS = 60 * 1000;
 
@@ -65,6 +65,11 @@ async function fbDebugToken(userToken: string): Promise<DebugTokenResponse> {
   return (await r.json()) as DebugTokenResponse;
 }
 
+/**
+ * Meta uses a long-lived user access token (not Google-style refresh_token in our stack).
+ * When it expires or is revoked, the user must complete OAuth again — there is no server-only
+ * silent renewal comparable to Google/TikTok refresh_token.
+ */
 export async function getMetaTokenHealth(
   accessToken: string | null,
   expiresAt: string | null
@@ -117,6 +122,13 @@ export async function getMetaTokenHealth(
   }
 }
 
+function googlePermanentReason(oauthError: string | undefined): TokenHealthReasonCode {
+  if (!oauthError || oauthError === "no_refresh_token") return "token_missing";
+  const e = oauthError.toLowerCase();
+  if (e === "invalid_grant" || e === "unauthorized_client") return "permissions_revoked";
+  return "refresh_failed";
+}
+
 export async function getGoogleTokenHealth(
   admin: SupabaseClient,
   integrationId: string
@@ -133,25 +145,19 @@ export async function getGoogleTokenHealth(
   }
 
   const wasExpired = isExpired(before?.token_expires_at ?? null);
-  try {
-    const token = await getValidGoogleAccessToken(admin, integrationId);
-    if (token) {
-      return {
-        connected: true,
-        oauth_valid: true,
-        reason_code: "ok",
-        temporary: false,
-        last_recovery_attempt_at: wasExpired ? new Date().toISOString() : null,
-      };
-    }
+  const gr = await getGoogleAccessTokenForApi(admin, integrationId);
+
+  if (gr.ok) {
     return {
       connected: true,
-      oauth_valid: false,
-      reason_code: before?.refresh_token ? "refresh_failed" : wasExpired ? "token_expired" : "token_missing",
+      oauth_valid: true,
+      reason_code: "ok",
       temporary: false,
-      last_recovery_attempt_at: new Date().toISOString(),
+      last_recovery_attempt_at: wasExpired ? new Date().toISOString() : null,
     };
-  } catch {
+  }
+
+  if (gr.kind === "transient") {
     return {
       connected: true,
       oauth_valid: false,
@@ -160,6 +166,21 @@ export async function getGoogleTokenHealth(
       last_recovery_attempt_at: new Date().toISOString(),
     };
   }
+
+  return {
+    connected: true,
+    oauth_valid: false,
+    reason_code: googlePermanentReason(gr.oauthError),
+    temporary: false,
+    last_recovery_attempt_at: new Date().toISOString(),
+  };
+}
+
+function tiktokPermanentReason(detail: string | undefined): TokenHealthReasonCode {
+  if (!detail || detail === "no_refresh_token") return "token_missing";
+  const m = detail.toLowerCase();
+  if (m.includes("invalid") || m.includes("revoke") || m.includes("expired")) return "permissions_revoked";
+  return "refresh_failed";
 }
 
 export async function getTikTokTokenHealth(
@@ -178,25 +199,19 @@ export async function getTikTokTokenHealth(
   }
 
   const wasExpired = isExpired(before?.token_expires_at ?? null);
-  try {
-    const token = await getValidTikTokAccessToken(admin, integrationId);
-    if (token) {
-      return {
-        connected: true,
-        oauth_valid: true,
-        reason_code: "ok",
-        temporary: false,
-        last_recovery_attempt_at: wasExpired ? new Date().toISOString() : null,
-      };
-    }
+  const tr = await getTikTokAccessTokenForApi(admin, integrationId);
+
+  if (tr.ok) {
     return {
       connected: true,
-      oauth_valid: false,
-      reason_code: before?.refresh_token ? "refresh_failed" : wasExpired ? "token_expired" : "token_missing",
+      oauth_valid: true,
+      reason_code: "ok",
       temporary: false,
-      last_recovery_attempt_at: new Date().toISOString(),
+      last_recovery_attempt_at: wasExpired ? new Date().toISOString() : null,
     };
-  } catch {
+  }
+
+  if (tr.kind === "transient") {
     return {
       connected: true,
       oauth_valid: false,
@@ -205,5 +220,12 @@ export async function getTikTokTokenHealth(
       last_recovery_attempt_at: new Date().toISOString(),
     };
   }
-}
 
+  return {
+    connected: true,
+    oauth_valid: false,
+    reason_code: tiktokPermanentReason(tr.detail),
+    temporary: false,
+    last_recovery_attempt_at: new Date().toISOString(),
+  };
+}

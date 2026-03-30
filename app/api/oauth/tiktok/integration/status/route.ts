@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
-import { getValidTikTokAccessToken } from "@/app/lib/tiktokAdsAuth";
+import { getTikTokAccessTokenForApi } from "@/app/lib/tiktokAdsAuth";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -25,10 +25,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ success: true, valid: false, integration_id: null });
   }
 
-  const token = await getValidTikTokAccessToken(admin, integration.id);
+  const tr = await getTikTokAccessTokenForApi(admin, integration.id);
   return NextResponse.json({
     success: true,
-    valid: !!token,
+    valid: tr.ok,
+    token_temporary: !tr.ok && tr.kind === "transient",
     integration_id: integration.id,
   });
 }

@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { deleteCanonicalIntegrationById } from "@/app/lib/disconnectCanonicalIntegration";
 import { getMetaIntegrationForProject } from "@/app/lib/metaIntegration";
+import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 
 /**
  * POST /api/oauth/meta/integration/disconnect
  * Body: { project_id: string }
  *
- * Removes the Meta integration (token and link) but keeps historical data:
- * - Deletes meta_ad_accounts for this project (legacy selection state).
- * - Deletes integrations_auth row (shared auth layer).
- * - Deletes the integrations_meta row (legacy token storage).
- * Does NOT delete: integrations row, ad_accounts, daily_ad_metrics, campaigns.
+ * Removes Meta OAuth state: `meta_ad_accounts` for the linked legacy row(s),
+ * canonical `integrations` (CASCADE: auth, `ad_accounts`, metrics), then
+ * `integrations_meta` rows for this connection. `integrations_meta.integrations_id`
+ * is ON DELETE SET NULL — we delete meta rows by id so tokens are not left behind.
  */
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
@@ -27,58 +27,86 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, disconnected: true, message: "Already disconnected" });
   }
 
-  const integrationsMetaId = integration.id;
+  const returnedId = integration.id as string;
 
-  // Resolve canonical integration_id for integrations_auth delete
-  const { data: metaRow } = await admin
+  const { data: rowByPk } = await admin
     .from("integrations_meta")
-    .select("integrations_id")
-    .eq("id", integrationsMetaId)
+    .select("id, integrations_id")
+    .eq("id", returnedId)
     .maybeSingle();
-  const canonicalIntegrationId =
-    (metaRow as { integrations_id?: string } | null)?.integrations_id ?? integration.id;
 
-  const { error: metaAccErr } = await admin
-    .from("meta_ad_accounts")
-    .delete()
-    .eq("project_id", projectId)
-    .eq("integration_id", integrationsMetaId);
+  const metaRowIds = new Set<string>();
+  let canonicalIntegrationId: string | null = null;
 
-  if (metaAccErr) {
-    return NextResponse.json(
-      { success: false, error: metaAccErr.message ?? "Failed to delete meta_ad_accounts" },
-      { status: 500 }
-    );
+  if (rowByPk) {
+    metaRowIds.add(rowByPk.id);
+    canonicalIntegrationId = rowByPk.integrations_id ?? null;
+  } else {
+    const { data: intRow } = await admin
+      .from("integrations")
+      .select("id")
+      .eq("id", returnedId)
+      .eq("project_id", projectId)
+      .eq("platform", "meta")
+      .maybeSingle();
+
+    if (intRow?.id) {
+      canonicalIntegrationId = intRow.id;
+    }
   }
 
   if (canonicalIntegrationId) {
-    const { error: authErr } = await admin
-      .from("integrations_auth")
+    const { data: siblings } = await admin
+      .from("integrations_meta")
+      .select("id")
+      .eq("project_id", projectId)
+      .eq("integrations_id", canonicalIntegrationId);
+    for (const r of siblings ?? []) {
+      metaRowIds.add((r as { id: string }).id);
+    }
+  }
+
+  const metaAccKeys = new Set<string>([...metaRowIds, returnedId]);
+  for (const integrationMetaId of metaAccKeys) {
+    const { error: metaAccErr } = await admin
+      .from("meta_ad_accounts")
       .delete()
-      .eq("integration_id", canonicalIntegrationId);
-    if (authErr) {
+      .eq("project_id", projectId)
+      .eq("integration_id", integrationMetaId);
+
+    if (metaAccErr) {
       return NextResponse.json(
-        { success: false, error: authErr.message ?? "Failed to delete integrations_auth" },
+        { success: false, error: metaAccErr.message ?? "Failed to delete meta_ad_accounts" },
         { status: 500 }
       );
     }
   }
 
-  const { error: metaErr } = await admin
-    .from("integrations_meta")
-    .delete()
-    .eq("id", integrationsMetaId);
+  if (canonicalIntegrationId) {
+    const { error: delErr } = await deleteCanonicalIntegrationById(admin, canonicalIntegrationId, {
+      integrationEntitiesPlatform: "meta",
+    });
+    if (delErr) {
+      return NextResponse.json(
+        { success: false, error: delErr.message ?? "Failed to delete Meta integration" },
+        { status: 500 }
+      );
+    }
+  }
 
-  if (metaErr) {
-    return NextResponse.json(
-      { success: false, error: metaErr.message ?? "Failed to delete integrations_meta" },
-      { status: 500 }
-    );
+  if (metaRowIds.size > 0) {
+    const { error: metaErr } = await admin.from("integrations_meta").delete().in("id", [...metaRowIds]);
+    if (metaErr) {
+      return NextResponse.json(
+        { success: false, error: metaErr.message ?? "Failed to delete integrations_meta" },
+        { status: 500 }
+      );
+    }
   }
 
   return NextResponse.json({
     success: true,
     disconnected: true,
-    message: "Meta integration disconnected. Historical data preserved.",
+    message: "Meta integration disconnected.",
   });
 }

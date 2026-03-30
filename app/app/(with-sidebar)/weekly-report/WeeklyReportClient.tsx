@@ -157,7 +157,7 @@ export default function WeeklyReportClient() {
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center bg-[#0b0b10]" style={{ gridColumn: "2 / -1" }}>
-        <p className="text-white/50">Загрузка Weekly Board Report…</p>
+        <p className="text-white/50">Загрузка Shared Board Report…</p>
       </div>
     );
   }
@@ -174,7 +174,7 @@ export default function WeeklyReportClient() {
     return (
       <div className="min-h-[60vh] bg-[#0b0b10] p-6" style={{ gridColumn: "2 / -1" }}>
         <div className="mx-auto max-w-2xl rounded-2xl border border-white/10 bg-white/5 p-12 text-center">
-          <h1 className="mb-2 text-xl font-semibold text-white/90">Weekly Board Report</h1>
+          <h1 className="mb-2 text-xl font-semibold text-white/90">Shared Board Report</h1>
           <p className="text-white/60">Недостаточно данных для формирования weekly report.</p>
         </div>
       </div>
@@ -185,7 +185,7 @@ export default function WeeklyReportClient() {
     <div className="min-h-[60vh] bg-[#0b0b10] p-6" style={{ gridColumn: "2 / -1" }}>
       <div className="mx-auto max-w-4xl">
         <header className="mb-6">
-          <h1 className="text-2xl font-extrabold tracking-tight text-white">Weekly Board Report</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight text-white">Shared Board Report</h1>
           <p className="mt-1 text-sm text-white/50">Last 7 days vs previous 7 days</p>
         </header>
 

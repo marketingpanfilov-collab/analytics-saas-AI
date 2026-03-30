@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { checkRateLimit } from "@/app/lib/security/rateLimit";
 import { getInternalSyncHeaders } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { runOAuthTokenRefreshSweep } from "@/app/lib/oauthRefreshCron";
 import { parseBearerToken } from "@/app/lib/auth/parseBearerAuth";
 
 const INTERNAL_HEADER = "x-internal-sync-secret";
@@ -189,6 +190,43 @@ async function runInternalCron(): Promise<{
   const admin = supabaseAdmin();
   const today = todayYmd();
 
+  let oauthSweepRefreshedProjects: string[] = [];
+  try {
+    const sweep = await runOAuthTokenRefreshSweep(admin, { maxIntegrations: 80 });
+    oauthSweepRefreshedProjects = sweep.refreshedProjectIds ?? [];
+  } catch (e) {
+    console.error("[INTERNAL_SYNC_CRON_OAUTH_REFRESH]", e);
+  }
+
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+    ? String(process.env.NEXT_PUBLIC_APP_URL)
+    : process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : "http://localhost:3000";
+
+  const internalHeaders = getInternalSyncHeaders();
+
+  if (process.env.OAUTH_REFRESH_TRIGGER_SYNC !== "0" && oauthSweepRefreshedProjects.length > 0) {
+    const unique = [...new Set(oauthSweepRefreshedProjects)].slice(0, 22);
+    console.log("[INTERNAL_SYNC_CRON_OAUTH_REFRESH_SYNC]", { projects: unique.length });
+    for (const projectId of unique) {
+      const syncUrl = new URL("/api/dashboard/sync", baseUrl);
+      syncUrl.searchParams.set("project_id", projectId);
+      syncUrl.searchParams.set("start", today);
+      syncUrl.searchParams.set("end", today);
+      syncUrl.searchParams.set("date_origin", "utc_today");
+      try {
+        const r = await fetch(syncUrl.toString(), { method: "POST", headers: internalHeaders });
+        const json = (await r.json().catch(() => ({}))) as { success?: boolean; error?: string };
+        if (!r.ok || !json?.success) {
+          console.warn("[OAUTH_REFRESH_FOLLOW_SYNC_FAIL]", { projectId, error: json?.error ?? r.status });
+        }
+      } catch (e) {
+        console.warn("[OAUTH_REFRESH_FOLLOW_SYNC_ERR]", { projectId, error: e });
+      }
+    }
+  }
+
   const paidUserIds = await getPaidUserIds(admin);
   if (paidUserIds.size === 0) {
     return { success: true, date: today, queued: 0, skipped: 0, failed: [] };
@@ -209,14 +247,6 @@ async function runInternalCron(): Promise<{
     queued_limit: MAX_PROJECTS_PER_RUN,
     using_projects: projectIds.length,
   });
-
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL
-    ? String(process.env.NEXT_PUBLIC_APP_URL)
-    : process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : "http://localhost:3000";
-
-  const internalHeaders = getInternalSyncHeaders();
 
   const lockWindowMs = 3 * 60 * 60 * 1000; // aligns with cron cadence
   const failed: { project_id: string; error: string }[] = [];

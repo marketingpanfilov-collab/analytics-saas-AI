@@ -7,15 +7,23 @@ import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAcc
 import { startSyncRun, finishSyncRunSuccess, finishSyncRunError } from "@/app/lib/syncRuns";
 import { runPostSyncInvariantChecks } from "@/app/lib/postSyncInvariantChecks";
 import { getMetaIntegrationForProject } from "@/app/lib/metaIntegration";
+import { fetchMetaGraphGetJsonWithRetry } from "@/app/lib/metaGraphRetry";
 
-async function fbGetJson(url: string) {
-  const r = await fetch(url, { method: "GET" });
-  const txt = await r.text();
-  try {
-    return JSON.parse(txt);
-  } catch {
-    return { error: { message: txt } };
+async function fbGetJson(url: string): Promise<any> {
+  const res = await fetchMetaGraphGetJsonWithRetry(url);
+  if (!res.ok) {
+    const body = res.json as { error?: { message?: string; code?: number } };
+    if (body && typeof body === "object" && body.error) {
+      return body;
+    }
+    return {
+      error: {
+        message: `Graph request failed (http ${res.httpStatus})`,
+        code: (body as { error?: { code?: number } })?.error?.code,
+      },
+    };
   }
+  return res.json;
 }
 
 /** UUID v1-v5 validator */

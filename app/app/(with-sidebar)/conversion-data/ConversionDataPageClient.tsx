@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { ignoreAbortRejection, isAbortError, safeAbortController } from "@/app/lib/abortUtils";
 
 type TabId = "registrations" | "purchases";
 
@@ -96,7 +97,9 @@ export default function ConversionDataPageClient() {
           signal: controller.signal,
           cache: "no-store",
         });
+        if (controller.signal.aborted) return;
         const json = (await res.json()) as ApiResponse & { error?: string };
+        if (controller.signal.aborted) return;
         if (!res.ok || !json.success) {
           setError(json.error ?? "Failed to load events");
           setRows([]);
@@ -106,17 +109,16 @@ export default function ConversionDataPageClient() {
         setRows(json.items ?? []);
         setTotal(json.total ?? 0);
       } catch (e) {
-        if (!(e instanceof DOMException && e.name === "AbortError")) {
-          setError("Failed to load events");
-          setRows([]);
-          setTotal(0);
-        }
+        if (isAbortError(e)) return;
+        setError("Failed to load events");
+        setRows([]);
+        setTotal(0);
       } finally {
         setLoading(false);
       }
     };
-    load();
-    return () => controller.abort();
+    ignoreAbortRejection(load(), "conversion-events");
+    return () => safeAbortController(controller);
   }, [projectId, activeTab, page, pageSize, search]);
 
   const totalPages = useMemo(() => {

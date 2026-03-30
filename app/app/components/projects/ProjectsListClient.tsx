@@ -318,7 +318,13 @@ export default function ProjectsListClient({
         <div className="flex flex-wrap items-center gap-3">
           {canManageAccess && (
             <Link
-              href="/app/manage-access"
+              href={
+                activeProjectId
+                  ? `/app/settings?project_id=${encodeURIComponent(activeProjectId)}&section=access`
+                  : projects[0]?.id
+                    ? `/app/settings?project_id=${encodeURIComponent(projects[0].id)}&section=access`
+                    : "/app/projects"
+              }
               className="inline-flex h-10 cursor-pointer items-center rounded-xl border border-white/15 bg-white/[0.06] px-4 text-sm font-medium text-white hover:bg-white/10"
             >
               Управлять доступом

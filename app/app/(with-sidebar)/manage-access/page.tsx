@@ -1,22 +1,17 @@
-import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getCurrentUserContext } from "@/app/lib/auth/getCurrentUserContext";
-import ManageAccessPageClient from "./ManageAccessPageClient";
 
 export const dynamic = "force-dynamic";
 
 const ORG_ROLES_ALLOWED = ["owner", "admin"];
 
-function ManageAccessFallback() {
-  return (
-    <div className="mx-auto max-w-4xl p-6">
-      <div className="h-10 w-64 rounded-2xl bg-white/[0.04]" />
-      <div className="mt-6 h-48 rounded-2xl border border-white/10 bg-white/[0.03]" />
-    </div>
-  );
-}
+type SearchParams = { tab?: string | string[]; project_id?: string | string[] };
 
-export default async function ManageAccessPage() {
+export default async function ManageAccessPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
   const context = await getCurrentUserContext();
   if (!context.user) {
     redirect("/login");
@@ -26,9 +21,20 @@ export default async function ManageAccessPage() {
     redirect("/app/projects");
   }
 
-  return (
-    <Suspense fallback={<ManageAccessFallback />}>
-      <ManageAccessPageClient projects={context.projects} />
-    </Suspense>
-  );
+  const sp = await searchParams;
+  const tabRaw = sp.tab;
+  const tab = Array.isArray(tabRaw) ? tabRaw[0] : tabRaw;
+  const pidRaw = sp.project_id;
+  const pidFromQuery = Array.isArray(pidRaw) ? pidRaw[0] : pidRaw;
+  const pid =
+    typeof pidFromQuery === "string" && pidFromQuery.trim()
+      ? pidFromQuery.trim()
+      : context.activeProject?.id ?? context.projects[0]?.id ?? "";
+
+  const params = new URLSearchParams();
+  if (pid) params.set("project_id", pid);
+  params.set("section", "access");
+  if (tab === "org" || tab === "project") params.set("tab", tab);
+
+  redirect(`/app/settings?${params.toString()}`);
 }

@@ -1,6 +1,6 @@
 /**
  * Dashboard backfill: trigger sync when campaign-level data is missing or stale.
- * Only enabled ad_accounts (ad_account_settings.is_enabled = true) participate.
+ * Enabled ad accounts use the same rules as canonical dashboard (resolveEnabledAdAccountIdsForProject).
  * Sync is triggered in background (non-blocking); GET handlers do not wait for sync.
  *
  * Two modes:
@@ -13,6 +13,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSyncTtlMs } from "./syncTtl";
 import { getInternalSyncHeaders } from "./auth/requireProjectAccessOrInternal";
 import { fetchAllPages } from "@/app/lib/supabasePagination";
+import { resolveEnabledAdAccountIdsForProject } from "@/app/lib/dashboardCanonical";
 
 export type Platform = "meta" | "google" | "tiktok";
 
@@ -24,12 +25,7 @@ async function getEnabledAdAccountIds(
   admin: SupabaseClient,
   projectId: string
 ): Promise<string[]> {
-  const { data: settingsRows } = await admin
-    .from("ad_account_settings")
-    .select("ad_account_id")
-    .eq("project_id", projectId)
-    .eq("is_enabled", true);
-  return (settingsRows ?? []).map((r: { ad_account_id: string }) => r.ad_account_id);
+  return resolveEnabledAdAccountIdsForProject(admin, projectId);
 }
 
 /** Generate all dates in [start, end] inclusive (YYYY-MM-DD). Exported for sync zero-fill. */
@@ -373,14 +369,26 @@ export type EnsureBackfillResult = {
   historicalSyncIntervals?: { start: string; end: string }[];
 };
 
+/** Опционально: те же sources / account_ids, что у каноники дашборда (иначе backfill смотрит на все кабинеты и даёт ложные «дыры»). */
+export type EnsureBackfillScope = {
+  sources?: string[] | null;
+  accountIds?: string[] | null;
+};
+
 export async function ensureBackfill(
   admin: SupabaseClient,
   projectId: string,
   start: string,
   end: string,
-  requestUrl: string
+  requestUrl: string,
+  scope?: EnsureBackfillScope | null
 ): Promise<EnsureBackfillResult> {
-  const enabledIds = await getEnabledAdAccountIds(admin, projectId);
+  const enabledIds = await resolveEnabledAdAccountIdsForProject(
+    admin,
+    projectId,
+    scope?.sources ?? null,
+    scope?.accountIds?.length ? scope.accountIds : null
+  );
   if (!enabledIds.length) {
     return { triggered: false, reason: null };
   }

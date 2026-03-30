@@ -2,6 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { fetchWithRetry } from "@/app/lib/networkRetry";
 
 const EXPIRY_BUFFER_MS = 60 * 1000;
+const REFRESH_FETCH_RETRIES = 3;
+const REFRESH_INITIAL_DELAY_MS = 500;
 
 type AuthRow = {
   access_token: string | null;
@@ -21,7 +23,14 @@ type TikTokTokenResponse = {
   error?: string;
   error_description?: string;
   message?: string;
+  /** TikTok Marketing API envelope: 0 = OK */
+  code?: number;
 };
+
+export type TikTokAccessResolution =
+  | { outcome: "valid"; access_token: string }
+  | { outcome: "transient" }
+  | { outcome: "permanent"; detail?: string };
 
 function normalizeTokenPayload(payload: TikTokTokenResponse): {
   access_token: string | null;
@@ -38,14 +47,57 @@ function normalizeTokenPayload(payload: TikTokTokenResponse): {
   };
 }
 
-export async function getValidTikTokAccessToken(
+function isTransientHttpStatus(status: number): boolean {
+  return status === 408 || status === 429 || (status >= 500 && status <= 599);
+}
+
+/** TikTok API `code !== 0` often indicates a logical error; some codes are retryable. */
+function classifyTikTokRefreshFailure(res: Response, raw: TikTokTokenResponse): "transient" | "permanent" {
+  const msg = String(raw.message || raw.error || raw.error_description || "").toLowerCase();
+  const apiCode = raw.code;
+
+  if (isTransientHttpStatus(res.status)) return "transient";
+
+  if (typeof apiCode === "number" && apiCode !== 0) {
+    if (msg.includes("rate") || msg.includes("limit") || msg.includes("throttle") || msg.includes("too many")) {
+      return "transient";
+    }
+    // Typical OAuth / token invalidity on TikTok Marketing API
+    if (apiCode >= 40000 && apiCode < 41000) return "permanent";
+    if (apiCode >= 50000) return "transient";
+    return "permanent";
+  }
+
+  if (msg.includes("invalid") && (msg.includes("refresh") || msg.includes("token") || msg.includes("grant"))) {
+    return "permanent";
+  }
+  if (msg.includes("revoke") || (msg.includes("expired") && msg.includes("refresh"))) return "permanent";
+
+  if (!res.ok && isTransientHttpStatus(res.status)) return "transient";
+  if (!res.ok && res.status >= 400 && res.status < 500) return "permanent";
+
+  return "transient";
+}
+
+export type ResolveTikTokAccessTokenOpts = {
+  /** If true, skip cached non-expired access_token and refresh when refresh_token exists. */
+  forceRefresh?: boolean;
+};
+
+/**
+ * Resolves TikTok access token with refresh classification (transient vs permanent).
+ */
+export async function resolveTikTokAccessToken(
   admin: SupabaseClient,
-  integrationId: string
-): Promise<{ access_token: string } | null> {
+  integrationId: string,
+  opts?: ResolveTikTokAccessTokenOpts
+): Promise<TikTokAccessResolution> {
   const appId = process.env.TIKTOK_APP_ID || process.env.TIKTOK_CLIENT_KEY;
   const clientSecret = process.env.TIKTOK_CLIENT_SECRET;
 
-  if (!appId || !clientSecret) return null;
+  if (!appId || !clientSecret) {
+    return { outcome: "permanent", detail: "missing_client_config" };
+  }
 
   const { data: auth, error: authErr } = await admin
     .from("integrations_auth")
@@ -53,7 +105,7 @@ export async function getValidTikTokAccessToken(
     .eq("integration_id", integrationId)
     .maybeSingle();
 
-  if (authErr || !auth) return null;
+  if (authErr || !auth) return { outcome: "permanent" };
 
   const row = auth as AuthRow;
   const accessToken = row.access_token?.trim() || null;
@@ -62,40 +114,100 @@ export async function getValidTikTokAccessToken(
   const isExpired = expiresAt != null && expiresAt <= Date.now() + EXPIRY_BUFFER_MS;
 
   if (accessToken && !isExpired) {
-    return { access_token: accessToken };
+    return { outcome: "valid", access_token: accessToken };
   }
 
-  if (!refreshToken) return null;
+  if (!refreshToken) return { outcome: "permanent", detail: "no_refresh_token" };
 
-  // Marketing API v1.3 refresh only (TikTok Ads flow).
-  const primaryRes = await fetchWithRetry("https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      app_id: appId,
-      secret: clientSecret,
-      refresh_token: refreshToken,
-      grant_type: "refresh_token",
-    }),
-  }, { retries: 2, initialDelayMs: 500 });
+  let primaryRes: Response;
+  try {
+    primaryRes = await fetchWithRetry(
+      "https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          app_id: appId,
+          secret: clientSecret,
+          refresh_token: refreshToken,
+          grant_type: "refresh_token",
+        }),
+      },
+      { retries: REFRESH_FETCH_RETRIES, initialDelayMs: REFRESH_INITIAL_DELAY_MS }
+    );
+  } catch {
+    return { outcome: "transient" };
+  }
+
   const primaryJson = (await primaryRes.json().catch(() => ({}))) as TikTokTokenResponse;
   const primaryNormalized = normalizeTokenPayload(primaryJson);
-  if (!primaryRes.ok || !primaryNormalized.access_token) return null;
 
-  const newAccessToken = primaryNormalized.access_token;
-  const expiresIn = primaryNormalized.expires_in;
-  const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
-  const newRefreshToken = primaryNormalized.refresh_token || refreshToken;
+  if (primaryNormalized.access_token) {
+    const newAccessToken = primaryNormalized.access_token;
+    const expiresIn = primaryNormalized.expires_in;
+    const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+    const newRefreshToken = primaryNormalized.refresh_token || refreshToken;
 
-  await admin
-    .from("integrations_auth")
-    .update({
-      access_token: newAccessToken,
-      refresh_token: newRefreshToken,
-      token_expires_at: tokenExpiresAt,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("integration_id", integrationId);
+    await admin
+      .from("integrations_auth")
+      .update({
+        access_token: newAccessToken,
+        refresh_token: newRefreshToken,
+        token_expires_at: tokenExpiresAt,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("integration_id", integrationId);
 
-  return { access_token: newAccessToken };
+    return { outcome: "valid", access_token: newAccessToken };
+  }
+
+  const kind = classifyTikTokRefreshFailure(primaryRes, primaryJson);
+  if (kind === "transient") return { outcome: "transient" };
+  return {
+    outcome: "permanent",
+    detail: primaryJson.message || primaryJson.error || primaryJson.error_description || `http_${primaryRes.status}`,
+  };
+}
+
+/** Result for API routes: distinguish hard auth failure vs retryable refresh/network issues. */
+export type TikTokAccessTokenApiResult =
+  | { ok: true; access_token: string }
+  | { ok: false; kind: "transient"; detail?: string }
+  | { ok: false; kind: "permanent"; detail?: string };
+
+const TOKEN_RESOLVE_MAX_ATTEMPTS = 4;
+const TOKEN_RESOLVE_BACKOFF_MS = 400;
+
+/**
+ * Resolves TikTok access with retries on transient failures (rate limits, TikTok 5xx, network).
+ * Use this in HTTP handlers so transient issues return 503, not 401 (user should not "reconnect").
+ */
+export type GetTikTokAccessTokenForApiOpts = ResolveTikTokAccessTokenOpts;
+
+export async function getTikTokAccessTokenForApi(
+  admin: SupabaseClient,
+  integrationId: string,
+  opts?: GetTikTokAccessTokenForApiOpts
+): Promise<TikTokAccessTokenApiResult> {
+  for (let attempt = 1; attempt <= TOKEN_RESOLVE_MAX_ATTEMPTS; attempt++) {
+    // forceRefresh only on first attempt; later attempts rely on updated DB row after refresh.
+    const r = await resolveTikTokAccessToken(admin, integrationId, attempt === 1 ? opts : undefined);
+    if (r.outcome === "valid") return { ok: true, access_token: r.access_token };
+    if (r.outcome === "permanent") {
+      return { ok: false, kind: "permanent", detail: r.detail };
+    }
+    if (attempt < TOKEN_RESOLVE_MAX_ATTEMPTS) {
+      await new Promise((res) => setTimeout(res, TOKEN_RESOLVE_BACKOFF_MS * attempt));
+    }
+  }
+  return { ok: false, kind: "transient" };
+}
+
+export async function getValidTikTokAccessToken(
+  admin: SupabaseClient,
+  integrationId: string
+): Promise<{ access_token: string } | null> {
+  const r = await getTikTokAccessTokenForApi(admin, integrationId);
+  if (r.ok) return { access_token: r.access_token };
+  return null;
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { logCabinetState } from "@/app/lib/cabinetAuditLog";
 
 function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
@@ -46,6 +47,11 @@ export async function POST(req: Request) {
   if (!access.allowed) {
     return NextResponse.json(access.body, { status: access.status });
   }
+
+  logCabinetState("google_connections_save_request", {
+    project_id: projectId,
+    selected_count: adAccountIds.length,
+  });
 
   const admin = supabaseAdmin();
 
@@ -103,6 +109,8 @@ export async function POST(req: Request) {
       );
     }
   }
+
+  logCabinetState("google_connections_save_ok", { project_id: projectId, saved: adAccountIds.length });
 
   return NextResponse.json({ success: true, saved: adAccountIds.length });
 }

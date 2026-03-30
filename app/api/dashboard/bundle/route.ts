@@ -117,7 +117,7 @@ export async function GET(req: Request) {
     timeseriesConversions,
   };
 
-  if (!bundleBackfillIsIncomplete(summary, timeseries)) {
+  if (!didSync && !bundleBackfillIsIncomplete(summary, timeseries)) {
     dashboardCacheSet(bundleKey, body, DASHBOARD_CACHE_TTL.bundle);
   }
 

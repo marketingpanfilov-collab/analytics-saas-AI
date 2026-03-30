@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { ignoreAbortRejection, isAbortError, safeAbortController } from "@/app/lib/abortUtils";
 import { SIDEBAR_TODAY_REFRESH_EVENT } from "@/app/lib/sidebarTodayRefreshEvent";
 import { supabase } from "@/app/lib/supabaseClient";
 import { type ProjectCurrency } from "@/app/lib/currency";
@@ -62,18 +63,6 @@ function extractApiError(payload: any): string {
   if (err?.fbtrace_id) parts.push(`fbtrace_id=${err.fbtrace_id}`);
 
   return parts.filter(Boolean).join(" | ");
-}
-
-/** Treat as expected cancellation; do not surface as dashboard error. */
-function isAbortError(e: unknown): boolean {
-  if (!e || typeof e !== "object") return false;
-  const name = (e as { name?: string }).name;
-  const message = String((e as { message?: string }).message ?? "");
-  const code = (e as { code?: number }).code;
-  if (name === "AbortError") return true;
-  if (name === "DOMException" && (code === 20 || /abort/i.test(message))) return true;
-  if (/aborted|signal is aborted/i.test(message)) return true;
-  return false;
 }
 
 type Summary = {
@@ -250,7 +239,15 @@ function MultiMetricLineChart({
     const rect = el.getBoundingClientRect();
     const contRect = container.getBoundingClientRect();
     const xPx = e.clientX - rect.left;
+    const yPx = e.clientY - rect.top;
     const viewBoxX = (xPx / rect.width) * w;
+    const viewBoxY = (yPx / rect.height) * h;
+    // Только область графика (без полей осей): иначе линия «срабатывала» в десятках px от линии.
+    if (viewBoxX < leftPad || viewBoxX > w - pad || viewBoxY < pad || viewBoxY > h - bottomPad) {
+      setHoveredIndex(null);
+      setTooltipPos(null);
+      return;
+    }
     const rel = (viewBoxX - leftPad) / plotW;
     let idx = Math.round(rel * (points.length - 1));
     idx = Math.max(0, Math.min(idx, points.length - 1));
@@ -300,6 +297,7 @@ function MultiMetricLineChart({
         preserveAspectRatio="none"
         style={{ display: "block" }}
         onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
       >
         {Array.from({ length: yTicks }).map((_, i) => {
           const y = pad + (plotH * i) / (yTicks - 1);
@@ -727,9 +725,32 @@ export default function AppDashboardClient() {
       return;
     }
     const ac = new AbortController();
-    void fetchDashboardIntegrationStatus(projectId, { signal: ac.signal });
-    return () => ac.abort();
+    ignoreAbortRejection(
+      fetchDashboardIntegrationStatus(projectId, { signal: ac.signal }),
+      "dashboard integration status"
+    );
+    return () => safeAbortController(ac);
   }, [projectId, fetchDashboardIntegrationStatus]);
+
+  const fetchDashboardIntegrationStatusRef = useRef(fetchDashboardIntegrationStatus);
+  fetchDashboardIntegrationStatusRef.current = fetchDashboardIntegrationStatus;
+  const dashboardStatusVisRefreshRef = useRef(0);
+  useEffect(() => {
+    if (!projectId) return;
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - dashboardStatusVisRefreshRef.current < 45_000) return;
+      dashboardStatusVisRefreshRef.current = now;
+      const ac = new AbortController();
+      ignoreAbortRejection(
+        fetchDashboardIntegrationStatusRef.current(projectId, { signal: ac.signal }),
+        "dashboard integration status (visibility)"
+      );
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [projectId]);
 
   const adaptiveIntegrationStatus = useMemo(() => {
     const staleMin = isUserContextOnline ? ONLINE_STALE_MIN : OFFLINE_STALE_MIN;
@@ -840,12 +861,7 @@ export default function AppDashboardClient() {
   function abortInFlight() {
     const c = abortRef.current;
     abortRef.current = null;
-    if (!c) return;
-    try {
-      c.abort();
-    } catch {
-      // Ignore: abort() may throw in some environments; cancellation is expected.
-    }
+    safeAbortController(c);
   }
 
   function makeController() {
@@ -986,7 +1002,7 @@ export default function AppDashboardClient() {
             backfillTimeoutRef.current = null;
             backfillAttemptRef.current += 1;
             const c = makeController();
-            loadFromDb(c.signal, start, end);
+            ignoreAbortRejection(loadFromDb(c.signal, start, end), "dashboard backfill poll");
           }, BACKFILL_POLL_INTERVAL_MS);
         }
       } else {
@@ -1107,7 +1123,7 @@ export default function AppDashboardClient() {
     hasLoadedRef.current = true;
     const c = makeController();
     console.log("[LOAD_FROM_DB_CALL]", { start: appliedDateFrom, end: appliedDateTo, key });
-    loadFromDb(c.signal, appliedDateFrom, appliedDateTo);
+    ignoreAbortRejection(loadFromDb(c.signal, appliedDateFrom, appliedDateTo), "dashboard loadFromDb");
 
     return () => {
       abortInFlight();
@@ -1261,7 +1277,13 @@ export default function AppDashboardClient() {
     const hasDisconnected = adaptiveIntegrationStatus.some((i) => i.status === "disconnected");
     if (hasError) return { status: "error" as const, label: "Error", tooltip: "One or more integrations have sync errors or data not updated today." };
     if (hasStale) return { status: "stale" as const, label: "Stale", tooltip: staleStatusTooltip };
-    if (hasDisconnected) return { status: "disconnected" as const, label: "Disconnected", tooltip: "One or more integrations are disconnected." };
+    if (hasDisconnected)
+      return {
+        status: "disconnected" as const,
+        label: "Reconnect required",
+        tooltip:
+          "OAuth access needs re-authorization (e.g. revoked refresh token). Accounts stay saved; reconnect the platform.",
+      };
     return { status: "healthy" as const, label: "Healthy", tooltip: "All integrations are connected and syncing normally." };
   }, [dashboardAccounts.length, connectionLost, adaptiveIntegrationStatus, staleStatusTooltip]);
 
@@ -1323,9 +1345,9 @@ export default function AppDashboardClient() {
   const platformStatusLabel: Record<IntegrationStatusValue, string> = {
     healthy: "Healthy",
     error: "Error",
-    stale: "Stale",
+    stale: "Stale / OAuth retry",
     no_accounts: "No accounts",
-    disconnected: "Disconnected",
+    disconnected: "Reconnect required",
     not_connected: "Not connected",
   };
 
@@ -1453,7 +1475,8 @@ export default function AppDashboardClient() {
   };
 
   const tabStyle = (active: boolean, disabled?: boolean) => ({
-    height: 32,
+    height: 40,
+    boxSizing: "border-box" as const,
     padding: "0 12px",
     borderRadius: 999,
     border: "1px solid rgba(255,255,255,0.10)",
@@ -1690,14 +1713,18 @@ export default function AppDashboardClient() {
             }}
           >
             <div
+              className="dashboard-native-date-range"
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: 6,
-                padding: "6px 10px",
+                height: 40,
+                boxSizing: "border-box",
+                padding: "0 10px",
                 borderRadius: 12,
                 border: "1px solid rgba(255,255,255,0.10)",
                 background: "rgba(255,255,255,0.04)",
+                cursor: "pointer",
               }}
               onBlur={handleDateBlur}
             >
@@ -1717,9 +1744,10 @@ export default function AppDashboardClient() {
                   padding: 0,
                   minWidth: 120,
                   width: 120,
+                  cursor: "pointer",
                 }}
               />
-              <span style={{ opacity: 0.6, fontSize: 11 }}>—</span>
+              <span style={{ opacity: 0.6, fontSize: 11, cursor: "pointer" }}>—</span>
               <input
                 type="date"
                 value={draftDateTo}
@@ -1736,6 +1764,7 @@ export default function AppDashboardClient() {
                   padding: 0,
                   minWidth: 120,
                   width: 120,
+                  cursor: "pointer",
                 }}
               />
             </div>

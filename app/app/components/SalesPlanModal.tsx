@@ -84,6 +84,8 @@ export default function SalesPlanModal({
   month,
   year,
   initialPlan,
+  factSpendToYesterday,
+  remainingDaysInMonth,
   onSaved,
   planPerformanceState,
   currency,
@@ -95,6 +97,10 @@ export default function SalesPlanModal({
   month: number;
   year: number;
   initialPlan: MonthlyPlan | null;
+  /** Факт расхода с 1-го числа месяца до вчера (UTC), как в блоке «Сегодня». null — загрузка. */
+  factSpendToYesterday?: number | null;
+  /** Оставшиеся календарные дни месяца включая сегодня (UTC). */
+  remainingDaysInMonth?: number;
   onSaved?: () => void;
   planPerformanceState?: "no_plan" | "on_track" | "behind";
   currency: ProjectCurrency;
@@ -621,10 +627,36 @@ export default function SalesPlanModal({
 
                   {(() => {
                     const daysInMonth = new Date(year, month, 0).getDate();
-                    const averageDailyBudget =
+                    const now = new Date();
+                    const isCurrentMonthUtc =
+                      year === now.getUTCFullYear() && month === now.getUTCMonth() + 1;
+                    const remainingDays =
+                      remainingDaysInMonth ??
+                      (isCurrentMonthUtc
+                        ? Math.max(1, daysInMonth - Math.max(0, now.getUTCDate() - 1))
+                        : Math.max(1, daysInMonth));
+                    const spendFactLoaded = typeof factSpendToYesterday === "number";
+                    const useCatchUp =
+                      isCurrentMonthUtc && initialPlan != null && spendFactLoaded;
+                    const remainingBudget = Math.max(
+                      0,
+                      summary.totalBudget -
+                        (useCatchUp && typeof factSpendToYesterday === "number"
+                          ? factSpendToYesterday
+                          : 0)
+                    );
+                    const dailyBudgetPlan: number | null =
                       summary.totalBudget > 0 && daysInMonth > 0
-                        ? summary.totalBudget / daysInMonth
-                        : 0;
+                        ? useCatchUp
+                          ? remainingBudget / remainingDays
+                          : !isCurrentMonthUtc ||
+                              initialPlan == null ||
+                              factSpendToYesterday === undefined
+                            ? summary.totalBudget / daysInMonth
+                            : null
+                        : null;
+                    const showLoading =
+                      isCurrentMonthUtc && initialPlan != null && factSpendToYesterday === null;
                     return (
                       <div
                         style={{
@@ -634,11 +666,15 @@ export default function SalesPlanModal({
                           color: "rgba(255,255,255,0.85)",
                         }}
                       >
-                        <span>Средний дневной бюджет</span>
+                        <span>Дневной план (остаток / дни)</span>
                         <span style={{ fontWeight: 700, color: "white" }}>
-                          {averageDailyBudget > 0
-                            ? fmtMoney(averageDailyBudget, currency, usdToKztRate)
-                            : "—"}
+                          {summary.totalBudget <= 0
+                            ? "—"
+                            : showLoading
+                              ? "…"
+                              : dailyBudgetPlan != null
+                                ? fmtMoney(dailyBudgetPlan, currency, usdToKztRate)
+                                : "—"}
                         </span>
                       </div>
                     );

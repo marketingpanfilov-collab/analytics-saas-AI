@@ -73,7 +73,7 @@ export default function SharedWeeklyReportClient({ token }: Props) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#0b0b10] p-6">
         <div className="max-w-md rounded-2xl border border-white/10 bg-white/5 p-8 text-center">
-          <h1 className="mb-2 text-xl font-semibold text-white/90">Weekly Board Report</h1>
+          <h1 className="mb-2 text-xl font-semibold text-white/90">Shared Board Report</h1>
           <p className="text-white/70">{state.message}</p>
         </div>
       </div>
@@ -84,7 +84,7 @@ export default function SharedWeeklyReportClient({ token }: Props) {
     <div className="min-h-screen bg-[#0b0b10]">
       <div className="mx-auto max-w-4xl px-6 py-8">
         <header className="mb-8">
-          <h1 className="text-2xl font-extrabold tracking-tight text-white">Weekly Board Report</h1>
+          <h1 className="text-2xl font-extrabold tracking-tight text-white">Shared Board Report</h1>
           <p className="mt-1 text-sm text-white/50">Shared report (read-only)</p>
         </header>
         <WeeklyReportContent data={state.data} showSubtitle={true} />

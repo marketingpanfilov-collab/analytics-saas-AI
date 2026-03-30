@@ -47,7 +47,7 @@ export function convertMoneyStrict(
   if (!Number.isFinite(amount)) return 0;
   if (fromCurrency === toCurrency) return amount;
   if (!usdToKztRate || usdToKztRate <= 0) {
-    pushCurrencyReason(diagnostics, "rate_missing", "Missing USD/KZT exchange rate; conversion skipped.");
+    pushCurrencyReason(diagnostics, "rate_missing");
     return amount;
   }
   return fromCurrency === "USD" && toCurrency === "KZT"
@@ -110,23 +110,11 @@ export function resolveUsdToKztRateForDay(
   if (normalizedDay) {
     const fromDay = rateMapByDay.get(normalizedDay);
     if (typeof fromDay === "number" && fromDay > 0) return fromDay;
-    pushCurrencyReason(
-      diagnostics,
-      "rate_missing_for_day",
-      `Missing USD/KZT rate for day ${normalizedDay}.`
-    );
   }
   if (latestRate && latestRate > 0) {
-    pushCurrencyReason(
-      diagnostics,
-      "fallback_latest_rate_used",
-      normalizedDay
-        ? `Fallback to latest USD/KZT rate for day ${normalizedDay}.`
-        : "Fallback to latest USD/KZT rate."
-    );
     return latestRate;
   }
-  pushCurrencyReason(diagnostics, "rate_missing", "No usable USD/KZT rate found.");
+  pushCurrencyReason(diagnostics, "rate_missing");
   return null;
 }
 

@@ -57,6 +57,28 @@ h3 {
   letter-spacing: -0.02em;
 }
 
+/*
+ * Native date range filter: pointer everywhere the user hovers.
+ * WebKit/Blink often force I-beam on ::-webkit-datetime-edit internals — override explicitly.
+ */
+.dashboard-native-date-range {
+  cursor: pointer !important;
+}
+.dashboard-native-date-range input[type="date"] {
+  cursor: pointer !important;
+}
+.dashboard-native-date-range input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer !important;
+}
+.dashboard-native-date-range input[type="date"]::-webkit-datetime-edit,
+.dashboard-native-date-range input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+.dashboard-native-date-range input[type="date"]::-webkit-datetime-edit-text,
+.dashboard-native-date-range input[type="date"]::-webkit-datetime-edit-month-field,
+.dashboard-native-date-range input[type="date"]::-webkit-datetime-edit-day-field,
+.dashboard-native-date-range input[type="date"]::-webkit-datetime-edit-year-field {
+  cursor: pointer !important;
+}
+
 /* Spinner for dashboard status button (unique name to avoid Tailwind conflict) */
 @keyframes dashboard-spin {
   to {
@@ -1228,4 +1250,148 @@ button:not([class]):hover {
   .landing-mid-scope .landing-dda-node-pulse-green {
     animation: none;
   }
+}
+
+/*
+ * Настройки: нативная стрелка select в WebKit/Chrome рисуется у самого края и почти не реагирует на padding-right.
+ * Скрываем системную иконку и рисуем свою — background-position: right 0.75rem задаёт отступ от рамки.
+ */
+.settings-page-select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 2.75rem 9px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background-color: rgba(15, 15, 25, 0.95);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1.35;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23d4d4d8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 1.125rem 1.125rem;
+}
+
+.settings-page-select:focus-visible {
+  outline: none;
+  border-color: rgba(129, 140, 248, 0.45);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.settings-page-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.settings-page-select:not(:disabled) {
+  cursor: pointer;
+}
+
+/* Компактный select в таблицах (раздел доступа в настройках) */
+.settings-page-select-sm {
+  width: auto;
+  min-width: 8.5rem;
+  max-width: 100%;
+  padding: 7px 2.25rem 7px 8px;
+  font-size: 13px;
+  line-height: 1.35;
+  background-position: right 0.55rem center;
+  background-size: 1rem 1rem;
+}
+
+/* Карточка как panelStyle() на странице настроек */
+.settings-surface {
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(10, 10, 18, 0.96);
+  overflow: hidden;
+}
+
+.settings-page-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(15, 15, 25, 0.95);
+  color: #fff;
+  font-size: 14px;
+}
+
+.settings-page-input:focus-visible {
+  outline: none;
+  border-color: rgba(129, 140, 248, 0.45);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.settings-primary-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 9px 16px;
+  border-radius: 10px;
+  border: none;
+  background: rgba(120, 120, 255, 0.45);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.settings-primary-btn:hover:not(:disabled) {
+  background: rgba(120, 120, 255, 0.55);
+}
+
+.settings-primary-btn:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.settings-secondary-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 9px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.88);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.settings-secondary-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Внутренние табы как разделы настроек (tabButtonStyle) */
+.settings-subtab-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 12px;
+}
+
+.settings-subtab-btn {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.settings-subtab-btn[data-active="true"] {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
 }

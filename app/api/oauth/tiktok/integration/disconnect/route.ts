@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { deleteCanonicalIntegrationById } from "@/app/lib/disconnectCanonicalIntegration";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 
 export async function POST(req: Request) {
@@ -30,18 +31,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, disconnected: true, message: "Already disconnected" });
   }
 
-  const { data: adAccounts } = await admin
-    .from("ad_accounts")
-    .select("id")
-    .eq("integration_id", integration.id);
-  const adAccountIds = (adAccounts ?? []).map((r: { id: string }) => r.id);
-
-  if (adAccountIds.length > 0) {
-    await admin.from("ad_account_settings").delete().in("ad_account_id", adAccountIds);
+  const { error: delErr } = await deleteCanonicalIntegrationById(admin, integration.id);
+  if (delErr) {
+    return NextResponse.json({ success: false, error: delErr.message }, { status: 500 });
   }
-
-  await admin.from("integrations_auth").delete().eq("integration_id", integration.id);
-  await admin.from("ad_accounts").delete().eq("integration_id", integration.id);
 
   return NextResponse.json({
     success: true,

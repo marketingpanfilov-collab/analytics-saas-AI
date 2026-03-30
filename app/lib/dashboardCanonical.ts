@@ -85,53 +85,250 @@ function convertToUsd(
 }
 
 /**
- * Resolve ad_account ids for a project that participate in sync and dashboard.
- * Only accounts with ad_account_settings.is_enabled = true are included.
- * Optionally filtered by sources (platform) and/or specific account IDs.
- * Unified: integrations by project_id and platform in ('meta','google','tiktok').
+ * Resolve ad_account ids for canonical dashboard/reports spend.
+ * Семантика как у списка источников на дашборде:
+ * - есть строка ad_account_settings → используем is_enabled;
+ * - нет строки + Meta → meta_ad_accounts.is_enabled по external id;
+ * - нет строки + Google/TikTok/Yandex → считаем включённым (подключённый аккаунт после OAuth).
+ * Иначе TikTok виден в фильтрах, но расход в summary/timeseries был 0.
  */
-async function resolveAdAccountIds(
+export async function resolveEnabledAdAccountIdsForProject(
   admin: SupabaseClient,
   projectId: string,
   sources?: string[] | null,
   accountIds?: string[] | null
 ): Promise<string[]> {
-  const { data: settingsRows } = await admin
-    .from("ad_account_settings")
-    .select("ad_account_id")
-    .eq("project_id", projectId)
-    .eq("is_enabled", true);
+  const { data: integrationsMetaRows } = await admin
+    .from("integrations_meta")
+    .select("integrations_id")
+    .eq("project_id", projectId);
+  const metaIntegrationIds = (integrationsMetaRows ?? [])
+    .map((r: { integrations_id: string | null }) => r.integrations_id)
+    .filter(Boolean) as string[];
 
-  const enabledIds = (settingsRows ?? []).map((r: { ad_account_id: string }) => r.ad_account_id);
-  if (!enabledIds.length) return [];
+  const { data: platformIntRows } = await admin
+    .from("integrations")
+    .select("id")
+    .eq("project_id", projectId)
+    .in("platform", ["meta", "google", "tiktok", "yandex"]);
+
+  const platformIds = (platformIntRows ?? []).map((r: { id: string }) => r.id);
+  const integrationIds = [...new Set([...metaIntegrationIds, ...platformIds])];
+
+  if (integrationIds.length === 0) return [];
 
   const { data: adAccounts, error: adAccountsError } = await admin
     .from("ad_accounts")
-    .select("id, provider")
-    .in("id", enabledIds);
+    .select("id, provider, external_account_id")
+    .in("integration_id", integrationIds);
 
   if (adAccountsError) {
     console.log("[CANONICAL_RESOLVE_AD_ACCOUNTS_ERROR]", { projectId, error: adAccountsError?.message ?? adAccountsError });
     return [];
   }
 
-  let list = (adAccounts ?? []) as { id: string; provider?: string | null }[];
+  const accounts = (adAccounts ?? []) as { id: string; provider?: string | null; external_account_id?: string | null }[];
+  if (accounts.length === 0) return [];
+
+  const accountIdsList = accounts.map((a) => a.id);
+
+  const explicitOn = new Set<string>();
+  const explicitOff = new Set<string>();
+  const { data: settingsRows } = await admin
+    .from("ad_account_settings")
+    .select("ad_account_id, is_enabled")
+    .eq("project_id", projectId)
+    .in("ad_account_id", accountIdsList);
+
+  for (const r of (settingsRows ?? []) as { ad_account_id: string; is_enabled: boolean | null }[]) {
+    if (r.is_enabled === true) explicitOn.add(r.ad_account_id);
+    else if (r.is_enabled === false) explicitOff.add(r.ad_account_id);
+  }
+
+  const { data: metaEnabledRows } = await admin
+    .from("meta_ad_accounts")
+    .select("ad_account_id")
+    .eq("project_id", projectId)
+    .eq("is_enabled", true);
+  const metaEnabledExternalIds = new Set(
+    (metaEnabledRows ?? []).map((r: { ad_account_id: string }) => r.ad_account_id)
+  );
+
+  let list = accounts.filter((a) => {
+    if (explicitOff.has(a.id)) return false;
+    if (explicitOn.has(a.id)) return true;
+    const prov = (a.provider ?? "").toString().toLowerCase();
+    if (prov === "meta") {
+      const ext = a.external_account_id != null ? String(a.external_account_id).trim() : "";
+      return ext !== "" && metaEnabledExternalIds.has(ext);
+    }
+    return true;
+  });
+
   const normalizedSources = normalizeSources(sources ?? []);
   if (normalizedSources.length > 0) {
     list = list.filter((a) => normalizedSources.includes((a.provider ?? "").toString().toLowerCase()));
   }
   if (accountIds?.length) {
     const idSet = new Set(accountIds);
-    list = list.filter((a: { id: string }) => idSet.has(a.id));
+    list = list.filter((a) => idSet.has(a.id));
   }
-  return list.map((a: { id: string }) => a.id);
+  return list.map((a) => a.id);
+}
+
+type RawMetricRow = {
+  ad_account_id: string;
+  date: string;
+  platform: string | null;
+  spend: number | null;
+  impressions: number | null;
+  clicks: number | null;
+  leads: number | null;
+  purchases: number | null;
+  revenue: number | null;
+};
+
+export type CanonicalMetricRow = {
+  date: string;
+  platform: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  leads: number;
+  purchases: number;
+  revenue: number;
+};
+
+export type CanonicalFilterOptions = {
+  sources?: string[] | null;
+  accountIds?: string[] | null;
+};
+
+async function convertRawMetricRowsToUsd(
+  admin: SupabaseClient,
+  rows: RawMetricRow[]
+): Promise<CanonicalMetricRow[]> {
+  if (rows.length === 0) return [];
+
+  const adAccountIdSet = new Set<string>(rows.map((r) => String(r.ad_account_id ?? "")).filter(Boolean));
+  const adAccountIdsForCurrency = Array.from(adAccountIdSet);
+  const accountMeta = new Map<string, { currency: "USD" | "KZT" | null; provider: string | null }>();
+  if (adAccountIdsForCurrency.length > 0) {
+    const { data: adAccountsData } = await admin
+      .from("ad_accounts")
+      .select("id, currency, provider")
+      .in("id", adAccountIdsForCurrency);
+    for (const a of (adAccountsData ?? []) as { id: string; currency: string | null; provider: string | null }[]) {
+      accountMeta.set(a.id, {
+        currency: normalizeCurrencyCode(a.currency),
+        provider: a.provider ?? null,
+      });
+    }
+  }
+  const daysInRange = rows.map((r) => String(r.date ?? "").slice(0, 10));
+  const [usdToKztRateByDay, latestUsdToKztRate] = await Promise.all([
+    getUsdToKztRateMapForDays(admin, daysInRange),
+    getLatestUsdToKztRate(admin),
+  ]);
+  const currencyDiagnostics = createCurrencyDiagnostics();
+
+  return rows.map((r) => ({
+    date: String(r.date).slice(0, 10),
+    platform: String(r.platform ?? "unknown").toLowerCase(),
+    spend: convertToUsd(
+      Number(r.spend ?? 0) || 0,
+      accountMeta.get(r.ad_account_id)?.currency ?? null,
+      accountMeta.get(r.ad_account_id)?.provider ?? r.platform ?? null,
+      String(r.date ?? "").slice(0, 10),
+      usdToKztRateByDay,
+      latestUsdToKztRate,
+      currencyDiagnostics
+    ),
+    impressions: Number(r.impressions ?? 0) || 0,
+    clicks: Number(r.clicks ?? 0) || 0,
+    leads: Number(r.leads ?? 0) || 0,
+    purchases: Number(r.purchases ?? 0) || 0,
+    revenue: convertToUsd(
+      Number(r.revenue ?? 0) || 0,
+      accountMeta.get(r.ad_account_id)?.currency ?? null,
+      accountMeta.get(r.ad_account_id)?.provider ?? r.platform ?? null,
+      String(r.date ?? "").slice(0, 10),
+      usdToKztRateByDay,
+      latestUsdToKztRate,
+      currencyDiagnostics
+    ),
+  }));
+}
+
+/**
+ * Campaign-level daily rows (all platforms), USD-normalized — for reports / campaign tables only.
+ * Not for account totals (Meta/Google totals use account-level rows elsewhere).
+ */
+export async function fetchCampaignLevelMetricRowsForProject(
+  admin: SupabaseClient,
+  projectId: string,
+  start: string,
+  end: string,
+  options?: CanonicalFilterOptions | null
+): Promise<
+  {
+    campaign_id: string;
+    ad_account_id: string;
+    date: string;
+    platform: string;
+    spend: number;
+    impressions: number;
+    clicks: number;
+    purchases: number;
+    revenue: number;
+  }[]
+> {
+  const adAccountIds = await resolveEnabledAdAccountIdsForProject(
+    admin,
+    projectId,
+    options?.sources,
+    options?.accountIds
+  );
+  if (!adAccountIds.length) return [];
+
+  try {
+    const { rows } = await fetchAllPages(async (from, to) =>
+      admin
+        .from("daily_ad_metrics")
+        .select("campaign_id, ad_account_id, date, platform, spend, impressions, clicks, leads, purchases, revenue")
+        .in("ad_account_id", adAccountIds)
+        .not("campaign_id", "is", null)
+        .gte("date", start)
+        .lte("date", end)
+        .order("date", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to)
+    );
+    const raw = (rows ?? []) as (RawMetricRow & { campaign_id: string })[];
+    const converted = await convertRawMetricRowsToUsd(admin, raw);
+    return converted.map((c, i) => ({
+      campaign_id: String(raw[i]?.campaign_id ?? ""),
+      ad_account_id: String(raw[i]?.ad_account_id ?? ""),
+      date: c.date,
+      platform: c.platform,
+      spend: c.spend,
+      impressions: c.impressions,
+      clicks: c.clicks,
+      purchases: c.purchases,
+      revenue: c.revenue,
+    })).filter((r) => r.campaign_id.length > 0);
+  } catch (e: unknown) {
+    const msg = e && typeof e === "object" && "message" in e ? String((e as { message?: string }).message) : String(e);
+    console.log("[CAMPAIGN_LEVEL_METRICS_ERROR]", { projectId, error: msg });
+    return [];
+  }
 }
 
 /**
  * Fetch daily_ad_metrics for a project and date range.
  * Meta & Google: account-level rows only (campaign_id IS NULL) — same totals as Ads / Google Ads account reports.
- * Summing daily_ad_metrics_campaign was lower when some campaigns were missing from DB or mapping.
- * TikTok: campaign-level from daily_ad_metrics_campaign plus account-level fallback when needed.
+ * TikTok: account-level rows (`campaign_id` NULL) plus campaign-level rows from insights sync (`AUCTION_CAMPAIGN` report).
+ * Account-level totals remain the source for dashboard spend when campaign-level is missing or filtered.
  * Yandex: account-level only.
  */
 async function fetchCanonicalRowsViaJoin(
@@ -140,22 +337,8 @@ async function fetchCanonicalRowsViaJoin(
   start: string,
   end: string,
   options?: { sources?: string[] | null; accountIds?: string[] | null }
-): Promise<
-  { date: string; spend: number; impressions: number; clicks: number; leads: number; purchases: number; revenue: number }[]
-> {
-  type RawMetricRow = {
-    ad_account_id: string;
-    date: string;
-    platform: string | null;
-    spend: number | null;
-    impressions: number | null;
-    clicks: number | null;
-    leads: number | null;
-    purchases: number | null;
-    revenue: number | null;
-  };
-
-  const adAccountIds = await resolveAdAccountIds(
+): Promise<CanonicalMetricRow[]> {
+  const adAccountIds = await resolveEnabledAdAccountIdsForProject(
     admin,
     projectId,
     options?.sources,
@@ -197,36 +380,10 @@ async function fetchCanonicalRowsViaJoin(
     }
   }
 
-  let campaignPagesFetched = 0;
-  let campaignRawRows: Record<string, unknown>[] = [];
-  try {
-    const { rows, pagesFetched } = await fetchAllPages(async (from, to) =>
-      admin
-        .from("daily_ad_metrics_campaign")
-        .select("ad_account_id, date, platform, spend, impressions, clicks, leads, purchases, revenue")
-        .in("ad_account_id", adAccountIds)
-        .in("platform", ["tiktok"])
-        .gte("date", start)
-        .lte("date", end)
-        .order("date", { ascending: true })
-        .order("id", { ascending: true })
-        .range(from, to)
-    );
-    campaignPagesFetched = pagesFetched;
-    campaignRawRows = rows as Record<string, unknown>[];
-  } catch (e: unknown) {
-    const msg = e && typeof e === "object" && "message" in e ? String((e as { message?: string }).message) : String(e);
-    console.log("[CANONICAL_QUERY_ERROR]", { error: msg });
-    throw e;
-  }
-  const campaignRows = campaignRawRows as RawMetricRow[];
-  const campaignPlatforms = new Set<string>(
-    (campaignRawRows ?? [])
-      .map((r) => String((r as { platform?: string }).platform ?? "").trim().toLowerCase())
-      .filter(Boolean)
-  );
+  const campaignRows: RawMetricRow[] = [];
+  const campaignPagesFetched = 0;
 
-  const accountLevelPlatforms = ["tiktok", "yandex"].filter((p) => !campaignPlatforms.has(p));
+  const accountLevelPlatforms = ["tiktok", "yandex"];
   let accountRows: RawMetricRow[] = [];
 
   let accountPagesFetched = 0;
@@ -255,34 +412,6 @@ async function fetchCanonicalRowsViaJoin(
   }
   const rows = [...metaGoogleAccountRows, ...campaignRows, ...accountRows];
 
-  const adAccountIdSet = new Set<string>(rows.map((r) => String(r.ad_account_id ?? "")).filter(Boolean));
-  const adAccountIdsForCurrency = Array.from(adAccountIdSet);
-  const { data: projectRow } = await admin
-    .from("projects")
-    .select("currency")
-    .eq("id", projectId)
-    .maybeSingle();
-  void projectRow; // reserved for future strict project-level currency policy.
-  const accountMeta = new Map<string, { currency: "USD" | "KZT" | null; provider: string | null }>();
-  if (adAccountIdsForCurrency.length > 0) {
-    const { data: adAccountsData } = await admin
-      .from("ad_accounts")
-      .select("id, currency, provider")
-      .in("id", adAccountIdsForCurrency);
-    for (const a of (adAccountsData ?? []) as { id: string; currency: string | null; provider: string | null }[]) {
-      accountMeta.set(a.id, {
-        currency: normalizeCurrencyCode(a.currency),
-        provider: a.provider ?? null,
-      });
-    }
-  }
-  const daysInRange = rows.map((r) => String(r.date ?? "").slice(0, 10));
-  const [usdToKztRateByDay, latestUsdToKztRate] = await Promise.all([
-    getUsdToKztRateMapForDays(admin, daysInRange),
-    getLatestUsdToKztRate(admin),
-  ]);
-  const currencyDiagnostics = createCurrencyDiagnostics();
-
   console.log("[CANONICAL_FETCH]", {
     projectId,
     start,
@@ -292,8 +421,8 @@ async function fetchCanonicalRowsViaJoin(
     adAccountIdsCount: adAccountIds.length,
     rowCount: rows.length,
     meta_google_account_rows: metaGoogleAccountRows.length,
-    campaignRows_tiktok: campaignRows.length,
-    accountRows_tiktok_yandex_fallback: accountRows.length,
+    campaign_rows: campaignRows.length,
+    account_rows_tiktok_yandex: accountRows.length,
     metaGooglePagesFetched,
     campaignPagesFetched,
     accountPagesFetched,
@@ -335,7 +464,7 @@ async function fetchCanonicalRowsViaJoin(
         account_level_rows_in_range: acctCount,
         note:
           acctCount > 0 && rows.length <= 2
-            ? "Meta/Google use account-level rows; TikTok uses campaign view + account fallback."
+            ? "Meta/Google/TikTok/Yandex canonical spend uses account-level daily_ad_metrics (campaign_id IS NULL)."
             : null,
       });
     } catch (_) {
@@ -343,37 +472,19 @@ async function fetchCanonicalRowsViaJoin(
     }
   }
 
-  return rows.map((r) => ({
-    date: String(r.date).slice(0, 10),
-    spend: convertToUsd(
-      Number(r.spend ?? 0) || 0,
-      accountMeta.get(r.ad_account_id)?.currency ?? null,
-      accountMeta.get(r.ad_account_id)?.provider ?? r.platform ?? null,
-      String(r.date ?? "").slice(0, 10),
-      usdToKztRateByDay,
-      latestUsdToKztRate,
-      currencyDiagnostics
-    ),
-    impressions: Number(r.impressions ?? 0) || 0,
-    clicks: Number(r.clicks ?? 0) || 0,
-    leads: Number(r.leads ?? 0) || 0,
-    purchases: Number(r.purchases ?? 0) || 0,
-    revenue: convertToUsd(
-      Number(r.revenue ?? 0) || 0,
-      accountMeta.get(r.ad_account_id)?.currency ?? null,
-      accountMeta.get(r.ad_account_id)?.provider ?? r.platform ?? null,
-      String(r.date ?? "").slice(0, 10),
-      usdToKztRateByDay,
-      latestUsdToKztRate,
-      currencyDiagnostics
-    ),
-  }));
+  return convertRawMetricRowsToUsd(admin, rows);
 }
 
-export type CanonicalFilterOptions = {
-  sources?: string[] | null;
-  accountIds?: string[] | null;
-};
+/** Account-level canonical rows (Meta, Google, TikTok, Yandex) — same totals as main dashboard. */
+export async function fetchCanonicalMetricRowsForProject(
+  admin: SupabaseClient,
+  projectId: string,
+  start: string,
+  end: string,
+  options?: CanonicalFilterOptions | null
+): Promise<CanonicalMetricRow[]> {
+  return fetchCanonicalRowsViaJoin(admin, projectId, start, end, options ?? undefined);
+}
 
 /**
  * Get canonical summary (totals) for a project and date range.

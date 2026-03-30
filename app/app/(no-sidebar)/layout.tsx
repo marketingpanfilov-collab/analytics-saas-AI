@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
+import DevAbortRejectionSuppressor from "../components/DevAbortRejectionSuppressor";
 import Topbar from "../components/Topbar";
 import { supabase } from "../../lib/supabaseClient";
 
@@ -43,6 +44,7 @@ export default function NoSidebarLayout({ children }: { children: React.ReactNod
         gridTemplateRows: "64px 1fr",
       }}
     >
+      <DevAbortRejectionSuppressor />
       <div style={{ height: 64 }}>
         <Suspense fallback={<TopbarFallback />}>
           <Topbar email={email} />

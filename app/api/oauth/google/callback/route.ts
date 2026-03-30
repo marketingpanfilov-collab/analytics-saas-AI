@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import type { NextRequest } from "next/server";
+import { upsertIntegrationsAuth } from "@/app/lib/integrationsAuthUpsert";
 
 type GoogleTokenResponse = {
   access_token?: string;
@@ -166,36 +167,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(back, { status: 302 });
   }
 
-  // Preserve existing refresh_token when Google doesn't return one (e.g. on re-connect).
-  let refreshTokenToStore = refreshTokenFromGoogle;
-  if (!refreshTokenToStore) {
-    const { data: existingAuth } = await admin
-      .from("integrations_auth")
-      .select("refresh_token")
-      .eq("integration_id", canonicalInt.id)
-      .maybeSingle();
-    const existing = (existingAuth as { refresh_token?: string | null } | null)?.refresh_token;
-    if (existing?.trim()) refreshTokenToStore = existing.trim();
-  }
-
-  const { error: authErr } = await admin
-    .from("integrations_auth")
-    .upsert(
-      {
-        integration_id: canonicalInt.id,
-        access_token: accessToken,
-        refresh_token: refreshTokenToStore,
-        token_expires_at: tokenExpiresAt,
-        scopes,
-        meta: {
-          token_type: tokenJson.token_type ?? null,
-          expires_in: expiresIn,
-          source: "google_oauth_callback",
-        },
-        updated_at: nowIso,
-      },
-      { onConflict: "integration_id" }
-    );
+  const { error: authErr } = await upsertIntegrationsAuth(admin, {
+    integration_id: canonicalInt.id,
+    access_token: accessToken,
+    refresh_token: refreshTokenFromGoogle,
+    token_expires_at: tokenExpiresAt,
+    scopes,
+    meta: {
+      token_type: tokenJson.token_type ?? null,
+      expires_in: expiresIn,
+      source: "google_oauth_callback",
+    },
+    updated_at: nowIso,
+  });
 
   if (authErr) {
     const back = new URL(returnTo, req.nextUrl.origin);

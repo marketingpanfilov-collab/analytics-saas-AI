@@ -16,12 +16,13 @@ function sectionLabel(pathname: string): string {
   if (pathname.startsWith("/app/reports")) return "Отчёты";
   if (pathname.startsWith("/app/ltv")) return "LTV";
   if (pathname.startsWith("/app/utm-builder")) return "UTM Builder";
-  if (pathname.startsWith("/app/pixels")) return "BQ Pixel";
+  if (pathname.startsWith("/app/pixels")) return "Pixel & CRM";
   if (pathname.startsWith("/app/accounts")) return "Аккаунты";
   if (pathname.startsWith("/app/project-members")) return "Участники";
   if (pathname.startsWith("/app/org-members")) return "Организация";
-  if (pathname.startsWith("/app/manage-access")) return "Управление доступом";
   if (pathname.startsWith("/app/conversion-data") || pathname.startsWith("/app/sales-data")) return "Conversion Data";
+  if (pathname.startsWith("/app/attribution-debugger")) return "Проверка атрибуции";
+  if (pathname.startsWith("/app/weekly-report")) return "Shared Board Report";
   if (pathname.startsWith("/app/api")) return "API";
   if (pathname.startsWith("/app/settings")) return "Настройки";
   if (pathname.startsWith("/app/support")) return "Поддержка";
@@ -163,7 +164,12 @@ export default function Topbar({ email }: { email?: string }) {
   const [dataQuality, setDataQuality] = useState<DataQualityPayload | null>(null);
   const [projects, setProjects] = useState<ProjectItem[]>([]);
 
-  const section = useMemo(() => sectionLabel(pathname ?? ""), [pathname]);
+  const section = useMemo(() => {
+    if (pathname?.startsWith("/app/settings") && searchParams.get("section") === "access") {
+      return "Управление доступом";
+    }
+    return sectionLabel(pathname ?? "");
+  }, [pathname, searchParams]);
   const projectName = useMemo(
     () => (projectId && projects.length ? (projects.find((p) => p.id === projectId)?.name ?? null) || "Проект" : null),
     [projectId, projects]
@@ -187,6 +193,7 @@ export default function Topbar({ email }: { email?: string }) {
 
   const [notifOpen, setNotifOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [planTariffPanelOpen, setPlanTariffPanelOpen] = useState(false);
   const [maxPlanHover, setMaxPlanHover] = useState(false);
   const [maxPlanCursor, setMaxPlanCursor] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
@@ -566,10 +573,15 @@ export default function Topbar({ email }: { email?: string }) {
           )}
         </div>
 
-          {/* Тариф-фрейм слева от email (динамика из billing_subscriptions) */}
-        <div className="relative group" style={{ flex: "0 0 auto" }}>
+          {/* Тариф: без group-hover — иначе «ложное» наведение на кнопку при движении по дашборду ниже */}
+        <div
+          className="relative"
+          style={{ flex: "0 0 auto" }}
+          onMouseLeave={() => setPlanTariffPanelOpen(false)}
+        >
           <div
             className="flex cursor-default items-center gap-2 rounded-xl px-4 py-2"
+            onMouseEnter={() => setPlanTariffPanelOpen(true)}
             style={{
               border: `1px solid ${planTheme.border}`,
               background: planTheme.bg,
@@ -591,9 +603,12 @@ export default function Topbar({ email }: { email?: string }) {
             </div>
           </div>
 
-          {/* tooltip (пока только UI, без функций) */}
+          {/* Панель: видимость только по state, не по group-hover */}
           <div
-            className="absolute left-0 top-full z-[1000] w-[330px] flex-col rounded-2xl border border-white/10 bg-[#0f0f14] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.65)] opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto"
+            className={`absolute left-0 top-full z-[1000] w-[330px] flex-col rounded-2xl border border-white/10 bg-[#0f0f14] p-4 shadow-[0_24px_80px_rgba(0,0,0,0.65)] transition-opacity duration-150 ${
+              planTariffPanelOpen ? "visible pointer-events-auto opacity-100" : "invisible pointer-events-none opacity-0"
+            }`}
+            onMouseEnter={() => setPlanTariffPanelOpen(true)}
           >
               <div style={{ fontWeight: 900, color: "white", fontSize: 14 }}>{planTheme.label}</div>
             <div
@@ -631,7 +646,7 @@ export default function Topbar({ email }: { email?: string }) {
                 className={
                   isMaxPlan
                     ? "mt-4 h-11 cursor-not-allowed rounded-xl border border-white/10 bg-white/[0.06] px-6 text-sm font-extrabold text-white/55 md:mt-5"
-                    : "pointer-events-auto mt-4 h-11 cursor-pointer rounded-xl border border-emerald-400/35 bg-emerald-500/[0.16] px-6 text-sm font-extrabold text-white transition hover:bg-emerald-500/[0.22] md:mt-5"
+                    : "mt-4 h-11 cursor-pointer rounded-xl border border-emerald-400/35 bg-emerald-500/[0.16] px-6 text-sm font-extrabold text-white transition hover:bg-emerald-500/[0.22] md:mt-5"
                 }
                 aria-disabled={isMaxPlan}
                 onClick={(e) => {

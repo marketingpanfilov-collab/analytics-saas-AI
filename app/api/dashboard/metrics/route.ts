@@ -77,7 +77,9 @@ export async function GET(req: Request) {
 
   const canonical = await getCanonicalMetrics(admin, projectId, range.start, range.end, { sources, accountIds });
   if (canonical && canonical.length > 0) {
-    dashboardCacheSet(cacheKey, canonical, DASHBOARD_CACHE_TTL.metrics);
+    if (!didSync) {
+      dashboardCacheSet(cacheKey, canonical, DASHBOARD_CACHE_TTL.metrics);
+    }
     console.log("[METRICS_RESPONSE_RAW]", { branch: "canonical", rowCount: canonical.length });
     return NextResponse.json(canonical);
   }

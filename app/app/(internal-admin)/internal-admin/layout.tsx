@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentSystemRoleCheck } from "@/app/lib/auth/systemRoles";
+import DevAbortRejectionSuppressor from "../../components/DevAbortRejectionSuppressor";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,7 @@ export default async function InternalAdminLayout({ children }: { children: Reac
 
   return (
     <div className="min-h-screen bg-[#0b0b10] text-white">
+      <DevAbortRejectionSuppressor />
       <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
         <div className="text-base font-semibold">Internal Admin</div>
         <div className="flex flex-wrap items-center gap-2">

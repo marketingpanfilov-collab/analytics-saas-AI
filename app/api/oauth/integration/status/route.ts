@@ -36,7 +36,7 @@ export type IntegrationStatusRow = {
 // Cadence: background cron every ~3h, plus online refresh every 15m.
 // When we see no "today" metrics, don't escalate to error until ~3h have passed.
 const DATA_FRESHNESS_THRESHOLD_MINUTES = 180;
-const ENABLE_UNIFIED_TOKEN_HEALTH = process.env.FEATURE_UNIFIED_TOKEN_HEALTH === "1";
+/** Transient OAuth/network failures map to `stale`, not `disconnected` (see tokenHealth + resolve*AccessToken). */
 
 function dayDiffUtc(fromYmd: string, toYmd: string): number {
   const from = Date.parse(`${fromYmd}T00:00:00Z`);
@@ -374,7 +374,7 @@ export async function GET(req: Request) {
         let data_max_date: string | null = null;
 
         if (!oauth_valid) {
-          status = ENABLE_UNIFIED_TOKEN_HEALTH && token_temporary ? "stale" : "disconnected";
+          status = token_temporary ? "stale" : "disconnected";
         } else if (enabled_accounts === 0) {
           status = "no_accounts";
         } else {
@@ -465,7 +465,7 @@ export async function GET(req: Request) {
         let data_max_date: string | null = null;
 
         if (!oauth_valid) {
-          status = ENABLE_UNIFIED_TOKEN_HEALTH && token_temporary ? "stale" : "disconnected";
+          status = token_temporary ? "stale" : "disconnected";
         } else if (enabled_accounts === 0) {
           status = "no_accounts";
         } else {
@@ -552,7 +552,7 @@ export async function GET(req: Request) {
         let data_max_date: string | null = null;
 
         if (!oauth_valid) {
-          status = ENABLE_UNIFIED_TOKEN_HEALTH && token_temporary ? "stale" : "disconnected";
+          status = token_temporary ? "stale" : "disconnected";
         } else if (enabled_accounts === 0) {
           status = "no_accounts";
         } else {

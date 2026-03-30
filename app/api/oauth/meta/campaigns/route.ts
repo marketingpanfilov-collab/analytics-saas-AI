@@ -1,15 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
-
-async function fbGetJson(url: string) {
-  const r = await fetch(url);
-  const txt = await r.text();
-  try {
-    return JSON.parse(txt);
-  } catch {
-    return { error: { message: txt } };
-  }
-}
+import { fetchMetaGraphGetJsonWithRetry } from "@/app/lib/metaGraphRetry";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -46,7 +37,23 @@ export async function GET(req: Request) {
       access_token: integration.access_token,
     }).toString();
 
-  const campaigns = await fbGetJson(url);
+  const graphResult = await fetchMetaGraphGetJsonWithRetry(url);
+  if (!graphResult.ok) {
+    const errPayload = graphResult.json as { error?: { message?: string; code?: number } };
+    const code = errPayload?.error?.code;
+    const status =
+      graphResult.kind === "transient" ? 503 : code === 190 || code === 102 ? 401 : 400;
+    return NextResponse.json(
+      {
+        success: false,
+        error: errPayload?.error?.message ?? "Meta Graph request failed",
+        retryable: graphResult.kind === "transient",
+      },
+      { status }
+    );
+  }
+
+  const campaigns = graphResult.json as { data?: unknown[] };
 
   return NextResponse.json({
     success: true,

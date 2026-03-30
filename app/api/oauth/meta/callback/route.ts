@@ -2,6 +2,8 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import type { NextRequest } from "next/server";
+import { logCabinetState } from "@/app/lib/cabinetAuditLog";
+import { upsertIntegrationsAuth } from "@/app/lib/integrationsAuthUpsert";
 
 type FbTokenResponse = {
   access_token?: string;
@@ -290,24 +292,19 @@ export async function GET(req: NextRequest) {
   }
 
   const nowIso = new Date().toISOString();
-  const { error: authErr } = await admin
-    .from("integrations_auth")
-    .upsert(
-      {
-        integration_id: integrationsId,
-        access_token: accessToken,
-        refresh_token: null,
-        token_expires_at: expiresAt,
-        scopes: null,
-        meta: {
-          token_type: longJson.token_type ?? null,
-          expires_in: expiresIn,
-          source: "meta_oauth_callback",
-        },
-        updated_at: nowIso,
-      },
-      { onConflict: "integration_id" }
-    );
+  const { error: authErr } = await upsertIntegrationsAuth(admin, {
+    integration_id: integrationsId,
+    access_token: accessToken,
+    refresh_token: null,
+    token_expires_at: expiresAt,
+    scopes: null,
+    meta: {
+      token_type: longJson.token_type ?? null,
+      expires_in: expiresIn,
+      source: "meta_oauth_callback",
+    },
+    updated_at: nowIso,
+  });
 
   if (authErr) {
     return NextResponse.json(
@@ -382,6 +379,13 @@ export async function GET(req: NextRequest) {
 
   // Diagnostic: what Meta returned (count + id/name per account)
   console.log("[meta_callback] Meta ad accounts count:", adAccounts.length, "ids:", adAccounts.map((a) => ({ id: a.id, name: a.name ?? null })));
+
+  logCabinetState("meta_oauth_callback_wipe_start", {
+    project_id: projectId,
+    integrations_meta_id: integrationId,
+    integrations_canonical_id: integrationsId,
+    ad_accounts_from_api: adAccounts.length,
+  });
 
   // ✅ privacy/clean: удаляем старые кабинеты по этой интеграции (legacy + canonical)
   await admin
@@ -458,6 +462,12 @@ export async function GET(req: NextRequest) {
       );
     }
   }
+
+  logCabinetState("meta_oauth_callback_ok", {
+    project_id: projectId,
+    integrations_meta_id: integrationId,
+    canonical_ad_accounts_upserted: adAccounts.length,
+  });
 
   // 6) редирект обратно в UI
   const returnTo =

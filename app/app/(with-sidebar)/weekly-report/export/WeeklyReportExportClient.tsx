@@ -103,7 +103,7 @@ export default function WeeklyReportExportClient() {
         </a>
       </div>
       <div className="mx-auto max-w-4xl rounded-2xl border border-white/10 bg-white/[0.03] p-6 print:border-0 print:bg-transparent">
-        <h1 className="mb-2 text-2xl font-extrabold tracking-tight text-white">Weekly Board Report</h1>
+        <h1 className="mb-2 text-2xl font-extrabold tracking-tight text-white">Shared Board Report</h1>
         <WeeklyReportContent data={data} printMode showSubtitle />
       </div>
     </div>

@@ -71,6 +71,9 @@ export async function GET(
   const gclid = safeStr(searchParams.get("gclid"), 512);
   const ttclid = safeStr(searchParams.get("ttclid"), 512);
   const yclid = safeStr(searchParams.get("yclid"), 512);
+  const platform_campaign_id = safeStr(searchParams.get("campaign_id"), 512);
+  const platform_adset_id = safeStr(searchParams.get("adset_id"), 512);
+  const platform_ad_id = safeStr(searchParams.get("ad_id"), 512);
   const referrer = safeStr(req.headers.get("referer"), 2048);
   const userAgent = safeStr(req.headers.get("user-agent"), 1024);
   const cookieHeader = req.headers.get("cookie") ?? "";
@@ -117,6 +120,9 @@ export async function GET(
     p_fingerprint_hash: fingerprint,
     p_traffic_source: detectedSource,
     p_traffic_platform: detectedPlatform,
+    p_platform_campaign_id: platform_campaign_id,
+    p_platform_adset_id: platform_adset_id,
+    p_platform_ad_id: platform_ad_id,
   });
   if (clickLogError) {
     await logTrackingTelemetry({
@@ -152,6 +158,9 @@ export async function GET(
         fingerprint_hash: fingerprint,
         traffic_source: detectedSource,
         traffic_platform: detectedPlatform,
+        platform_campaign_id,
+        platform_adset_id,
+        platform_ad_id,
       });
       if (!fallbackInsertError) {
         await admin.rpc("increment_redirect_link_clicks", { p_link_id: link.id });
@@ -175,9 +184,9 @@ export async function GET(
   addParam("gclid", gclid);
   addParam("ttclid", ttclid);
   addParam("yclid", yclid);
-  addParam("campaign_id", safeStr(searchParams.get("campaign_id"), 512));
-  addParam("adset_id", safeStr(searchParams.get("adset_id"), 512));
-  addParam("ad_id", safeStr(searchParams.get("ad_id"), 512));
+  addParam("campaign_id", platform_campaign_id);
+  addParam("adset_id", platform_adset_id);
+  addParam("ad_id", platform_ad_id);
   addParam("click_id", safeStr(searchParams.get("click_id"), 512));
   if (campaign_intent === "retention") addParam("campaign_intent", "retention");
 

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
-import { getValidGoogleAccessToken } from "@/app/lib/googleAdsAuth";
+import { getGoogleAccessTokenForApi } from "@/app/lib/googleAdsAuth";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { logCabinetState } from "@/app/lib/cabinetAuditLog";
 
 const LIST_ACCESSIBLE_CUSTOMERS_URL =
   "https://googleads.googleapis.com/v20/customers:listAccessibleCustomers";
@@ -25,6 +26,15 @@ type CustomerInfo = {
 };
 type ClientInfo = { id: string; descriptiveName: string | null; level: number; currencyCode: string | null };
 type CurrencyCode = "USD" | "KZT" | null;
+
+function classifyGoogleAdsListFailure(status: number, googleStatus?: string, message?: string): "auth" | "transient" | "other" {
+  const gs = String(googleStatus ?? "").toUpperCase();
+  const m = String(message ?? "").toUpperCase();
+  if (status === 401 || gs === "UNAUTHENTICATED" || m.includes("UNAUTHENTICATED")) return "auth";
+  if (status === 429 || (status >= 500 && status <= 599) || status === 408) return "transient";
+  if (["RESOURCE_EXHAUSTED", "UNAVAILABLE", "INTERNAL", "DEADLINE_EXCEEDED"].includes(gs)) return "transient";
+  return "other";
+}
 
 function normalizeCurrencyCode(raw: string | null | undefined): CurrencyCode {
   const v = String(raw ?? "").trim().toUpperCase();
@@ -157,13 +167,14 @@ export async function POST(req: Request) {
     return NextResponse.json(access.body, { status: access.status });
   }
 
-  const developerToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
-  if (!developerToken) {
+  const developerTokenRaw = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
+  if (!developerTokenRaw) {
     return NextResponse.json(
       { success: false, error: "GOOGLE_ADS_DEVELOPER_TOKEN not set" },
       { status: 500 }
     );
   }
+  const developerToken = developerTokenRaw;
 
   const admin = supabaseAdmin();
 
@@ -194,32 +205,76 @@ export async function POST(req: Request) {
     );
   }
 
-  const token = await getValidGoogleAccessToken(admin, integration.id);
+  const gr = await getGoogleAccessTokenForApi(admin, integration.id);
 
-  if (!token) {
+  if (!gr.ok) {
+    if (gr.kind === "transient") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Google token refresh temporarily failed; retry shortly",
+          retryable: true,
+        },
+        { status: 503 }
+      );
+    }
     return NextResponse.json(
       { success: false, error: "Google auth token not found or expired; reconnect Google OAuth" },
       { status: 401 }
     );
   }
 
-  const accessToken = token.access_token;
+  let accessToken = gr.access_token;
 
-  const listRes = await fetch(LIST_ACCESSIBLE_CUSTOMERS_URL, {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "developer-token": developerToken,
-      "Content-Type": "application/json",
-    },
-  });
+  async function fetchListAccessible(access: string) {
+    const listRes = await fetch(LIST_ACCESSIBLE_CUSTOMERS_URL, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${access}`,
+        "developer-token": developerToken,
+        "Content-Type": "application/json",
+      },
+    });
+    const listData = (await listRes.json().catch(() => ({}))) as {
+      resourceNames?: string[];
+      error?: { message?: string; status?: string };
+    };
+    return { listRes, listData };
+  }
 
-  const listData = (await listRes.json().catch(() => ({}))) as {
-    resourceNames?: string[];
-    error?: { message?: string };
-  };
+  let { listRes, listData } = await fetchListAccessible(accessToken);
 
   if (!listRes.ok) {
+    const kind = classifyGoogleAdsListFailure(
+      listRes.status,
+      listData?.error?.status,
+      listData?.error?.message
+    );
+    if (kind === "auth") {
+      const gr2 = await getGoogleAccessTokenForApi(admin, integration.id, { forceRefresh: true });
+      if (gr2.ok) {
+        accessToken = gr2.access_token;
+        ({ listRes, listData } = await fetchListAccessible(accessToken));
+      }
+    }
+  }
+
+  if (!listRes.ok) {
+    const kind = classifyGoogleAdsListFailure(
+      listRes.status,
+      listData?.error?.status,
+      listData?.error?.message
+    );
+    if (kind === "transient") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: listData?.error?.message ?? `Google Ads API error: ${listRes.status}`,
+          retryable: true,
+        },
+        { status: 503 }
+      );
+    }
     return NextResponse.json(
       {
         success: false,
@@ -390,22 +445,19 @@ export async function POST(req: Request) {
     for (const c of clients) customerExternalIds.add(c.id);
   }
 
-  await admin.from("ad_accounts").delete().eq("integration_id", integrationId);
+  logCabinetState("google_accounts_discover_start", {
+    project_id: projectId,
+    integration_id: integrationId,
+    customer_count: customerExternalIds.size,
+  });
 
   if (customerExternalIds.size > 0) {
-    const { data: allCustomerEntities } = await admin
-      .from("integration_entities")
-      .select("id, external_entity_id")
-      .eq("integration_id", integrationId)
-      .eq("platform", "google")
-      .eq("entity_type", "customer");
-
-  const nameByExternal = new Map<string, string>();
-  const currencyByExternal = new Map<string, CurrencyCode>();
+    const nameByExternal = new Map<string, string>();
+    const currencyByExternal = new Map<string, CurrencyCode>();
     for (const id of standaloneCustomerIds) {
       const info = customerInfoById.get(id);
       nameByExternal.set(id, info?.descriptiveName ?? id);
-    currencyByExternal.set(id, normalizeCurrencyCode(info?.currencyCode ?? null));
+      currencyByExternal.set(id, normalizeCurrencyCode(info?.currencyCode ?? null));
     }
     for (const clients of clientListsByManagerId.values()) {
       for (const c of clients) {
@@ -434,15 +486,47 @@ export async function POST(req: Request) {
         { status: 500 }
       );
     }
+  }
 
-    const { data: insertedAccounts } = await admin
-      .from("ad_accounts")
-      .select("id")
-      .eq("integration_id", integrationId);
+  const { data: afterAdRows } = await admin
+    .from("ad_accounts")
+    .select("id, external_account_id")
+    .eq("integration_id", integrationId);
 
-    const accountIds = (insertedAccounts ?? []) as { id: string }[];
-    if (accountIds.length > 0) {
-      const settingsRows = accountIds.map(({ id }) => ({
+  const staleIds = (afterAdRows ?? [])
+    .filter((r: { external_account_id: string }) => !customerExternalIds.has(r.external_account_id))
+    .map((r: { id: string }) => r.id);
+
+  if (staleIds.length > 0) {
+    const { error: delErr } = await admin.from("ad_accounts").delete().in("id", staleIds);
+    if (delErr) {
+      return NextResponse.json(
+        { success: false, error: delErr.message ?? "ad_accounts stale delete failed" },
+        { status: 500 }
+      );
+    }
+  }
+
+  const { data: finalAdRows } = await admin
+    .from("ad_accounts")
+    .select("id")
+    .eq("integration_id", integrationId);
+
+  const finalIds = ((finalAdRows ?? []) as { id: string }[]).map((r) => r.id);
+  let newSettingsCount = 0;
+  if (finalIds.length > 0) {
+    const { data: existingSettings } = await admin
+      .from("ad_account_settings")
+      .select("ad_account_id")
+      .in("ad_account_id", finalIds);
+
+    const haveSettings = new Set(
+      ((existingSettings ?? []) as { ad_account_id: string }[]).map((r) => r.ad_account_id)
+    );
+    const needDefaults = finalIds.filter((id) => !haveSettings.has(id));
+    newSettingsCount = needDefaults.length;
+    if (needDefaults.length > 0) {
+      const settingsRows = needDefaults.map((id) => ({
         ad_account_id: id,
         project_id: projectId,
         is_enabled: false,
@@ -450,12 +534,25 @@ export async function POST(req: Request) {
         sync_enabled: false,
         updated_at: nowIso,
       }));
-
-      await admin
+      const { error: settingsErr } = await admin
         .from("ad_account_settings")
         .upsert(settingsRows, { onConflict: "ad_account_id" });
+      if (settingsErr) {
+        return NextResponse.json(
+          { success: false, error: settingsErr.message ?? "ad_account_settings upsert failed" },
+          { status: 500 }
+        );
+      }
     }
   }
+
+  logCabinetState("google_accounts_discover_ok", {
+    project_id: projectId,
+    integration_id: integrationId,
+    accounts_total: finalIds.length,
+    stale_removed: staleIds.length,
+    new_default_settings_rows: newSettingsCount,
+  });
 
   const underManagerCount = Array.from(clientListsByManagerId.values()).reduce((n, list) => n + list.length, 0);
 

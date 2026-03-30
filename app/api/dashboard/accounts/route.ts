@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { resolveEnabledAdAccountIdsForProject } from "@/app/lib/dashboardCanonical";
 
 /**
  * GET /api/dashboard/accounts?project_id=...
@@ -55,34 +56,7 @@ export async function GET(req: Request) {
   const list = adAccounts ?? [];
   const ids = list.map((a: { id: string }) => a.id);
 
-  // Primary: platform-agnostic enabled state from ad_account_settings
-  const enabledAdAccountIds = new Set<string>();
-  if (ids.length > 0) {
-    const { data: settingsRows } = await admin
-      .from("ad_account_settings")
-      .select("ad_account_id")
-      .eq("project_id", projectId)
-      .eq("is_enabled", true)
-      .in("ad_account_id", ids);
-    if (settingsRows?.length) {
-      for (const r of settingsRows as { ad_account_id: string }[]) {
-        enabledAdAccountIds.add(r.ad_account_id);
-      }
-    }
-  }
-
-  // Fallback: if no ad_account_settings yet (transition), use meta_ad_accounts for Meta
-  let metaEnabledExternalIds = new Set<string>();
-  if (enabledAdAccountIds.size === 0) {
-    const { data: metaEnabledRows } = await admin
-      .from("meta_ad_accounts")
-      .select("ad_account_id")
-      .eq("project_id", projectId)
-      .eq("is_enabled", true);
-    if (metaEnabledRows?.length) {
-      metaEnabledExternalIds = new Set((metaEnabledRows as { ad_account_id: string }[]).map((r) => r.ad_account_id));
-    }
-  }
+  const canonicalEnabledIds = new Set(await resolveEnabledAdAccountIdsForProject(admin, projectId));
 
   const coverageMap: Record<string, { min_date: string; max_date: string; row_count: number }> = {};
   if (ids.length > 0) {
@@ -128,10 +102,7 @@ export async function GET(req: Request) {
   const accounts = list.map((a: { id: string; external_account_id: string; provider: string; account_name: string | null }) => {
     const cov = coverageMap[a.id];
     const has_data = !!cov && cov.row_count > 0;
-    const is_enabled =
-      enabledAdAccountIds.size > 0
-        ? enabledAdAccountIds.has(a.id)
-        : (a.provider === "meta" ? metaEnabledExternalIds.has(a.external_account_id) : false);
+    const is_enabled = canonicalEnabledIds.has(a.id);
     const lastSync = lastSyncMap[a.id];
     return {
       id: a.id,
