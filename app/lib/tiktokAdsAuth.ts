@@ -19,6 +19,8 @@ type TikTokTokenResponse = {
     access_token?: string;
     refresh_token?: string;
     expires_in?: number;
+    scope?: string;
+    access_token_info?: { access_token?: string; refresh_token?: string; expires_in?: number };
   };
   error?: string;
   error_description?: string;
@@ -32,18 +34,113 @@ export type TikTokAccessResolution =
   | { outcome: "transient" }
   | { outcome: "permanent"; detail?: string };
 
+function asRecord(v: unknown): Record<string, unknown> | null {
+  if (v && typeof v === "object" && !Array.isArray(v)) return v as Record<string, unknown>;
+  return null;
+}
+
+function strField(v: unknown): string | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s !== "" ? s : null;
+}
+
+/**
+ * Parses TikTok Marketing API `POST .../oauth2/access_token/` JSON (auth_code or refresh_token grant).
+ * Respects envelope `code !== 0` and reads tokens from `data` or top-level (and optional `access_token_info`).
+ */
+export function parseTikTokOAuthAccessTokenResult(
+  payload: unknown,
+  httpOk: boolean
+): {
+  ok: boolean;
+  access_token: string | null;
+  refresh_token: string | null;
+  expires_in: number;
+  scope: string | null;
+  message: string | null;
+  api_code?: number;
+} {
+  const root = asRecord(payload);
+  if (!root) {
+    return {
+      ok: false,
+      access_token: null,
+      refresh_token: null,
+      expires_in: 86400,
+      scope: null,
+      message: httpOk ? "invalid_response_body" : "http_error",
+    };
+  }
+
+  const apiCode = root.code;
+  if (typeof apiCode === "number" && apiCode !== 0) {
+    return {
+      ok: false,
+      access_token: null,
+      refresh_token: null,
+      expires_in: 86400,
+      scope: null,
+      message:
+        strField(root.message) ||
+        strField(root.error_description) ||
+        strField(root.error) ||
+        `tiktok_code_${apiCode}`,
+      api_code: apiCode,
+    };
+  }
+
+  const data = asRecord(root.data);
+  const layer = data ?? root;
+  const tokenInfo = asRecord(layer.access_token_info);
+
+  const accessToken =
+    strField(layer.access_token) ??
+    strField(tokenInfo?.access_token) ??
+    strField(root.access_token);
+
+  const refreshToken =
+    strField(layer.refresh_token) ??
+    strField(tokenInfo?.refresh_token) ??
+    strField(root.refresh_token);
+
+  const expRaw = layer.expires_in ?? tokenInfo?.expires_in ?? root.expires_in;
+  const expiresIn = Number(expRaw ?? 86400);
+
+  const scopeRaw = layer.scope ?? root.scope;
+  const scope = scopeRaw != null && String(scopeRaw).trim() !== "" ? String(scopeRaw) : null;
+
+  if (!accessToken) {
+    return {
+      ok: false,
+      access_token: null,
+      refresh_token: refreshToken,
+      expires_in: Number.isFinite(expiresIn) ? expiresIn : 86400,
+      scope,
+      message: strField(root.message) || "no_access_token",
+    };
+  }
+
+  return {
+    ok: true,
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    expires_in: Number.isFinite(expiresIn) ? expiresIn : 86400,
+    scope,
+    message: null,
+  };
+}
+
 function normalizeTokenPayload(payload: TikTokTokenResponse): {
   access_token: string | null;
   refresh_token: string | null;
   expires_in: number;
 } {
-  const accessToken = payload.access_token ?? payload.data?.access_token ?? null;
-  const refreshToken = payload.refresh_token ?? payload.data?.refresh_token ?? null;
-  const expiresIn = Number(payload.expires_in ?? payload.data?.expires_in ?? 86400);
+  const parsed = parseTikTokOAuthAccessTokenResult(payload as unknown, true);
   return {
-    access_token: accessToken?.trim() || null,
-    refresh_token: refreshToken?.trim() || null,
-    expires_in: Number.isFinite(expiresIn) ? expiresIn : 86400,
+    access_token: parsed.access_token,
+    refresh_token: parsed.refresh_token,
+    expires_in: parsed.expires_in,
   };
 }
 

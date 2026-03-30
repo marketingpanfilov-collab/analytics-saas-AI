@@ -2,40 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import type { NextRequest } from "next/server";
 import { mergeRefreshTokenForUpsert, upsertIntegrationsAuth } from "@/app/lib/integrationsAuthUpsert";
-
-type TikTokTokenResponse = {
-  access_token?: string;
-  refresh_token?: string;
-  expires_in?: number;
-  scope?: string;
-  data?: {
-    access_token?: string;
-    refresh_token?: string;
-    expires_in?: number;
-    scope?: string;
-  };
-  message?: string;
-  error?: string;
-  error_description?: string;
-};
-
-function normalizeTokenPayload(payload: TikTokTokenResponse): {
-  access_token: string | null;
-  refresh_token: string | null;
-  expires_in: number;
-  scope: string | null;
-} {
-  const accessToken = payload.access_token ?? payload.data?.access_token ?? null;
-  const refreshToken = payload.refresh_token ?? payload.data?.refresh_token ?? null;
-  const expiresIn = Number(payload.expires_in ?? payload.data?.expires_in ?? 86400);
-  const scope = payload.scope ?? payload.data?.scope ?? null;
-  return {
-    access_token: accessToken?.trim() || null,
-    refresh_token: refreshToken?.trim() || null,
-    expires_in: Number.isFinite(expiresIn) ? expiresIn : 86400,
-    scope,
-  };
-}
+import { parseTikTokOAuthAccessTokenResult } from "@/app/lib/tiktokAdsAuth";
 
 function parseState(state: string | null): { project_id?: string; return_to?: string } | null {
   if (!state || !state.trim()) return null;
@@ -107,7 +74,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(back, { status: 302 });
   }
 
-  // Primary: TikTok Marketing API v1.3 exchange (auth_code).
+  // TikTok Marketing API v1.3: official SDK sends app_id + secret + auth_code (+ redirect_uri).
+  // Do not send grant_type "auth_code" (non-standard); redirect_uri must match the authorize URL.
   const primaryRes = await fetch("https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -115,31 +83,29 @@ export async function GET(req: NextRequest) {
       app_id: appId,
       secret: clientSecret,
       auth_code: code,
-      grant_type: "auth_code",
+      redirect_uri: redirectUri,
     }),
   });
-  const tokenJson = (await primaryRes.json().catch(() => ({}))) as TikTokTokenResponse;
-  const normalized = normalizeTokenPayload(tokenJson);
+  const tokenJson: unknown = await primaryRes.json().catch(() => ({}));
+  const parsed = parseTikTokOAuthAccessTokenResult(tokenJson, primaryRes.ok);
 
-  if (!primaryRes.ok || !normalized.access_token) {
+  if (!parsed.ok || !parsed.access_token) {
     const back = new URL(returnTo, req.nextUrl.origin);
     back.searchParams.set("connected", "tiktok_error");
-    back.searchParams.set("reason", tokenJson.error_description || tokenJson.error || tokenJson.message || "token_exchange_failed");
+    back.searchParams.set(
+      "reason",
+      parsed.message || (typeof tokenJson === "object" && tokenJson && "message" in tokenJson
+        ? String((tokenJson as { message?: string }).message)
+        : "token_exchange_failed")
+    );
     return NextResponse.redirect(back, { status: 302 });
   }
 
-  if (!normalized.access_token) {
-    const back = new URL(returnTo, req.nextUrl.origin);
-    back.searchParams.set("connected", "tiktok_error");
-    back.searchParams.set("reason", tokenJson.error_description || tokenJson.error || tokenJson.message || "token_exchange_failed");
-    return NextResponse.redirect(back, { status: 302 });
-  }
-
-  const accessToken = normalized.access_token;
-  const refreshTokenFromTikTok = normalized.refresh_token;
-  const expiresIn = normalized.expires_in;
+  const accessToken = parsed.access_token;
+  const refreshTokenFromTikTok = parsed.refresh_token;
+  const expiresIn = parsed.expires_in;
   const tokenExpiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
-  const scopes = normalized.scope;
+  const scopes = parsed.scope;
   const nowIso = new Date().toISOString();
 
   const { data: canonicalInt, error: intUpsertErr } = await admin
@@ -176,7 +142,8 @@ export async function GET(req: NextRequest) {
     console.warn("[TIKTOK_OAUTH_NO_REFRESH_TOKEN_AFTER_EXCHANGE]", {
       projectId,
       integration_id: canonicalInt.id,
-      hint: "TikTok did not return refresh_token and none was stored; user must reconnect when access expires unless app is configured to return refresh.",
+      hint:
+        "TikTok often omits refresh_token on re-consent if the app was not revoked; access ~24h. After full disconnect there is no old refresh to keep — revoke the app in TikTok Ads developer settings and authorize again to obtain a new refresh_token, or ensure token exchange includes redirect_uri matching authorize URL.",
     });
   }
 
