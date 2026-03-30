@@ -45,6 +45,61 @@ function strField(v: unknown): string | null {
   return s !== "" ? s : null;
 }
 
+/** TikTok sometimes returns `data` as JSON string, or as array of objects. */
+function normalizeTiktokEnvelopeData(root: Record<string, unknown>): Record<string, unknown> | null {
+  const d = root.data;
+  if (d == null) return null;
+  if (typeof d === "string") {
+    try {
+      const p = JSON.parse(d) as unknown;
+      if (Array.isArray(p) && p.length > 0) return asRecord(p[0]);
+      return asRecord(p);
+    } catch {
+      return null;
+    }
+  }
+  if (Array.isArray(d) && d.length > 0) {
+    return asRecord(d[0]) ?? null;
+  }
+  return asRecord(d);
+}
+
+function formatTiktokScope(raw: unknown): string | null {
+  if (raw == null) return null;
+  if (Array.isArray(raw)) {
+    const s = raw.map((x) => String(x)).join(",");
+    return s.trim() !== "" ? s : null;
+  }
+  const s = String(raw).trim();
+  return s !== "" ? s : null;
+}
+
+/** Last-resort: find refresh_token / refreshToken anywhere in JSON (bounded depth). */
+function deepFindRefreshToken(node: unknown, depth: number, maxDepth: number): string | null {
+  if (depth > maxDepth || node == null) return null;
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      const r = deepFindRefreshToken(item, depth + 1, maxDepth);
+      if (r) return r;
+    }
+    return null;
+  }
+  if (typeof node !== "object") return null;
+  const o = node as Record<string, unknown>;
+  for (const k of ["refresh_token", "refreshToken"] as const) {
+    const v = o[k];
+    if (typeof v === "string" && v.trim() !== "") return v.trim();
+  }
+  for (const v of Object.values(o)) {
+    const r = deepFindRefreshToken(v, depth + 1, maxDepth);
+    if (r) return r;
+  }
+  return null;
+}
+
+const TIKTOK_OAUTH_ACCESS_TOKEN_URL = "https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/";
+const TIKTOK_OAUTH_REFRESH_TOKEN_URL = "https://business-api.tiktok.com/open_api/v1.3/oauth2/refresh_token/";
+
 /**
  * Parses TikTok Marketing API `POST .../oauth2/access_token/` JSON (auth_code or refresh_token grant).
  * Respects envelope `code !== 0` and reads tokens from `data` or top-level (and optional `access_token_info`).
@@ -90,7 +145,7 @@ export function parseTikTokOAuthAccessTokenResult(
     };
   }
 
-  const data = asRecord(root.data);
+  const data = normalizeTiktokEnvelopeData(root);
   const layer = data ?? root;
   const tokenInfo = asRecord(layer.access_token_info);
 
@@ -99,16 +154,19 @@ export function parseTikTokOAuthAccessTokenResult(
     strField(tokenInfo?.access_token) ??
     strField(root.access_token);
 
-  const refreshToken =
+  let refreshToken =
     strField(layer.refresh_token) ??
     strField(tokenInfo?.refresh_token) ??
     strField(root.refresh_token);
 
+  if (!refreshToken) {
+    refreshToken = deepFindRefreshToken(root, 0, 8);
+  }
+
   const expRaw = layer.expires_in ?? tokenInfo?.expires_in ?? root.expires_in;
   const expiresIn = Number(expRaw ?? 86400);
 
-  const scopeRaw = layer.scope ?? root.scope;
-  const scope = scopeRaw != null && String(scopeRaw).trim() !== "" ? String(scopeRaw) : null;
+  const scope = formatTiktokScope(layer.scope ?? root.scope);
 
   if (!accessToken) {
     return {
@@ -219,7 +277,7 @@ export async function resolveTikTokAccessToken(
   let primaryRes: Response;
   try {
     primaryRes = await fetchWithRetry(
-      "https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/",
+      TIKTOK_OAUTH_REFRESH_TOKEN_URL,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -236,7 +294,35 @@ export async function resolveTikTokAccessToken(
     return { outcome: "transient" };
   }
 
-  const primaryJson = (await primaryRes.json().catch(() => ({}))) as TikTokTokenResponse;
+  let primaryJson = (await primaryRes.json().catch(() => ({}))) as TikTokTokenResponse;
+
+  // Legacy: some tenants only accept refresh on access_token URL.
+  if (!primaryRes.ok || (typeof primaryJson.code === "number" && primaryJson.code !== 0)) {
+    try {
+      const fallbackRes = await fetchWithRetry(
+        TIKTOK_OAUTH_ACCESS_TOKEN_URL,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            app_id: appId,
+            secret: clientSecret,
+            refresh_token: refreshToken,
+            grant_type: "refresh_token",
+          }),
+        },
+        { retries: 1, initialDelayMs: REFRESH_INITIAL_DELAY_MS }
+      );
+      const fallbackJson = (await fallbackRes.json().catch(() => ({}))) as TikTokTokenResponse;
+      if (fallbackRes.ok && (!fallbackJson.code || fallbackJson.code === 0)) {
+        primaryRes = fallbackRes;
+        primaryJson = fallbackJson;
+      }
+    } catch {
+      /* keep primaryRes for classify */
+    }
+  }
+
   const primaryNormalized = normalizeTokenPayload(primaryJson);
 
   if (primaryNormalized.access_token) {

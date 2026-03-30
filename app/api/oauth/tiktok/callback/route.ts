@@ -74,8 +74,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(back, { status: 302 });
   }
 
-  // TikTok Marketing API v1.3: official SDK sends app_id + secret + auth_code (+ redirect_uri).
-  // Do not send grant_type "auth_code" (non-standard); redirect_uri must match the authorize URL.
+  // TikTok Marketing API v1.3: exchange requires grant_type "authorization_code" (not "auth_code").
+  // Docs / integrator guides use app_id + secret + auth_code only; redirect_uri is not required here
+  // if it matches the app-registered URL used in /marketing_api/auth (must match env TIKTOK_REDIRECT_URI).
   const primaryRes = await fetch("https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -83,7 +84,7 @@ export async function GET(req: NextRequest) {
       app_id: appId,
       secret: clientSecret,
       auth_code: code,
-      redirect_uri: redirectUri,
+      grant_type: "authorization_code",
     }),
   });
   const tokenJson: unknown = await primaryRes.json().catch(() => ({}));
