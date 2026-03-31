@@ -254,7 +254,7 @@ export function LandingFaqSection() {
                         aria-controls={panelId}
                         onClick={() => toggle(id)}
                         className={cn(
-                          "flex w-full items-center gap-3 px-4 py-3.5 text-left md:gap-4 md:px-5 md:py-4",
+                          "flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 text-left md:gap-4 md:px-5 md:py-4",
                           "transition-[background-color] ease-out",
                           dur,
                           "hover:bg-white/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303]"

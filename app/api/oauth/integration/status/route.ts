@@ -33,9 +33,9 @@ export type IntegrationStatusRow = {
   last_recovery_attempt_at?: string | null;
 };
 
-// Cadence: background cron every ~3h, plus online refresh every 15m.
-// When we see no "today" metrics, don't escalate to error until ~3h have passed.
-const DATA_FRESHNESS_THRESHOLD_MINUTES = 180;
+// Cadence: background cron every ~1h, plus online refresh every 15m.
+// When we see no "today" metrics, don't escalate to error until ~1h has passed.
+const DATA_FRESHNESS_THRESHOLD_MINUTES = 60;
 /** Transient OAuth/network failures map to `stale`, not `disconnected` (see tokenHealth + resolve*AccessToken). */
 
 function dayDiffUtc(fromYmd: string, toYmd: string): number {

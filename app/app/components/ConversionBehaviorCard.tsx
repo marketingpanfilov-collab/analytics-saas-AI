@@ -31,36 +31,38 @@ const BAR_TIME_GRADIENT = "linear-gradient(90deg, #5E6AB8 0%, #6E7ACF 50%, #7E8A
 const BAR_TOUCH = "#D8846F";
 const BAR_TOUCH_GRADIENT = "linear-gradient(90deg, #C87662 0%, #D8846F 50%, #E8947E 100%)";
 const DIM_OPACITY = 0.4;
+const SCROLL_ROWS_VISIBLE = 6;
+const ROW_HEIGHT = 50;
 const MEDAL_GOLD = "#C7A86C";
 const MEDAL_SILVER = "#A9B0B8";
 const MEDAL_BRONZE = "#A06A4F";
 
-const DEMO_TIME: TimeBucket[] = [
-  { label: "0–1 час", percent: 18 },
-  { label: "1–6 часов", percent: 27 },
-  { label: "6–24 часа", percent: 31 },
-  { label: "1–3 дня", percent: 17 },
-  { label: "3–7 дней", percent: 5 },
-  { label: "7+ дней", percent: 2 },
-];
-
-const DEMO_TOUCH: TouchBucket[] = [
-  { label: "1 касание", percent: 12 },
-  { label: "2 касания", percent: 23 },
-  { label: "3 касания", percent: 34 },
-  { label: "4 касания", percent: 20 },
-  { label: "5+ касаний", percent: 11 },
-];
+const EMPTY_DATA_HELP_TEXT =
+  "Если данные должны быть, проверьте, что есть путь до покупки и корректные события.";
+const EMPTY_DATA_HELP_STEPS =
+  "1) Pixel/CRM: события purchase/registration приходят стабильно.\n2) Visitor_id и визиты: связка не теряется.\n3) UTM: ссылки в рекламе размечены.\n4) Период и синк: выбран верно и успел обновиться.";
 
 type Props = {
   projectId: string | null;
   days?: number;
+  start?: string | null;
+  end?: string | null;
+  sources?: string[];
+  accountIds?: string[];
 };
 
-export function ConversionBehaviorCard({ projectId, days = 30 }: Props) {
+export function ConversionBehaviorCard({
+  projectId,
+  days = 30,
+  start,
+  end,
+  sources = [],
+  accountIds = [],
+}: Props) {
   const [timeBuckets, setTimeBuckets] = useState<TimeBucket[]>([]);
   const [touchBuckets, setTouchBuckets] = useState<TouchBucket[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<{
     type: "time" | "touch";
     index: number;
@@ -78,29 +80,43 @@ export function ConversionBehaviorCard({ projectId, days = 30 }: Props) {
       return;
     }
     setLoading(true);
+    setError(null);
     try {
-      // Placeholder: when API exists, fetch real data
-      const res = await fetch(
-        `/api/conversion-behavior?project_id=${encodeURIComponent(projectId)}&days=${days}`,
-        { cache: "no-store" }
-      ).catch(() => null);
-      if (res?.ok) {
-        const json = await res.json().catch(() => ({}));
-        if (Array.isArray(json?.time)) setTimeBuckets(json.time);
-        if (Array.isArray(json?.touch)) setTouchBuckets(json.touch);
+      const q = new URLSearchParams({
+        project_id: projectId,
+        days: String(days),
+        ...(start ? { start } : {}),
+        ...(end ? { end } : {}),
+        ...(sources.length ? { sources: sources.join(",") } : {}),
+        ...(accountIds.length ? { account_ids: accountIds.join(",") } : {}),
+      });
+      const res = await fetch(`/api/conversion-behavior?${q.toString()}`, { cache: "no-store" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json?.success === false) {
+        setError(json?.error ?? "Ошибка загрузки поведения конверсии");
+        setTimeBuckets([]);
+        setTouchBuckets([]);
+      } else {
+        setTimeBuckets(Array.isArray(json?.time) ? json.time : []);
+        setTouchBuckets(Array.isArray(json?.touch) ? json.touch : []);
       }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка загрузки поведения конверсии");
+      setTimeBuckets([]);
+      setTouchBuckets([]);
     } finally {
       setLoading(false);
     }
-  }, [projectId, days]);
+  }, [projectId, days, start, end, sources, accountIds]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  const isDemo = !loading && timeBuckets.length === 0 && touchBuckets.length === 0;
-  const displayTime = timeBuckets.length > 0 ? timeBuckets : DEMO_TIME;
-  const displayTouch = touchBuckets.length > 0 ? touchBuckets : DEMO_TOUCH;
+  const isEmpty = !loading && !error && timeBuckets.length === 0 && touchBuckets.length === 0;
+  const isActive = !loading && !error && !isEmpty;
+  const displayTime = timeBuckets;
+  const displayTouch = touchBuckets;
 
   const sortedTime = useMemo(
     () => [...displayTime].sort((a, b) => b.percent - a.percent),
@@ -155,6 +171,8 @@ export function ConversionBehaviorCard({ projectId, days = 30 }: Props) {
           flexDirection: "column",
           gap: 6,
           padding: "8px 0",
+          minHeight: ROW_HEIGHT,
+          boxSizing: "border-box",
           borderBottom: "1px solid rgba(255,255,255,0.05)",
           transition: "background 0.2s ease, opacity 0.2s ease",
           background: isHovered ? "rgba(255,255,255,0.04)" : "transparent",
@@ -275,21 +293,21 @@ export function ConversionBehaviorCard({ projectId, days = 30 }: Props) {
               </span>
             </InsightTooltip>
           </div>
-          {isDemo && (
+          {isActive && (
             <span
               style={{
                 padding: "3px 8px",
-                borderRadius: 6,
+                borderRadius: 999,
                 fontSize: 10,
                 fontWeight: 600,
-                background: "rgba(248,113,113,0.18)",
-                border: "1px solid rgba(248,113,113,0.5)",
-                color: "rgba(248,113,113,0.95)",
+                background: "rgba(34,197,94,0.18)",
+                border: "1px solid rgba(34,197,94,0.6)",
+                color: "rgba(34,197,94,0.95)",
                 textTransform: "uppercase",
                 letterSpacing: 0.4,
               }}
             >
-              DEMO BEHAVIOR
+              Активно
             </span>
           )}
         </div>
@@ -305,6 +323,24 @@ export function ConversionBehaviorCard({ projectId, days = 30 }: Props) {
         </p>
       </div>
 
+      {error ? (
+        <div style={{ minHeight: 140, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "0 16px", marginTop: 14 }}>
+          <p style={{ color: "rgba(255,180,140,0.9)", fontSize: 12, margin: 0 }}>{error}</p>
+        </div>
+      ) : isEmpty ? (
+        <div style={{ minHeight: 140, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "0 16px", marginTop: 14 }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+            <p style={{ color: "rgba(255,255,255,0.7)", fontSize: 12, margin: 0 }}>
+              Нет данных поведения конверсии за выбранный период.
+            </p>
+            <InsightTooltip text={EMPTY_DATA_HELP_TEXT} secondary={EMPTY_DATA_HELP_STEPS}>
+              <span style={{ fontSize: 12, color: "rgba(255,255,255,0.58)", textDecoration: "underline dotted", cursor: "help" }}>
+                Почему так и что проверить?
+              </span>
+            </InsightTooltip>
+          </div>
+        </div>
+      ) : (
       <div
         style={{
           display: "grid",
@@ -347,9 +383,11 @@ export function ConversionBehaviorCard({ projectId, days = 30 }: Props) {
               ))}
             </div>
           ) : (
-            sortedTime.map((row, i) =>
-              renderBarRow(row.label, row.percent, maxTimePct, BAR_TIME_GRADIENT, "time", i, i + 1)
-            )
+            <div className="scrollbar-hidden" style={{ maxHeight: SCROLL_ROWS_VISIBLE * ROW_HEIGHT, overflowY: "auto", paddingRight: 4 }}>
+              {sortedTime.map((row, i) =>
+                renderBarRow(row.label, row.percent, maxTimePct, BAR_TIME_GRADIENT, "time", i, i + 1)
+              )}
+            </div>
           )}
         </div>
 
@@ -386,12 +424,15 @@ export function ConversionBehaviorCard({ projectId, days = 30 }: Props) {
               ))}
             </div>
           ) : (
-            sortedTouch.map((row, i) =>
-              renderBarRow(row.label, row.percent, maxTouchPct, BAR_TOUCH_GRADIENT, "touch", i, i + 1)
-            )
+            <div className="scrollbar-hidden" style={{ maxHeight: SCROLL_ROWS_VISIBLE * ROW_HEIGHT, overflowY: "auto", paddingRight: 4 }}>
+              {sortedTouch.map((row, i) =>
+                renderBarRow(row.label, row.percent, maxTouchPct, BAR_TOUCH_GRADIENT, "touch", i, i + 1)
+              )}
+            </div>
           )}
         </div>
       </div>
+      )}
 
       {tooltip && (
         <div

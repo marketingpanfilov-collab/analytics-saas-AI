@@ -42,7 +42,7 @@ const modalPanel = {
   width: "100%",
   maxHeight: "90vh",
   overflowY: "auto" as const,
-  padding: 28,
+  padding: 0,
 };
 
 function toNum(v: unknown): number {
@@ -249,19 +249,71 @@ export default function SalesPlanModal({
       aria-modal="true"
       aria-labelledby="sales-plan-modal-title"
     >
-      <div style={modalPanel} onClick={(e) => e.stopPropagation()}>
-        <h2
-          id="sales-plan-modal-title"
+      <div className="scrollbar-hidden" style={modalPanel} onClick={(e) => e.stopPropagation()}>
+        <div
           style={{
-            margin: "0 0 16px 0",
-            fontSize: 22,
-            fontWeight: 800,
-            color: "white",
+            position: "sticky",
+            top: 0,
+            zIndex: 5,
+            minHeight: 68,
+            padding: "12px 28px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            background:
+              "linear-gradient(to bottom, rgba(18,18,24,0.98), rgba(18,18,24,0.94))",
+            borderBottom: "1px solid rgba(255,255,255,0.08)",
           }}
         >
-          План на {monthName}
-        </h2>
+          <h2
+            id="sales-plan-modal-title"
+            style={{
+              margin: 0,
+              fontSize: 22,
+              fontWeight: 800,
+              color: "white",
+            }}
+          >
+            План на {monthName}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Закрыть"
+            title="Закрыть"
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 10,
+              border: "1px solid rgba(255,255,255,0.18)",
+              background: "rgba(255,255,255,0.06)",
+              color: "rgba(255,255,255,0.92)",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 0,
+            }}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 14 14"
+              aria-hidden="true"
+              focusable="false"
+              style={{ display: "block" }}
+            >
+              <path
+                d="M2 2 L12 12 M12 2 L2 12"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        </div>
 
+        <div style={{ padding: "10px 28px 28px 28px" }}>
         {/* Tabs */}
         <div
           style={{
@@ -886,6 +938,7 @@ export default function SalesPlanModal({
             )}
           </>
         )}
+        </div>
       </div>
     </div>
   );

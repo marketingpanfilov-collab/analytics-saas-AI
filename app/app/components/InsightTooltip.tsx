@@ -82,7 +82,7 @@ export function InsightTooltip({ children, text, secondary, position = "top" }: 
         >
           <p style={{ margin: 0 }}>{text}</p>
           {secondary && (
-            <p style={{ margin: "6px 0 0 0", fontSize: 11, color: "rgba(255,255,255,0.65)" }}>
+            <p style={{ margin: "6px 0 0 0", fontSize: 11, color: "rgba(255,255,255,0.65)", whiteSpace: "pre-line" }}>
               {secondary}
             </p>
           )}

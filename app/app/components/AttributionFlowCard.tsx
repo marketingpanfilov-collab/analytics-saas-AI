@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { InsightTooltip } from "./InsightTooltip";
 
 type FlowPath = {
@@ -66,25 +65,31 @@ function badgeColor(step: string): string {
   return SOURCE_COLORS[key] ?? "rgba(255,255,255,0.12)";
 }
 
-const DEMO_PATHS: FlowPath[] = [
-  { path: ["meta", "google", "purchase"], conversions: 42, percent: 42 },
-  { path: ["direct", "purchase"], conversions: 28, percent: 28 },
-  { path: ["tiktok", "meta", "purchase"], conversions: 15, percent: 15 },
-  { path: ["google", "purchase"], conversions: 10, percent: 10 },
-  { path: ["direct", "meta", "purchase"], conversions: 5, percent: 5 },
-];
+const EMPTY_DATA_HELP_TEXT =
+  "Если данные должны быть, проверьте, что путь пользователя собирается корректно.";
+const EMPTY_DATA_HELP_STEPS =
+  "1) Pixel/CRM: события purchase и registration не теряются.\n2) UTM в рекламе: ссылки размечены корректно.\n3) Фильтры: период и источники выбраны верно.\n4) Синхронизация: дождитесь обновления.";
 
 type Props = {
   projectId: string | null;
   days?: number;
+  start?: string | null;
+  end?: string | null;
+  sources?: string[];
+  accountIds?: string[];
 };
 
 const TOOLTIP_OFFSET = { x: 12, y: 8 };
+const VISIBLE_PATHS = 4;
+const PATH_CARD_MIN_HEIGHT = 92;
+const PATH_CARD_GAP = 12;
 const PATH_CARD_BASE = {
   borderRadius: 12,
   border: "1px solid rgba(255,255,255,0.08)",
   background: "rgba(255,255,255,0.02)",
   padding: 12,
+  minHeight: PATH_CARD_MIN_HEIGHT,
+  boxSizing: "border-box" as const,
   cursor: "default",
   transition: "transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease",
 } as const;
@@ -94,7 +99,14 @@ const PATH_CARD_HOVER = {
   boxShadow: "0 4px 16px rgba(0,0,0,0.2)",
 } as const;
 
-export function AttributionFlowCard({ projectId, days = 30 }: Props) {
+export function AttributionFlowCard({
+  projectId,
+  days = 30,
+  start,
+  end,
+  sources = [],
+  accountIds = [],
+}: Props) {
   const [paths, setPaths] = useState<FlowPath[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -109,12 +121,15 @@ export function AttributionFlowCard({ projectId, days = 30 }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/attribution-flow?project_id=${encodeURIComponent(
-          projectId
-        )}&days=${days}`,
-        { cache: "no-store" }
-      );
+      const q = new URLSearchParams({
+        project_id: projectId,
+        days: String(days),
+        ...(start ? { start } : {}),
+        ...(end ? { end } : {}),
+        ...(sources.length ? { sources: sources.join(",") } : {}),
+        ...(accountIds.length ? { account_ids: accountIds.join(",") } : {}),
+      });
+      const res = await fetch(`/api/attribution-flow?${q.toString()}`, { cache: "no-store" });
       const json = (await res.json()) as ApiResponse;
       if (!res.ok || !json.success) {
         setError((json as any)?.error ?? "Ошибка загрузки");
@@ -128,17 +143,18 @@ export function AttributionFlowCard({ projectId, days = 30 }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [projectId, days]);
+  }, [projectId, days, start, end, sources, accountIds]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  const isDemo = !loading && !error && paths.length === 0;
-  const sortedPaths = isDemo ? DEMO_PATHS : [...paths].sort((a, b) => b.conversions - a.conversions);
-  const displayPaths = sortedPaths.slice(0, 5);
+  const isEmpty = !loading && !error && paths.length === 0;
+  const sortedPaths = [...paths].sort((a, b) => b.conversions - a.conversions);
+  const displayPaths = sortedPaths;
 
-  const hasRealData = !isDemo && displayPaths.length > 0;
+  const hasRealData = displayPaths.length > 0;
+  const isActive = !loading && !error && hasRealData;
   const pathChainLabel = (p: FlowPath) => p.path.map((s) => srcLabel(s)).join(" → ");
 
   const HEADER_FRAME = {
@@ -196,21 +212,21 @@ export function AttributionFlowCard({ projectId, days = 30 }: Props) {
               </span>
             </InsightTooltip>
           </div>
-          {isDemo && (
+          {isActive && (
             <span
               style={{
                 padding: "3px 8px",
-                borderRadius: 6,
+                borderRadius: 999,
                 fontSize: 10,
                 fontWeight: 600,
-                background: "rgba(248,113,113,0.18)",
-                border: "1px solid rgba(248,113,113,0.5)",
-                color: "rgba(248,113,113,0.95)",
+                background: "rgba(34,197,94,0.18)",
+                border: "1px solid rgba(34,197,94,0.6)",
+                color: "rgba(34,197,94,0.95)",
                 textTransform: "uppercase",
                 letterSpacing: 0.4,
               }}
             >
-              DEMO PATH DATA
+              Активно
             </span>
           )}
         </div>
@@ -220,6 +236,7 @@ export function AttributionFlowCard({ projectId, days = 30 }: Props) {
             color: "rgba(255,255,255,0.55)",
             margin: 0,
             lineHeight: 1.4,
+            minHeight: 34,
           }}
         >
           Показывает самые частые маршруты пользователей до покупки.
@@ -242,49 +259,35 @@ export function AttributionFlowCard({ projectId, days = 30 }: Props) {
           ))}
         </div>
       ) : error ? (
-        <p
-          style={{
-            color: "rgba(255,180,140,0.9)",
-            fontSize: 12,
-            marginBottom: 10,
-          }}
-        >
-          {error}
-        </p>
-      ) : !hasRealData && !isDemo ? (
-        <div>
+        <div style={{ minHeight: 140, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "0 16px" }}>
           <p
             style={{
-              fontSize: 13,
-              color: "rgba(255,255,255,0.82)",
-              marginBottom: 10,
-            }}
-          >
-            Недостаточно данных для анализа путей пользователей.
-          </p>
-          <Link
-            href={
-              projectId
-                ? `/app/attribution-debugger?project_id=${encodeURIComponent(
-                    projectId
-                  )}`
-                : "/app/attribution-debugger"
-            }
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              padding: "8px 14px",
-              borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.10)",
-              background: "rgba(255,255,255,0.04)",
-              color: "rgba(255,255,255,0.82)",
+              color: "rgba(255,180,140,0.9)",
               fontSize: 12,
-              fontWeight: 600,
-              textDecoration: "none",
+              margin: 0,
             }}
           >
-            Перейти в проверку атрибуции
-          </Link>
+            {error}
+          </p>
+        </div>
+      ) : !hasRealData ? (
+        <div style={{ height: "100%", minHeight: 140, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "0 16px" }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+          <p
+            style={{
+              fontSize: 12,
+              color: "rgba(255,255,255,0.7)",
+              margin: 0,
+            }}
+          >
+            Недостаточно данных для анализа путей пользователей за выбранный период.
+          </p>
+          <InsightTooltip text={EMPTY_DATA_HELP_TEXT} secondary={EMPTY_DATA_HELP_STEPS}>
+            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.58)", textDecoration: "underline dotted", cursor: "help" }}>
+              Почему так и что проверить?
+            </span>
+          </InsightTooltip>
+          </div>
         </div>
       ) : (
         <div
@@ -296,15 +299,17 @@ export function AttributionFlowCard({ projectId, days = 30 }: Props) {
           }}
         >
           <div
+            className="scrollbar-hidden"
             style={{
               height: "100%",
               overflowY: "auto",
+              maxHeight: VISIBLE_PATHS * PATH_CARD_MIN_HEIGHT + (VISIBLE_PATHS - 1) * PATH_CARD_GAP,
               paddingRight: 8,
               scrollbarWidth: "thin",
               scrollbarColor: "rgba(255,255,255,0.15) transparent",
             }}
           >
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: PATH_CARD_GAP }}>
             {displayPaths.map((p, index) => {
               const rank = index + 1;
               const percentLabel = p.percent != null ? `${p.percent}%` : "—";

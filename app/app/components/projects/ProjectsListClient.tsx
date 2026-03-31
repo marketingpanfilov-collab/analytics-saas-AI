@@ -141,6 +141,7 @@ export default function ProjectsListClient({
     setOpeningProjectId(projectId);
     setActiveProjectId(projectId);
     try {
+      await fetch(`/api/projects/${encodeURIComponent(projectId)}/touch`, { method: "POST" }).catch(() => null);
       // Промис завершается, когда навигация (включая загрузку сегментов) завершена.
       // Состояние не сбрасываем при успехе — страница размонтируется; иначе «Подождите…» мигало бы «Открыть».
       await router.push(`/app?project_id=${encodeURIComponent(projectId)}`);
@@ -409,6 +410,9 @@ export default function ProjectsListClient({
           {displayProjects.map((project) => {
             const role = roleMap[project.id] ?? "member";
             const isActive = !isArchivedTab && activeProjectId !== null && project.id === activeProjectId;
+            const lastOpenedAt = typeof project.last_opened_at === "string" ? Date.parse(project.last_opened_at) : NaN;
+            const isInactiveBy7Days =
+              Number.isFinite(lastOpenedAt) && Date.now() - lastOpenedAt >= 7 * 24 * 60 * 60 * 1000;
             const showMenu =
               canRenameProject(role) || canArchiveProject(role);
             const menuOpen = menuOpenId === project.id;
@@ -476,9 +480,15 @@ export default function ProjectsListClient({
                     {shortId(project.id)}
                   </p>
                   <div className="flex shrink-0 items-center gap-2">
-                    {isActive && (
-                      <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-400">
-                        Активен
+                    {!isArchivedTab && (
+                      <span
+                        className={
+                          isInactiveBy7Days
+                            ? "rounded-full bg-amber-500/20 px-2 py-0.5 text-xs text-amber-300"
+                            : "rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-400"
+                        }
+                      >
+                        {isInactiveBy7Days ? "Бездействует" : "Активен"}
                       </span>
                     )}
                     {isArchivedTab && (

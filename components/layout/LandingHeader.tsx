@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { BaseButton } from "@/components/landing/BaseButton";
 import { PartnershipNavButton } from "@/components/landing/PartnershipLeadProvider";
+import { LandingLoginButton } from "@/components/layout/LandingLoginButton";
 
 /* ! — глобальный `a { color: inherit }` в globals.css иначе даёт body white и глушит text-white/65 */
 const landingNavLinkClass =
@@ -74,13 +75,10 @@ export function LandingHeader() {
             <div className="flex shrink-0 items-center gap-2 sm:gap-3 md:gap-4">
               {/* На мобильных nav скрыт — «Партнёрам» только здесь; с md пункт внутри nav выше */}
               <PartnershipNavButton className={`${landingNavLinkClass} md:hidden`} />
-              <BaseButton
-                href="/login"
+              <LandingLoginButton
                 variant="secondary"
                 className="min-w-[132px] px-5 sm:min-w-[148px] sm:px-6"
-              >
-                Войти
-              </BaseButton>
+              />
             </div>
           </div>
         </div>

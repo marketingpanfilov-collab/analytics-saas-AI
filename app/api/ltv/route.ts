@@ -48,6 +48,7 @@ const FIRST_PURCHASE_MS_TOLERANCE = 2000;
 const CLICK_ID_BATCH = 200;
 const VISITOR_ID_BATCH = 500;
 const PLATFORM_SOURCES = ["meta", "google", "tiktok", "yandex"] as const;
+const ATTRIBUTION_SOURCE_WHITELIST = ["meta", "google", "tiktok", "yandex", "direct", "organic_search", "referral"] as const;
 
 /** True if this page was the last allowed and still full — more rows may exist in DB. */
 function paginationHitCap(page: number, rowCount: number, pageSize: number, maxPages: number): boolean {
@@ -128,6 +129,20 @@ export async function GET(req: Request) {
   const end = toISODate(searchParams.get("end"));
   const cohortMonth = searchParams.get("cohort_month")?.trim() ?? ""; // YYYY-MM
   const acquisitionSourceParam = searchParams.get("acquisition_source")?.trim().toLowerCase() ?? "";
+  const sourcesRaw = searchParams.get("sources")?.trim() ?? "";
+  const accountIdsRaw = searchParams.get("account_ids")?.trim() ?? "";
+  const sources = sourcesRaw
+    ? sourcesRaw
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter((s) => s.length > 0 && ATTRIBUTION_SOURCE_WHITELIST.includes(s as any))
+    : [];
+  const accountIds = accountIdsRaw
+    ? accountIdsRaw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
 
   if (!projectId) {
     return NextResponse.json({ success: false, error: "project_id required" }, { status: 400 });
@@ -943,11 +958,20 @@ export async function GET(req: Request) {
       cohortRevenueRows.push({ cohort: co, values });
     }
 
-    const spendSources =
-      filterByAcquisitionSource && requestedSource
-        ? (isPlatformSource(requestedSource) ? [requestedSource] : [])
-        : undefined;
-    const canonical = await getCanonicalSummary(admin, projectId, kpiStartDate, kpiEndDate, { sources: spendSources });
+    const platformSourcesFromFilter = sources.filter((s) => isPlatformSource(s));
+    const spendSources = (() => {
+      const base = platformSourcesFromFilter.length > 0 ? platformSourcesFromFilter : null;
+      if (filterByAcquisitionSource && requestedSource) {
+        if (!isPlatformSource(requestedSource)) return [];
+        if (!base) return [requestedSource];
+        return base.includes(requestedSource) ? [requestedSource] : [];
+      }
+      return base ?? undefined;
+    })();
+    const canonical = await getCanonicalSummary(admin, projectId, kpiStartDate, kpiEndDate, {
+      sources: spendSources,
+      accountIds: accountIds.length > 0 ? accountIds : undefined,
+    });
     const spend = canonical?.data?.spend ?? 0;
 
     // Retention spend: campaigns.marketing_intent = 'retention' (set by Meta ad sync from URLs containing campaign_intent=retention).
@@ -960,6 +984,9 @@ export async function GET(req: Request) {
         .eq("marketing_intent", "retention");
       if (spendSources != null && spendSources.length > 0) {
         rcQuery = rcQuery.in("platform", spendSources);
+      }
+      if (accountIds.length > 0) {
+        rcQuery = rcQuery.in("ad_accounts_id", accountIds);
       }
       const { data: retentionCampaigns } = await rcQuery;
       const campaignIds = [...new Set((retentionCampaigns ?? []).map((c: { id: string }) => c.id))];
@@ -1016,11 +1043,12 @@ export async function GET(req: Request) {
     let planSalesPlanCount: number | null = null;
     let planSalesPlanBudget: number | null = null;
     let plannedRevenue: number | null = null;
+    let plannedRetentionRevenue: number | null = null;
     let monthlyPlanRowFound = false;
     if (monthlyPlanYear != null && monthlyPlanMonth != null) {
       const { data: plan } = await admin
         .from("project_monthly_plans")
-        .select("repeat_sales_budget, repeat_sales_count, sales_plan_budget, sales_plan_count, planned_revenue")
+        .select("repeat_sales_budget, repeat_sales_count, sales_plan_budget, sales_plan_count, planned_revenue, repeat_avg_check")
         .eq("project_id", projectId)
         .eq("year", monthlyPlanYear)
         .eq("month", monthlyPlanMonth)
@@ -1045,6 +1073,18 @@ export async function GET(req: Request) {
             : null;
         plannedRevenue =
           plan.planned_revenue != null && plan.planned_revenue !== "" ? Number(plan.planned_revenue) : null;
+        const repeatAvgCheck =
+          (plan as { repeat_avg_check?: number | string | null }).repeat_avg_check != null &&
+          (plan as { repeat_avg_check?: number | string | null }).repeat_avg_check !== ""
+            ? Number((plan as { repeat_avg_check?: number | string | null }).repeat_avg_check)
+            : null;
+        plannedRetentionRevenue =
+          repeatAvgCheck != null &&
+          Number.isFinite(repeatAvgCheck) &&
+          planRepeatSalesCount != null &&
+          Number.isFinite(planRepeatSalesCount)
+            ? repeatAvgCheck * planRepeatSalesCount
+            : null;
       }
     }
 
@@ -1169,6 +1209,8 @@ export async function GET(req: Request) {
         plan_sales_plan_count: planSalesPlanCount,
         plan_sales_plan_budget: toProjectMoney(planSalesPlanBudget),
         planned_revenue: toProjectMoney(plannedRevenue),
+        planned_retention_revenue:
+          toProjectMoney(plannedRetentionRevenue != null ? plannedRetentionRevenue : plannedRevenue),
         plan_cac: toProjectMoney(planCac),
         kpi_window_start: kpiStartDate,
         kpi_window_end: kpiEndDate,

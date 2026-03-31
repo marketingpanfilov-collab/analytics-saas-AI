@@ -35,6 +35,7 @@ import {
 import { getChannelInsight } from "./channelInsight";
 import { ignoreAbortRejection, isAbortError, safeAbortController } from "@/app/lib/abortUtils";
 import { parseDashboardRangeParams } from "@/app/lib/dashboardRangeParams";
+import { supabase } from "@/app/lib/supabaseClient";
 import {
   REPORT_OVERVIEW_VALUE_MIN_PX,
   REPORT_OVERVIEW_VALUE_START_PX,
@@ -983,6 +984,7 @@ export default function ReportsPageClient() {
   const [dashboardAccounts, setDashboardAccounts] = useState<DashboardAccount[]>([]);
   const [sourcesOpen, setSourcesOpen] = useState(false);
   const [accountsOpen, setAccountsOpen] = useState(false);
+  const [projectMinDate, setProjectMinDate] = useState<string | null>(null);
   const sourcesDropdownRef = useRef<HTMLDivElement>(null);
   const accountsDropdownRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -1010,6 +1012,44 @@ export default function ReportsPageClient() {
     () => appliedDateFrom > appliedDateTo,
     [appliedDateFrom, appliedDateTo]
   );
+
+  useEffect(() => {
+    if (!projectId) {
+      setProjectMinDate(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("projects")
+          .select("created_at")
+          .eq("id", projectId)
+          .maybeSingle();
+        if (cancelled) return;
+        if (error) {
+          setProjectMinDate(null);
+          return;
+        }
+        const createdRaw = typeof data?.created_at === "string" ? data.created_at : null;
+        const createdYmd = createdRaw ? createdRaw.slice(0, 10) : null;
+        setProjectMinDate(createdYmd);
+      } catch {
+        if (!cancelled) setProjectMinDate(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!projectMinDate) return;
+    setDraftDateFrom((prev) => (prev < projectMinDate ? projectMinDate : prev));
+    setDraftDateTo((prev) => (prev < projectMinDate ? projectMinDate : prev));
+    setAppliedDateFrom((prev) => (prev < projectMinDate ? projectMinDate : prev));
+    setAppliedDateTo((prev) => (prev < projectMinDate ? projectMinDate : prev));
+  }, [projectMinDate]);
 
   const sourcesLabel = useMemo(() => {
     if (!effectiveSources || effectiveSources.length === 0) return "All";
@@ -1354,14 +1394,18 @@ export default function ReportsPageClient() {
   );
 
   const handleDateBlur = () => {
-    if (draftDateFrom > draftDateTo) return;
-    if (draftDateFrom === appliedDateFrom && draftDateTo === appliedDateTo) return;
-    setAppliedDateFrom(draftDateFrom);
-    setAppliedDateTo(draftDateTo);
+    const nextFrom = projectMinDate && draftDateFrom < projectMinDate ? projectMinDate : draftDateFrom;
+    const nextTo = projectMinDate && draftDateTo < projectMinDate ? projectMinDate : draftDateTo;
+    if (nextFrom > nextTo) return;
+    if (nextFrom !== draftDateFrom) setDraftDateFrom(nextFrom);
+    if (nextTo !== draftDateTo) setDraftDateTo(nextTo);
+    if (nextFrom === appliedDateFrom && nextTo === appliedDateTo) return;
+    setAppliedDateFrom(nextFrom);
+    setAppliedDateTo(nextTo);
     const params = new URLSearchParams(searchParams.toString());
     if (projectId) params.set("project_id", projectId);
-    params.set("start", draftDateFrom);
-    params.set("end", draftDateTo);
+    params.set("start", nextFrom);
+    params.set("end", nextTo);
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   };
 
@@ -2120,6 +2164,7 @@ export default function ReportsPageClient() {
                   value={draftDateFrom}
                   onChange={(e) => setDraftDateFrom(e.target.value)}
                   onBlur={handleDateBlur}
+                  min={projectMinDate ?? undefined}
                   style={{
                     background: "transparent",
                     border: "none",
@@ -2140,6 +2185,7 @@ export default function ReportsPageClient() {
                   value={draftDateTo}
                   onChange={(e) => setDraftDateTo(e.target.value)}
                   onBlur={handleDateBlur}
+                  min={projectMinDate ?? undefined}
                   style={{
                     background: "transparent",
                     border: "none",
@@ -2733,7 +2779,7 @@ export default function ReportsPageClient() {
                   ].map((col) => (
                     <th
                       key={col.key}
-                      className={`whitespace-nowrap px-3 py-2.5 text-[12px] font-semibold uppercase tracking-wide text-zinc-500 ${
+                      className={`whitespace-nowrap align-middle px-3 py-3.5 text-[12px] font-semibold uppercase tracking-wide text-zinc-500 ${
                         col.key === "platform" || col.key === "campaign_name" || col.key === "insight"
                           ? "text-left"
                           : col.key === "status"
@@ -2812,38 +2858,38 @@ export default function ReportsPageClient() {
                           key={r.campaign_id ?? `${g.platform_key}-${b.key}-${mode}-${i}`}
                           className={`border-b border-white/[0.06] ${rowAccent} ${r.is_inactive ? "opacity-50" : ""}`}
                         >
-                          <td className={`px-3 py-2.5 ${cellMuted}`}>
+                          <td className={`align-middle px-3 py-3.5 ${cellMuted}`}>
                             <div className="flex items-center gap-2">
                               <PlatformIcon platform={r.platform} />
                               {r.platform}
                             </div>
                           </td>
-                          <td className={`max-w-[220px] px-3 py-2.5 ${cellMuted}`} title={r.campaign_name}>
+                          <td className={`max-w-[220px] align-middle px-3 py-3.5 ${cellMuted}`} title={r.campaign_name}>
                             <div className="truncate">{r.campaign_name}</div>
                             {r.status_label_ru ? (
                               <div className="mt-0.5 text-[12px] text-zinc-500">{r.status_label_ru}</div>
                             ) : null}
                           </td>
-                          <td className={`whitespace-nowrap px-3 py-2.5 text-right tabular-nums ${cellNums}`}>
+                          <td className={`whitespace-nowrap align-middle px-3 py-3.5 text-right tabular-nums ${cellNums}`}>
                             {isNoPeriodData ? "—" : fmtMoneyCanonicalDetail(r.spend)}
                           </td>
-                          <td className={`whitespace-nowrap px-3 py-2.5 text-right tabular-nums ${cellNums}`}>
+                          <td className={`whitespace-nowrap align-middle px-3 py-3.5 text-right tabular-nums ${cellNums}`}>
                             {isNoPeriodData ? "—" : fmtNum(r.impressions)}
                           </td>
-                          <td className={`whitespace-nowrap px-3 py-2.5 text-right tabular-nums ${cellNums}`}>
+                          <td className={`whitespace-nowrap align-middle px-3 py-3.5 text-right tabular-nums ${cellNums}`}>
                             {isNoPeriodData ? "—" : fmtNum(r.clicks)}
                           </td>
-                          <td className={`whitespace-nowrap px-3 py-2.5 text-right tabular-nums ${cellNums}`}>
+                          <td className={`whitespace-nowrap align-middle px-3 py-3.5 text-right tabular-nums ${cellNums}`}>
                             {isNoPeriodData ? "—" : r.impressions > 0 ? `${ctr.toFixed(1)}%` : "—"}
                           </td>
-                          <td className="px-3 py-2.5 text-center">
+                          <td className="align-middle px-3 py-3.5 text-center">
                             <span className={`inline-flex items-center gap-1.5 text-[13px] font-medium ${statusBadge.className}`}>
                               <span className={`h-2 w-2 shrink-0 rounded-full ${statusBadge.dot}`} aria-hidden />
                               {statusBadge.label}
                             </span>
                           </td>
                           <td
-                            className={`px-3 py-2.5 text-left text-[13px] ${isNoPeriodData ? "text-zinc-500" : "text-zinc-400"}`}
+                            className={`align-middle px-3 py-3.5 text-left text-[13px] ${isNoPeriodData ? "text-zinc-500" : "text-zinc-400"}`}
                           >
                             {insight}
                           </td>
@@ -2859,7 +2905,7 @@ export default function ReportsPageClient() {
                       <tr key={`h-${g.platform_key}-${b.key}`} className="border-b border-white/[0.06] bg-white/[0.04]">
                         <td
                           colSpan={8}
-                          className="px-3 py-2.5 text-left text-[13px] font-semibold tracking-wide text-zinc-300"
+                          className="align-middle px-3 py-3.5 text-left text-[13px] font-semibold tracking-wide text-zinc-300"
                         >
                           {g.platformLabel} —{" "}
                           <span

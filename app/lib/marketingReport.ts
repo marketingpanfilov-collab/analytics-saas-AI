@@ -166,7 +166,51 @@ function lastDayOfMonthYmd(year: number, month: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-const ACTIVE_STATUS = new Set(["active", "enabled"]);
+function median(nums: number[]): number {
+  if (!nums.length) return 0;
+  const sorted = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[mid];
+  return (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function addDaysYmd(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T12:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function inclusiveDayCount(startYmd: string, endYmd: string): number {
+  if (startYmd > endYmd) return 0;
+  const t0 = Date.parse(`${startYmd}T12:00:00.000Z`);
+  const t1 = Date.parse(`${endYmd}T12:00:00.000Z`);
+  return Math.floor((t1 - t0) / 86400000) + 1;
+}
+
+function nowInTimeZoneParts(timeZone: string): { ymd: string; hour: number; minute: number; second: number } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value ?? 0);
+  const year = get("year");
+  const month = get("month");
+  const day = get("day");
+  return {
+    ymd: `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+    hour: get("hour"),
+    minute: get("minute"),
+    second: get("second"),
+  };
+}
+
+const ACTIVE_STATUS = new Set(["active", "enabled", "enable", "running"]);
 
 function normalizeCampaignStatus(status: string | null | undefined): string | null {
   if (status == null || String(status).trim() === "") return null;
@@ -175,14 +219,16 @@ function normalizeCampaignStatus(status: string | null | undefined): string | nu
 
 function campaignIsInactive(status: string | null): boolean {
   if (status == null) return false;
-  return !ACTIVE_STATUS.has(status.toLowerCase());
+  const normalized = status.toLowerCase().replace(/[\s-]+/g, "_");
+  return !ACTIVE_STATUS.has(normalized);
 }
 
 function statusLabelRu(status: string | null, inactive: boolean): string | null {
   if (!inactive || !status) return inactive ? "Неактивна" : null;
   const u = status.toUpperCase();
   if (u === "ARCHIVED" || u === "REMOVED" || u === "COMPLETED" || u === "DELETED") return "Завершена";
-  if (u === "PAUSED") return "На паузе";
+  if (u === "PAUSED" || u === "DISABLED" || u === "DISABLE") return "На паузе";
+  if (u === "ENABLED" || u === "ENABLE" || u === "ACTIVE") return "Идут показы";
   return status;
 }
 
@@ -939,9 +985,54 @@ export async function getMarketingSummary(
     const currentReg = monthConvList.filter((c) => c.event_name === "registration").length;
     const currentSales = monthConvList.filter((c) => c.event_name === "purchase").length;
 
-    const dailySpend = currentSpend / days_passed;
+    const spendByDay = new Map<string, number>();
+    for (const row of forecastCanonical as Array<{ date?: string | null; day?: string | null; spend?: number | null }>) {
+      const d = String(row.date ?? row.day ?? "").slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+      spendByDay.set(d, (spendByDay.get(d) ?? 0) + Number(row.spend ?? 0));
+    }
+    const daysForMedian = (() => {
+      const out: string[] = [];
+      const d = new Date(`${monthStartStr}T12:00:00.000Z`);
+      const endD = new Date(`${elapsedEndForecast}T12:00:00.000Z`);
+      while (d <= endD) {
+        out.push(d.toISOString().slice(0, 10));
+        d.setUTCDate(d.getUTCDate() + 1);
+      }
+      return out;
+    })();
+    const medianDailySpend = median(daysForMedian.map((d) => spendByDay.get(d) ?? 0));
+
+    const projectTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    const nowTz = nowInTimeZoneParts(projectTimeZone);
+    let remainingDaysFraction = 0;
+    if (nowTz.ymd <= monthEndStr) {
+      const secondsToday = nowTz.hour * 3600 + nowTz.minute * 60 + nowTz.second;
+      const remainingTodayFraction = Math.max(0, (86400 - secondsToday) / 86400);
+      const tomorrowYmd = addDaysYmd(nowTz.ymd, 1);
+      const fullDaysAfterToday = inclusiveDayCount(tomorrowYmd, monthEndStr);
+      remainingDaysFraction = fullDaysAfterToday + remainingTodayFraction;
+    }
+
     const dailyReg = currentReg / days_passed;
-    const dailySales = currentSales / days_passed;
+    const monthConvRowsByDay = new Map<string, { registrations: number; sales: number }>();
+    // Re-read conversion events with created_at to preserve existing registration forecast behavior and build daily medians.
+    const { data: monthConvTimed } = await admin
+      .from("conversion_events")
+      .select("event_name, created_at")
+      .eq("project_id", project_id)
+      .gte("created_at", monthStartDate)
+      .lte("created_at", elapsedEndDate)
+      .in("event_name", ["registration", "purchase"]);
+    for (const row of (monthConvTimed ?? []) as { event_name?: string; created_at?: string }[]) {
+      const day = String(row.created_at ?? "").slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+      const prev = monthConvRowsByDay.get(day) ?? { registrations: 0, sales: 0 };
+      if (row.event_name === "registration") prev.registrations += 1;
+      if (row.event_name === "purchase") prev.sales += 1;
+      monthConvRowsByDay.set(day, prev);
+    }
+    const dailySalesMedian = median(daysForMedian.map((d) => monthConvRowsByDay.get(d)?.sales ?? 0));
 
     forecast = {
       days_passed,
@@ -952,9 +1043,9 @@ export async function getMarketingSummary(
       plan_budget: plan.monthly_budget,
       plan_registrations: plan.target_registrations,
       plan_sales: plan.target_sales,
-      forecast_spend: dailySpend * days_total,
+      forecast_spend: currentSpend + medianDailySpend * remainingDaysFraction,
       forecast_registrations: Math.round(dailyReg * days_total),
-      forecast_sales: Math.round(dailySales * days_total),
+      forecast_sales: Math.round(currentSales + dailySalesMedian * remainingDaysFraction),
       forecast_month: planMonth,
       forecast_year: planYear,
     };

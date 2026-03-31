@@ -1,0 +1,2 @@
+{"sessionId":"3f8d70","runId":"pre-fix","hypothesisId":"H1","location":"ConversionBehaviorCard.tsx:90","message":"Conversion behavior request started","data":{"requestUrl":"/api/conversion-behavior?project_id=8fa1192f-8750-46e7-9514-7024d61cca87&days=30","hasProjectId":true,"days":30},"timestamp":1774951070864}
+{"sessionId":"3f8d70","runId":"pre-fix","hypothesisId":"H2","location":"ConversionBehaviorCard.tsx:106","message":"Conversion behavior response received","data":{"isNullResponse":false,"ok":true,"status":200},"timestamp":1774951072788}

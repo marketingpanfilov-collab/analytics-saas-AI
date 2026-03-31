@@ -29,6 +29,7 @@ export type AttributionPath = {
 export type ConversionRecord = {
   id: string;
   event_name: string;
+  event_time?: string | null;
   visitor_id: string | null;
   click_id: string | null;
   user_external_id: string | null;
@@ -48,6 +49,18 @@ export type VisitRecord = {
   traffic_platform: string | null;
   created_at: string;
 };
+
+function syntheticDirectVisitFromConversion(conv: ConversionRecord): VisitRecord {
+  return {
+    id: `synthetic:${conv.id}`,
+    visitor_id: conv.visitor_id?.trim() || `conv:${conv.id}`,
+    visit_id: null,
+    click_id: conv.click_id ?? null,
+    traffic_source: conv.traffic_source?.trim() || "direct",
+    traffic_platform: null,
+    created_at: conv.created_at,
+  };
+}
 
 /**
  * Pure: given visits sorted by created_at ASC (before conversion time), assign roles.
@@ -80,9 +93,23 @@ export function buildAttributionPathFromVisits(
 
 export type AssistedAttributionOptions = {
   project_id: string;
-  days: number;
+  days?: number;
+  start?: string | null;
+  end?: string | null;
   source?: string | null;
+  sources?: string[] | null;
+  account_ids?: string[] | null;
 };
+
+const ATTRIBUTION_SOURCE_WHITELIST = new Set([
+  "meta",
+  "google",
+  "tiktok",
+  "yandex",
+  "direct",
+  "organic_search",
+  "referral",
+]);
 
 export type ConversionWithPath = {
   conversion: ConversionRecord;
@@ -108,56 +135,158 @@ export async function buildAssistedAttribution(
 ): Promise<{
   conversions: ConversionWithPath[];
   channels: ChannelRow[];
+  diagnostics: {
+    conversions_total: number;
+    conversions_with_visitor_id: number;
+    conversions_without_visitor_id: number;
+    conversions_with_visits: number;
+    conversions_without_visits: number;
+  };
 }> {
   const { project_id, days, source } = options;
-  const since = sinceIso(days);
+  const start = options.start?.trim() || null;
+  const end = options.end?.trim() || null;
+  const since = start ? `${start}T00:00:00.000Z` : sinceIso(days ?? 30);
+  const until = end ? `${end}T23:59:59.999Z` : null;
+  const sourceList = (options.sources ?? [])
+    .map((s) => String(s).trim().toLowerCase())
+    .filter((s) => s.length > 0 && ATTRIBUTION_SOURCE_WHITELIST.has(s));
+  const accountIds = (options.account_ids ?? []).map((v) => String(v).trim()).filter(Boolean);
 
-  const convQuery = admin
-    .from("conversion_events")
-    .select("id, event_name, visitor_id, click_id, user_external_id, created_at, traffic_source, value, currency, external_event_id")
-    .eq("project_id", project_id)
-    .in("event_name", ["registration", "purchase"])
-    .gte("created_at", since);
+  const applySourceFilter = <T extends { eq: Function; in: Function }>(q: T): T =>
+    source ? (q.eq("traffic_source", source) as T) : sourceList.length > 0 ? (q.in("traffic_source", sourceList) as T) : q;
 
-  const { data: convRows } = source
-    ? await convQuery.eq("traffic_source", source)
-    : await convQuery;
+  const qByEventTime = applySourceFilter(
+    admin
+      .from("conversion_events")
+      .select("id, event_name, event_time, visitor_id, click_id, user_external_id, created_at, traffic_source, value, currency, external_event_id")
+      .eq("project_id", project_id)
+      .eq("event_name", "purchase")
+      .gte("event_time", since)
+      .lte("event_time", until ?? new Date().toISOString())
+      .order("event_time", { ascending: true })
+  );
+  const qByCreatedAtFallback = applySourceFilter(
+    admin
+      .from("conversion_events")
+      .select("id, event_name, event_time, visitor_id, click_id, user_external_id, created_at, traffic_source, value, currency, external_event_id")
+      .eq("project_id", project_id)
+      .eq("event_name", "purchase")
+      .is("event_time", null)
+      .gte("created_at", since)
+      .lte("created_at", until ?? new Date().toISOString())
+      .order("created_at", { ascending: true })
+  );
+  const [{ data: eventTimedRows }, { data: createdTimedRows }] = await Promise.all([
+    qByEventTime,
+    qByCreatedAtFallback,
+  ]);
 
-  const conversions = (convRows ?? []) as ConversionRecord[];
+  const byId = new Map<string, ConversionRecord>();
+  for (const row of (eventTimedRows ?? []) as ConversionRecord[]) byId.set(row.id, row);
+  for (const row of (createdTimedRows ?? []) as ConversionRecord[]) byId.set(row.id, row);
+  let conversions = Array.from(byId.values());
+
+  if (accountIds.length > 0) {
+    const { data: campaignRows } = await admin
+      .from("campaigns")
+      .select("id, external_campaign_id, meta_campaign_id")
+      .eq("project_id", project_id)
+      .in("ad_accounts_id", accountIds);
+    const allowedCampaignKeys = new Set<string>();
+    for (const c of (campaignRows ?? []) as { id: string; external_campaign_id: string | null; meta_campaign_id: string | null }[]) {
+      if (c.id) allowedCampaignKeys.add(String(c.id).trim());
+      if (c.external_campaign_id) allowedCampaignKeys.add(String(c.external_campaign_id).trim());
+      if (c.meta_campaign_id) allowedCampaignKeys.add(String(c.meta_campaign_id).trim());
+    }
+    if (allowedCampaignKeys.size > 0) {
+      const clickIds = Array.from(
+        new Set(
+          conversions
+            .map((c) => c.click_id?.trim())
+            .filter((v): v is string => Boolean(v))
+        )
+      );
+      const allowedClickIds = new Set<string>();
+      const batchSize = 300;
+      for (let i = 0; i < clickIds.length; i += batchSize) {
+        const batch = clickIds.slice(i, i + batchSize);
+        const { data: clickRows } = await admin
+          .from("redirect_click_events")
+          .select("bq_click_id, platform_campaign_id")
+          .eq("project_id", project_id)
+          .in("bq_click_id", batch);
+        for (const row of (clickRows ?? []) as { bq_click_id: string; platform_campaign_id: string | null }[]) {
+          const campaignKey = row.platform_campaign_id ? String(row.platform_campaign_id).trim() : "";
+          if (campaignKey && allowedCampaignKeys.has(campaignKey)) {
+            allowedClickIds.add(String(row.bq_click_id));
+          }
+        }
+      }
+      if (allowedClickIds.size > 0) {
+        conversions = conversions.filter((c) => {
+          const cid = c.click_id?.trim();
+          // Keep unattributed/direct purchases (no click_id) to avoid false-empty blocks.
+          if (!cid) return true;
+          return allowedClickIds.has(cid);
+        });
+      }
+    }
+  }
   const conversionsWithPaths: ConversionWithPath[] = [];
   const channelCount: Record<string, { direct: number; assisted: number; first_touch: number }> = {};
+  const srcKey = (s: string | null | undefined) => (s && s.trim() ? s : "direct");
+  let withVisitorId = 0;
+  let withoutVisitorId = 0;
+  let withVisits = 0;
+  let withoutVisits = 0;
 
   for (const conv of conversions) {
+    const convTs = (conv.event_time && conv.event_time.trim()) ? conv.event_time : conv.created_at;
     const visitorId = conv.visitor_id?.trim();
     if (!visitorId) {
-      conversionsWithPaths.push({ conversion: conv, path: { visits: [], first_touch: null, last_touch: null, assists: [] } });
+      withoutVisitorId += 1;
+      const synthetic = syntheticDirectVisitFromConversion(conv);
+      const path = buildAttributionPathFromVisits([synthetic], convTs);
+      conversionsWithPaths.push({ conversion: conv, path });
+      withVisits += 1;
+      const key = srcKey(path.last_touch?.traffic_source ?? "direct");
+      if (!channelCount[key]) channelCount[key] = { direct: 0, assisted: 0, first_touch: 0 };
+      channelCount[key].direct += 1;
       continue;
     }
+    withVisitorId += 1;
 
     const { data: visitRows } = await admin
       .from("visit_source_events")
       .select("id, visitor_id, visit_id, click_id, traffic_source, traffic_platform, created_at")
       .eq("site_id", project_id)
       .eq("visitor_id", visitorId)
-      .lt("created_at", conv.created_at)
+      .lt("created_at", convTs)
       .order("created_at", { ascending: true });
 
     const visits = (visitRows ?? []) as VisitRecord[];
-    const path = buildAttributionPathFromVisits(visits, conv.created_at);
-    conversionsWithPaths.push({ conversion: conv, path });
+    const effectiveVisits =
+      visits.length > 0 ? visits : [syntheticDirectVisitFromConversion(conv)];
+    if (visits.length > 0) withVisits += 1;
+    else withoutVisits += 1;
+    const path = buildAttributionPathFromVisits(visits, convTs);
+    const normalizedPath =
+      visits.length > 0 ? path : buildAttributionPathFromVisits(effectiveVisits, convTs);
+    conversionsWithPaths.push({ conversion: conv, path: normalizedPath });
 
-    const srcKey = (s: string | null) => (s && s.trim() ? s : "direct");
-    if (path.first_touch) {
-      const key = srcKey(path.first_touch.traffic_source);
+    const isSyntheticSingleTouchFallback = visits.length === 0 && normalizedPath.visits.length === 1;
+    if (normalizedPath.first_touch && !isSyntheticSingleTouchFallback) {
+      const key = srcKey(normalizedPath.first_touch.traffic_source);
       if (!channelCount[key]) channelCount[key] = { direct: 0, assisted: 0, first_touch: 0 };
       channelCount[key].first_touch += 1;
     }
-    if (path.last_touch) {
-      const key = srcKey(path.last_touch.traffic_source);
+    if (normalizedPath.last_touch) {
+      const key = srcKey(normalizedPath.last_touch.traffic_source);
       if (!channelCount[key]) channelCount[key] = { direct: 0, assisted: 0, first_touch: 0 };
       channelCount[key].direct += 1;
     }
-    for (const a of path.assists) {
+    for (const a of normalizedPath.assists) {
       const key = srcKey(a.traffic_source);
       if (!channelCount[key]) channelCount[key] = { direct: 0, assisted: 0, first_touch: 0 };
       channelCount[key].assisted += 1;
@@ -177,7 +306,17 @@ export async function buildAssistedAttribution(
       return totB - totA;
     });
 
-  return { conversions: conversionsWithPaths, channels };
+  return {
+    conversions: conversionsWithPaths,
+    channels,
+    diagnostics: {
+      conversions_total: conversions.length,
+      conversions_with_visitor_id: withVisitorId,
+      conversions_without_visitor_id: withoutVisitorId,
+      conversions_with_visits: withVisits,
+      conversions_without_visits: withoutVisits,
+    },
+  };
 }
 
 function sinceIso(days: number): string {

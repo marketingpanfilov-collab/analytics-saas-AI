@@ -758,6 +758,7 @@ export default function Sidebar() {
       setActiveProjectId(id);
       setProjectId(id);
       setSwitcherOpen(false);
+      void fetch(`/api/projects/${encodeURIComponent(id)}/touch`, { method: "POST" }).catch(() => null);
       router.push(`/app?project_id=${encodeURIComponent(id)}`);
     },
     [router]

@@ -59,7 +59,16 @@ export async function GET(
     }
 
     const periodEnd = new Date(r.period_end_iso);
-    const payload = await buildWeeklyReportPayload(admin, r.project_id, periodEnd);
+    const end = Number.isNaN(periodEnd.getTime())
+      ? new Date().toISOString().slice(0, 10)
+      : periodEnd.toISOString().slice(0, 10);
+    const start = `${end.slice(0, 8)}01`;
+    const payload = await buildWeeklyReportPayload(admin, r.project_id, {
+      start,
+      end,
+      sources: [],
+      accountIds: [],
+    });
     return NextResponse.json(payload);
   } catch (e) {
     console.error("[WEEKLY_REPORT_SHARE_PUBLIC]", e);

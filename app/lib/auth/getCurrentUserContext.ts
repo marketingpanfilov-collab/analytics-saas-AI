@@ -13,6 +13,7 @@ export type Project = {
   id: string;
   name: string | null;
   organization_id: string | null;
+  last_opened_at?: string | null;
 };
 
 export type CurrentUserContext = {
@@ -101,7 +102,7 @@ export async function getCurrentUserContext(): Promise<CurrentUserContext> {
     console.log("[getCurrentUserContext] orgRole is owner/admin, querying projects for organization_id:", orgId);
     const { data: projs, error: projsError } = await supabase
       .from("projects")
-      .select("id, name, organization_id")
+      .select("id, name, organization_id, last_opened_at")
       .eq("organization_id", orgId)
       .eq("archived", false);
     console.log("[getCurrentUserContext] projs:", JSON.stringify(projs), "error:", projsError?.message ?? null);
@@ -111,7 +112,7 @@ export async function getCurrentUserContext(): Promise<CurrentUserContext> {
     });
     const { data: archived } = await supabase
       .from("projects")
-      .select("id, name, organization_id")
+      .select("id, name, organization_id, last_opened_at")
       .eq("organization_id", orgId)
       .eq("archived", true);
     archivedProjects = (archived ?? []) as Project[];
@@ -131,7 +132,7 @@ export async function getCurrentUserContext(): Promise<CurrentUserContext> {
     });
     const { data: projs } = await supabase
       .from("projects")
-      .select("id, name, organization_id")
+      .select("id, name, organization_id, last_opened_at")
       .in("id", projectIds)
       .eq("archived", false);
     console.log("[getCurrentUserContext] project_members branch: projectIds:", projectIds, "projs:", JSON.stringify(projs));

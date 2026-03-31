@@ -12,6 +12,7 @@ import { LandingPartnershipCta } from "@/components/landing/LandingPartnershipCt
 import { PartnershipLeadProvider } from "@/components/landing/PartnershipLeadProvider";
 import { AdvantagesSection, DataInsightsSection, DDASection } from "@/components/landing/LandingMidSections";
 import { LandingHeader } from "@/components/layout/LandingHeader";
+import { LandingLoginButton } from "@/components/layout/LandingLoginButton";
 
 type BillingPeriod = "monthly" | "yearly";
 
@@ -326,9 +327,7 @@ export default function Page() {
               <BaseButton href="#demo" variant="secondary">
                 Демо
               </BaseButton>
-              <BaseButton href="/login" variant="outline">
-                Войти
-              </BaseButton>
+              <LandingLoginButton variant="outline" />
             </div>
           </div>
         </div>

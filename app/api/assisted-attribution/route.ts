@@ -7,6 +7,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { buildAssistedAttribution } from "@/app/lib/assistedAttribution";
+import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
 
 const DEFAULT_DAYS = 30;
 const ALLOWED_DAYS = [7, 30, 90];
@@ -27,6 +28,22 @@ export async function GET(req: Request) {
     const projectId = searchParams.get("project_id")?.trim() ?? null;
     const days = parseDays(searchParams.get("days"));
     const source = searchParams.get("source")?.trim() ?? null;
+    const start = searchParams.get("start")?.trim() ?? null;
+    const end = searchParams.get("end")?.trim() ?? null;
+    const sourcesRaw = searchParams.get("sources")?.trim() ?? "";
+    const sources = sourcesRaw
+      ? sourcesRaw
+          .split(",")
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean)
+      : null;
+    const accountIdsRaw = searchParams.get("account_ids")?.trim() ?? "";
+    const account_ids = accountIdsRaw
+      ? accountIdsRaw
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : null;
 
     if (!projectId) {
       return NextResponse.json(
@@ -34,11 +51,17 @@ export async function GET(req: Request) {
         { status: 400 }
       );
     }
+    const access = await requireProjectAccessOrInternal(req, projectId);
+    if (!access.allowed) return NextResponse.json(access.body, { status: access.status });
 
     const admin = supabaseAdmin();
-    const { conversions, channels } = await buildAssistedAttribution(admin, {
+    const { conversions, channels, diagnostics } = await buildAssistedAttribution(admin, {
       project_id: projectId,
       days,
+      start,
+      end,
+      sources,
+      account_ids,
       source: source || undefined,
     });
 
@@ -46,6 +69,11 @@ export async function GET(req: Request) {
       success: true,
       conversions,
       channels,
+      diagnostics: {
+        ...diagnostics,
+        source_filter_applied: Boolean(source || (sources && sources.length > 0)),
+        account_filter_supported: true,
+      },
     });
   } catch (e) {
     console.error("[ASSISTED_ATTRIBUTION_ERROR]", e);

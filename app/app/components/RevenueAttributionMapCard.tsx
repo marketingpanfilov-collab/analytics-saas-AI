@@ -53,12 +53,18 @@ const BAR_HEIGHT_HOVER = 18;
 const BAR_RADIUS = 6; /* track and fill: square corners, not pill */
 const BAR_TRANSITION = "transform 0.2s ease";
 const TOOLTIP_OFFSET = { x: 12, y: 8 };
+const VISIBLE_ROWS = 4;
+const ROW_MIN_HEIGHT = 86;
+const ROW_GAP = 10;
+const VISIBLE_AREA_EXTRA = 12;
 
 const CHANNEL_ROW_BASE = {
   borderRadius: 12,
   border: "1px solid rgba(255,255,255,0.06)",
   background: "rgba(255,255,255,0.02)",
   padding: "10px 12px",
+  minHeight: ROW_MIN_HEIGHT,
+  boxSizing: "border-box" as const,
   cursor: "default",
   transition: "transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease",
 } as const;
@@ -79,6 +85,10 @@ const SOURCE_LABELS: Record<string, string> = {
 
 const TOOLTIP_BLOCK_MAIN =
   "Показывает, какие каналы закрывают выручку как последнее касание, а какие участвуют в пути пользователя и влияют на покупку до её завершения.";
+const EMPTY_DATA_HELP_TEXT =
+  "Если данные должны быть, проверьте источники выручки и атрибуцию покупок.";
+const EMPTY_DATA_HELP_STEPS =
+  "1) Purchase из Pixel/CRM: value > 0.\n2) UTM-ссылки в рекламе: корректные метки.\n3) Период/фильтры: выбран верный срез.\n4) Синк: завершился и применился.";
 
 function srcLabel(source: string | null | undefined): string {
   if (!source) return "—";
@@ -86,36 +96,13 @@ function srcLabel(source: string | null | undefined): string {
   return SOURCE_LABELS[key] ?? source;
 }
 
-const DEMO_CHANNELS: ChannelRow[] = [
-  {
-    source: "meta",
-    revenue_closed: 500,
-    revenue_assisted: 1800,
-    purchases_closed: 5,
-    purchases_assisted: 18,
-    total_revenue_influence: 500 + 1800,
-  },
-  {
-    source: "google",
-    revenue_closed: 1200,
-    revenue_assisted: 600,
-    purchases_closed: 9,
-    purchases_assisted: 6,
-    total_revenue_influence: 1200 + 600,
-  },
-  {
-    source: "direct",
-    revenue_closed: 1300,
-    revenue_assisted: 0,
-    purchases_closed: 12,
-    purchases_assisted: 0,
-    total_revenue_influence: 1300,
-  },
-];
-
 type Props = {
   projectId: string | null;
   days?: number;
+  start?: string | null;
+  end?: string | null;
+  sources?: string[];
+  accountIds?: string[];
 };
 
 function insightLabel(closed: number, assisted: number): string {
@@ -128,7 +115,14 @@ function insightLabel(closed: number, assisted: number): string {
   return "Чаще влияет на путь пользователя";
 }
 
-export function RevenueAttributionMapCard({ projectId, days = 30 }: Props) {
+export function RevenueAttributionMapCard({
+  projectId,
+  days = 30,
+  start,
+  end,
+  sources = [],
+  accountIds = [],
+}: Props) {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [channels, setChannels] = useState<ChannelRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -153,12 +147,15 @@ export function RevenueAttributionMapCard({ projectId, days = 30 }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/revenue-attribution-map?project_id=${encodeURIComponent(
-          projectId
-        )}&days=${days}`,
-        { cache: "no-store" }
-      );
+      const q = new URLSearchParams({
+        project_id: projectId,
+        days: String(days),
+        ...(start ? { start } : {}),
+        ...(end ? { end } : {}),
+        ...(sources.length ? { sources: sources.join(",") } : {}),
+        ...(accountIds.length ? { account_ids: accountIds.join(",") } : {}),
+      });
+      const res = await fetch(`/api/revenue-attribution-map?${q.toString()}`, { cache: "no-store" });
       const json = (await res.json()) as ApiResponse;
       if (!res.ok || !json.success) {
         setError((json as any)?.error ?? "Ошибка загрузки");
@@ -175,7 +172,7 @@ export function RevenueAttributionMapCard({ projectId, days = 30 }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [projectId, days]);
+  }, [projectId, days, start, end, sources, accountIds]);
 
   useEffect(() => {
     fetchData();
@@ -241,13 +238,9 @@ export function RevenueAttributionMapCard({ projectId, days = 30 }: Props) {
     (summary?.total_assisted_revenue ?? 0) === 0;
 
   // Block-level: show demo badge only when there is no real revenue data (not by purchase count).
-  const isDemo = !loading && !error && isEmptyRealData;
+  const isDemo = false;
 
-  const displayChannels = isDemo
-    ? DEMO_CHANNELS
-    : channels.length > 0
-      ? channels
-      : [];
+  const displayChannels = channels.length > 0 ? channels : [];
 
   // Ranking by total revenue (closed + assisted); single source of truth
   const sortedChannels = useMemo(
@@ -269,7 +262,7 @@ export function RevenueAttributionMapCard({ projectId, days = 30 }: Props) {
     [sortedChannels]
   );
 
-  const isActive = !loading && !error && !isDemo;
+  const isActive = !loading && !error && !isEmptyRealData;
   const formatCurrency = (n: number): string => {
     if (!Number.isFinite(n)) return projectCurrency === "KZT" ? "₸0" : "$0";
     return fmtProjectCurrency(n, projectCurrency, usdToKztRate).replace(/\.00$/, "");
@@ -312,23 +305,6 @@ export function RevenueAttributionMapCard({ projectId, days = 30 }: Props) {
               </span>
             </InsightTooltip>
           </div>
-          {isDemo && (
-            <span
-              style={{
-                padding: "3px 8px",
-                borderRadius: 6,
-                fontSize: 10,
-                fontWeight: 600,
-                background: "rgba(248,113,113,0.18)",
-                border: "1px solid rgba(248,113,113,0.5)",
-                color: "rgba(248,113,113,0.95)",
-                textTransform: "uppercase",
-                letterSpacing: 0.4,
-              }}
-            >
-              DEMO ATTRIBUTION
-            </span>
-          )}
           {isActive && (
             <span
               style={{
@@ -360,7 +336,7 @@ export function RevenueAttributionMapCard({ projectId, days = 30 }: Props) {
       </div>
 
       {/* Scrollable body */}
-      <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+      <div style={{ minHeight: 0 }}>
         {loading ? (
           <div>
             <div
@@ -385,21 +361,38 @@ export function RevenueAttributionMapCard({ projectId, days = 30 }: Props) {
             ))}
           </div>
         ) : error ? (
-          <p style={{ color: "rgba(255,180,140,0.9)", fontSize: 12 }}>
-            {error}
-          </p>
+          <div style={{ minHeight: 140, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "0 16px" }}>
+            <p style={{ color: "rgba(255,180,140,0.9)", fontSize: 12, margin: 0 }}>
+              {error}
+            </p>
+          </div>
+        ) : isEmptyRealData ? (
+          <div style={{ minHeight: 140, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "0 16px" }}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+              <p style={{ color: "rgba(255,255,255,0.7)", fontSize: 12, margin: 0 }}>
+                Нет данных выручки по атрибуции за выбранный период.
+              </p>
+              <InsightTooltip text={EMPTY_DATA_HELP_TEXT} secondary={EMPTY_DATA_HELP_STEPS}>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.58)", textDecoration: "underline dotted", cursor: "help" }}>
+                  Почему так и что проверить?
+                </span>
+              </InsightTooltip>
+            </div>
+          </div>
         ) : (
           <div
+            className="scrollbar-hidden"
             style={{
-              height: "100%",
               overflowY: "auto",
+              maxHeight:
+                VISIBLE_ROWS * ROW_MIN_HEIGHT + (VISIBLE_ROWS - 1) * ROW_GAP + VISIBLE_AREA_EXTRA,
               paddingRight: 6,
               scrollbarWidth: "thin",
               scrollbarColor: "rgba(255,255,255,0.15) transparent",
             }}
           >
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {sortedChannels.slice(0, 10).map((ch, index) => {
+            <div style={{ display: "flex", flexDirection: "column", gap: ROW_GAP }}>
+              {sortedChannels.map((ch, index) => {
                 const closed = ch.revenue_closed || 0;
                 const assisted = ch.revenue_assisted || 0;
                 const totalChannel = closed + assisted;

@@ -42,21 +42,27 @@ const BAR_HEIGHT_HOVER = 20;
 const SEGMENT_TRANSITION = "transform 0.2s ease";
 const DIM_OPACITY = 0.4;
 const DIM_TRANSITION = "opacity 0.2s ease";
-
-const DEMO_CHANNELS: ChannelRow[] = [
-  { traffic_source: "meta", direct_conversions: 5, assisted_conversions: 7, first_touch_conversions: 18 },
-  { traffic_source: "google", direct_conversions: 9, assisted_conversions: 4, first_touch_conversions: 6 },
-  { traffic_source: "direct", direct_conversions: 12, assisted_conversions: 0, first_touch_conversions: 0 },
-  { traffic_source: "tiktok", direct_conversions: 2, assisted_conversions: 5, first_touch_conversions: 2 },
-];
+const VISIBLE_ROWS = 4;
+const ROW_HEIGHT = 112;
 
 const TOOLTIP_BLOCK_MAIN =
   "Показывает, на каком этапе каналы чаще участвуют в пути пользователя: в начале знакомства с продуктом, в процессе выбора или перед покупкой.";
 const TOOLTIP_BLOCK_SECONDARY =
   "Открывает путь — первое касание; Помогает — участие в середине; Закрывает продажу — последнее касание перед конверсией.";
+const EMPTY_DATA_HELP_TEXT =
+  "Если данные должны быть, проверьте базовые условия атрибуции.";
+const EMPTY_DATA_HELP_STEPS =
+  "1) Pixel/CRM: приходят purchase и registration.\n2) Рекламные ссылки: UTM из UTM Builder.\n3) Период/фильтры: совпадают с ожиданиями.\n4) Синк: дайте время на обновление.";
 
 type SegmentKind = "first" | "assist" | "last";
-type Props = { projectId: string | null; days?: number };
+type Props = {
+  projectId: string | null;
+  days?: number;
+  start?: string | null;
+  end?: string | null;
+  sources?: string[];
+  accountIds?: string[];
+};
 
 function roleTextFromCounts(first: number, assist: number, last: number): string {
   if (first === 0 && assist === 0 && last > 0) return "Финальный шаг";
@@ -68,7 +74,14 @@ function roleTextFromCounts(first: number, assist: number, last: number): string
   return "Участвует на разных этапах пути";
 }
 
-export default function AssistedAttributionCard({ projectId, days = 30 }: Props) {
+export default function AssistedAttributionCard({
+  projectId,
+  days = 30,
+  start,
+  end,
+  sources = [],
+  accountIds = [],
+}: Props) {
   const [channels, setChannels] = useState<ChannelRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -88,10 +101,15 @@ export default function AssistedAttributionCard({ projectId, days = 30 }: Props)
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/assisted-attribution?project_id=${encodeURIComponent(projectId)}&days=${days}`,
-        { cache: "no-store" }
-      );
+      const q = new URLSearchParams({
+        project_id: projectId,
+        days: String(days),
+        ...(start ? { start } : {}),
+        ...(end ? { end } : {}),
+        ...(sources.length ? { sources: sources.join(",") } : {}),
+        ...(accountIds.length ? { account_ids: accountIds.join(",") } : {}),
+      });
+      const res = await fetch(`/api/assisted-attribution?${q.toString()}`, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok || !json?.success) {
         setError(json?.error ?? "Ошибка загрузки");
@@ -105,15 +123,16 @@ export default function AssistedAttributionCard({ projectId, days = 30 }: Props)
     } finally {
       setLoading(false);
     }
-  }, [projectId, days]);
+  }, [projectId, days, start, end, sources, accountIds]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  const isDemo = !loading && !error && channels.length === 0;
-  const displayChannels = channels.length > 0 ? channels : DEMO_CHANNELS;
-  const isActive = !loading && !error && !isDemo;
+  const isEmpty = !loading && !error && channels.length === 0;
+  const displayChannels = channels;
+  const shouldScroll = displayChannels.length > VISIBLE_ROWS;
+  const isActive = !loading && !error && !isEmpty;
 
   const HEADER_FRAME = {
     margin: "0 -18px 0 -18px",
@@ -152,23 +171,6 @@ export default function AssistedAttributionCard({ projectId, days = 30 }: Props)
               </span>
             </InsightTooltip>
           </div>
-          {isDemo && (
-            <span
-              style={{
-                padding: "3px 8px",
-                borderRadius: 6,
-                fontSize: 10,
-                fontWeight: 600,
-                background: "rgba(248,113,113,0.18)",
-                border: "1px solid rgba(248,113,113,0.5)",
-                color: "rgba(248,113,113,0.95)",
-                textTransform: "uppercase",
-                letterSpacing: 0.4,
-              }}
-            >
-              DEMO ATTRIBUTION
-            </span>
-          )}
           {isActive && (
             <span
               style={{
@@ -202,14 +204,36 @@ export default function AssistedAttributionCard({ projectId, days = 30 }: Props)
             ))}
           </div>
         ) : error ? (
-          <p style={{ color: "rgba(255,180,140,0.9)", fontSize: 12 }}>{error}</p>
+          <div style={{ minHeight: 140, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "0 16px" }}>
+            <p style={{ color: "rgba(255,180,140,0.9)", fontSize: 12, margin: 0 }}>{error}</p>
+          </div>
+        ) : isEmpty ? (
+          <div style={{ height: "100%", minHeight: 140, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "0 16px" }}>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+              <p style={{ color: "rgba(255,255,255,0.7)", fontSize: 12, margin: 0 }}>
+                Нет данных атрибуции за выбранный период и фильтры.
+              </p>
+              <InsightTooltip text={EMPTY_DATA_HELP_TEXT} secondary={EMPTY_DATA_HELP_STEPS}>
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.58)", textDecoration: "underline dotted", cursor: "help" }}>
+                  Почему так и что проверить?
+                </span>
+              </InsightTooltip>
+            </div>
+          </div>
         ) : (
           (() => {
             const TOOLTIP_OFFSET_X = 12;
             const TOOLTIP_OFFSET_Y = 8;
             return (
-              <div style={{ maxHeight: "100%", overflowY: "auto", paddingRight: 4 }}>
-                {displayChannels.slice(0, 20).map((row, index) => {
+              <div
+                className="scrollbar-hidden"
+                style={{
+                  maxHeight: VISIBLE_ROWS * ROW_HEIGHT,
+                  overflowY: shouldScroll ? "auto" : "hidden",
+                  paddingRight: shouldScroll ? 4 : 0,
+                }}
+              >
+                {displayChannels.map((row, index) => {
                   const first = row.first_touch_conversions ?? 0;
                   const assist = row.assisted_conversions;
                   const last = row.direct_conversions;
@@ -223,12 +247,15 @@ export default function AssistedAttributionCard({ projectId, days = 30 }: Props)
                   const dimRow = tooltipState != null && !isHoveredRow;
                   const rank = index + 1;
                   const medalColor = rank === 1 ? "#C7A86C" : rank === 2 ? "#A9B0B8" : rank === 3 ? "#A06A4F" : null;
+                  const isLast = index === displayChannels.length - 1;
                   return (
                     <div
                       key={row.traffic_source}
                       style={{
                         padding: "10px 0",
-                        borderBottom: "1px solid rgba(255,255,255,0.06)",
+                        borderBottom: isLast ? "none" : "1px solid rgba(255,255,255,0.06)",
+                        height: ROW_HEIGHT,
+                        boxSizing: "border-box",
                         opacity: dimRow ? DIM_OPACITY : 1,
                         transition: DIM_TRANSITION,
                       }}

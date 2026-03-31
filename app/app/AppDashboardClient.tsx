@@ -132,23 +132,35 @@ function mkPathWithGaps(
   max: number,
   xForIndex: (i: number) => number
 ): string {
+  const smoothRun = (pts: Array<{ x: number; y: number }>): string => {
+    if (pts.length === 0) return "";
+    if (pts.length === 1) return `M ${pts[0]!.x.toFixed(2)} ${pts[0]!.y.toFixed(2)}`;
+    let d = `M ${pts[0]!.x.toFixed(2)} ${pts[0]!.y.toFixed(2)}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i]!;
+      const p1 = pts[i + 1]!;
+      const cx = ((p0.x + p1.x) / 2).toFixed(2);
+      const cy = ((p0.y + p1.y) / 2).toFixed(2);
+      d += ` Q ${p0.x.toFixed(2)} ${p0.y.toFixed(2)} ${cx} ${cy}`;
+    }
+    const last = pts[pts.length - 1]!;
+    d += ` T ${last.x.toFixed(2)} ${last.y.toFixed(2)}`;
+    return d;
+  };
   const parts: string[] = [];
-  let runStart: number | null = null;
+  let run: Array<{ x: number; y: number }> = [];
   for (let i = 0; i < values.length; i++) {
     const v = values[i];
     if (v != null && !Number.isNaN(v)) {
       const x = xForIndex(i);
       const y = yMap(v, max);
-      if (runStart === null) {
-        parts.push(`M ${x.toFixed(2)} ${y.toFixed(2)}`);
-        runStart = i;
-      } else {
-        parts.push(`L ${x.toFixed(2)} ${y.toFixed(2)}`);
-      }
+      run.push({ x, y });
     } else {
-      runStart = null;
+      if (run.length > 0) parts.push(smoothRun(run));
+      run = [];
     }
   }
+  if (run.length > 0) parts.push(smoothRun(run));
   return parts.join(" ");
 }
 
@@ -218,14 +230,22 @@ function MultiMetricLineChart({
   const xForIndex = (i: number) =>
     isSinglePoint ? leftPad + plotW / 2 : leftPad + i * xStep;
 
-  const mkPath = (values: number[], max: number) =>
-    values
-      .map((v, i) => {
-        const x = xForIndex(i);
-        const y = yMap(v, max);
-        return `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-      })
-      .join(" ");
+  const mkPath = (values: number[], max: number) => {
+    const pts = values.map((v, i) => ({ x: xForIndex(i), y: yMap(v, max) }));
+    if (pts.length === 0) return "";
+    if (pts.length === 1) return `M ${pts[0]!.x.toFixed(2)} ${pts[0]!.y.toFixed(2)}`;
+    let d = `M ${pts[0]!.x.toFixed(2)} ${pts[0]!.y.toFixed(2)}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i]!;
+      const p1 = pts[i + 1]!;
+      const cx = ((p0.x + p1.x) / 2).toFixed(2);
+      const cy = ((p0.y + p1.y) / 2).toFixed(2);
+      d += ` Q ${p0.x.toFixed(2)} ${p0.y.toFixed(2)} ${cx} ${cy}`;
+    }
+    const last = pts[pts.length - 1]!;
+    d += ` T ${last.x.toFixed(2)} ${last.y.toFixed(2)}`;
+    return d;
+  };
 
   const spendPath = mkPath(points.map((p) => p.spend), maxSpend);
   const regPath = mkPath(points.map((p) => p.registrations), maxReg);
@@ -538,6 +558,11 @@ export default function AppDashboardClient() {
   const sp = useSearchParams();
   const projectId = sp.get("project_id") || "";
 
+  useEffect(() => {
+    if (!projectId) return;
+    void fetch(`/api/projects/${encodeURIComponent(projectId)}/touch`, { method: "POST" }).catch(() => null);
+  }, [projectId]);
+
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [dashboardAccounts, setDashboardAccounts] = useState<DashboardAccount[]>([]);
@@ -587,6 +612,7 @@ export default function AppDashboardClient() {
   const [isUserContextOnline, setIsUserContextOnline] = useState(true);
   const [projectCurrency, setProjectCurrency] = useState<ProjectCurrency>("USD");
   const [usdToKztRate, setUsdToKztRate] = useState<number | null>(null);
+  const [projectMinDate, setProjectMinDate] = useState<string | null>(null);
 
   const fetchDashboardIntegrationStatus = useCallback(async (pid: string, opts?: { signal?: AbortSignal }) => {
     const signal = opts?.signal;
@@ -631,6 +657,44 @@ export default function AppDashboardClient() {
     () => appliedDateFrom > appliedDateTo,
     [appliedDateFrom, appliedDateTo]
   );
+
+  useEffect(() => {
+    if (!projectId) {
+      setProjectMinDate(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("projects")
+          .select("created_at")
+          .eq("id", projectId)
+          .maybeSingle();
+        if (cancelled) return;
+        if (error) {
+          setProjectMinDate(null);
+          return;
+        }
+        const createdRaw = typeof data?.created_at === "string" ? data.created_at : null;
+        const createdYmd = createdRaw ? createdRaw.slice(0, 10) : null;
+        setProjectMinDate(createdYmd);
+      } catch {
+        if (!cancelled) setProjectMinDate(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!projectMinDate) return;
+    setDraftDateFrom((prev) => (prev < projectMinDate ? projectMinDate : prev));
+    setDraftDateTo((prev) => (prev < projectMinDate ? projectMinDate : prev));
+    setAppliedDateFrom((prev) => (prev < projectMinDate ? projectMinDate : prev));
+    setAppliedDateTo((prev) => (prev < projectMinDate ? projectMinDate : prev));
+  }, [projectMinDate]);
 
   useEffect(() => {
     if (!projectId) {
@@ -1564,14 +1628,18 @@ export default function AppDashboardClient() {
   const accountsLabel = selectedAccountIds.length === 0 ? "All" : `${selectedAccountIds.length} selected`;
 
   const handleDateBlur = () => {
-    if (draftDateFrom > draftDateTo) return;
-    if (draftDateFrom === appliedDateFrom && draftDateTo === appliedDateTo) return;
-    setAppliedDateFrom(draftDateFrom);
-    setAppliedDateTo(draftDateTo);
+    const nextFrom = projectMinDate && draftDateFrom < projectMinDate ? projectMinDate : draftDateFrom;
+    const nextTo = projectMinDate && draftDateTo < projectMinDate ? projectMinDate : draftDateTo;
+    if (nextFrom > nextTo) return;
+    if (nextFrom !== draftDateFrom) setDraftDateFrom(nextFrom);
+    if (nextTo !== draftDateTo) setDraftDateTo(nextTo);
+    if (nextFrom === appliedDateFrom && nextTo === appliedDateTo) return;
+    setAppliedDateFrom(nextFrom);
+    setAppliedDateTo(nextTo);
     const params = new URLSearchParams(sp.toString());
     if (projectId) params.set("project_id", projectId);
-    params.set("start", draftDateFrom);
-    params.set("end", draftDateTo);
+    params.set("start", nextFrom);
+    params.set("end", nextTo);
     router.replace(`${window.location.pathname}?${params.toString()}`, { scroll: false });
   };
 
@@ -1761,6 +1829,7 @@ export default function AppDashboardClient() {
                 value={draftDateFrom}
                 onChange={(e) => setDraftDateFrom(e.target.value)}
                 onBlur={handleDateBlur}
+                min={projectMinDate ?? undefined}
                 style={{
                   background: "transparent",
                   border: "none",
@@ -1781,6 +1850,7 @@ export default function AppDashboardClient() {
                 value={draftDateTo}
                 onChange={(e) => setDraftDateTo(e.target.value)}
                 onBlur={handleDateBlur}
+                min={projectMinDate ?? undefined}
                 style={{
                   background: "transparent",
                   border: "none",
@@ -2176,6 +2246,10 @@ export default function AppDashboardClient() {
       >
         <AssistedAttributionCard
           projectId={projectId || null}
+          start={appliedDateFrom}
+          end={appliedDateTo}
+          sources={effectiveSources}
+          accountIds={effectiveAccountIds}
           days={
             appliedDateFrom && appliedDateTo
               ? Math.max(
@@ -2191,6 +2265,10 @@ export default function AppDashboardClient() {
         />
         <AttributionFlowCard
           projectId={projectId || null}
+          start={appliedDateFrom}
+          end={appliedDateTo}
+          sources={effectiveSources}
+          accountIds={effectiveAccountIds}
           days={
             appliedDateFrom && appliedDateTo
               ? Math.max(
@@ -2210,6 +2288,10 @@ export default function AppDashboardClient() {
       <div style={{ marginBottom: 20 }}>
         <RevenueAttributionMapCard
           projectId={projectId || null}
+          start={appliedDateFrom}
+          end={appliedDateTo}
+          sources={effectiveSources}
+          accountIds={effectiveAccountIds}
           days={
             appliedDateFrom && appliedDateTo
               ? Math.max(
@@ -2229,6 +2311,10 @@ export default function AppDashboardClient() {
       <div style={{ marginBottom: 20 }}>
         <ConversionBehaviorCard
           projectId={projectId || null}
+          start={appliedDateFrom}
+          end={appliedDateTo}
+          sources={effectiveSources}
+          accountIds={effectiveAccountIds}
           days={
             appliedDateFrom && appliedDateTo
               ? Math.max(

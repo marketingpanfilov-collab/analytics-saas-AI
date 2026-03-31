@@ -248,7 +248,7 @@ async function runInternalCron(): Promise<{
     using_projects: projectIds.length,
   });
 
-  const lockWindowMs = 3 * 60 * 60 * 1000; // aligns with cron cadence
+  const lockWindowMs = 1 * 60 * 60 * 1000; // aligns with hourly cron cadence
   const failed: { project_id: string; error: string }[] = [];
 
   let queued = 0;

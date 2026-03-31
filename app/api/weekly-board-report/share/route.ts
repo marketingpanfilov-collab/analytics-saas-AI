@@ -10,6 +10,9 @@ import { buildWeeklyReportPayload } from "../route";
 
 const REPORT_TYPE = "weekly_board_report";
 
+/** Matches `app/app/(public)/share/...` → `/app/share/weekly-report/:token` (not `/share/...`). */
+const PUBLIC_SHARE_PATH = "/app/share/weekly-report";
+
 function generateToken(): string {
   const buf = new Uint8Array(24);
   if (typeof crypto !== "undefined" && crypto.getRandomValues) {
@@ -50,8 +53,8 @@ export async function GET(req: Request) {
       return NextResponse.json({ success: true, active: false });
     }
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || (typeof window !== "undefined" ? window.location.origin : "");
-    const shareUrl = `${baseUrl.replace(/\/$/, "")}/share/weekly-report/${(row as { token: string }).token}`;
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+    const shareUrl = `${baseUrl.replace(/\/$/, "")}${PUBLIC_SHARE_PATH}/${(row as { token: string }).token}`;
 
     return NextResponse.json({
       success: true,
@@ -73,6 +76,18 @@ export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => null);
     const projectId = typeof body?.project_id === "string" ? body.project_id.trim() : null;
+    const start = typeof body?.start === "string" ? body.start.trim() : null;
+    const end = typeof body?.end === "string" ? body.end.trim() : null;
+    const sources = Array.isArray(body?.sources)
+      ? body.sources.map((v: unknown) => String(v)).filter(Boolean)
+      : typeof body?.sources === "string"
+        ? body.sources.split(",").map((v: string) => v.trim()).filter(Boolean)
+        : [];
+    const accountIds = Array.isArray(body?.account_ids)
+      ? body.account_ids.map((v: unknown) => String(v)).filter(Boolean)
+      : typeof body?.account_ids === "string"
+        ? body.account_ids.split(",").map((v: string) => v.trim()).filter(Boolean)
+        : [];
     if (!projectId) {
       return NextResponse.json({ success: false, error: "project_id is required" }, { status: 400 });
     }
@@ -101,7 +116,7 @@ export async function POST(req: Request) {
     if (existingRow) {
       const row = existingRow as { token: string; created_at: string };
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "";
-      const shareUrl = `${baseUrl.replace(/\/$/, "")}/share/weekly-report/${row.token}`;
+      const shareUrl = `${baseUrl.replace(/\/$/, "")}${PUBLIC_SHARE_PATH}/${row.token}`;
       return NextResponse.json({
         success: true,
         token: row.token,
@@ -111,15 +126,21 @@ export async function POST(req: Request) {
       });
     }
 
-    const periodEnd = new Date();
-    const payload = await buildWeeklyReportPayload(admin, projectId, periodEnd);
+    const today = new Date().toISOString().slice(0, 10);
+    const monthStart = `${today.slice(0, 8)}01`;
+    const payload = await buildWeeklyReportPayload(admin, projectId, {
+      start: start && /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : monthStart,
+      end: end && /^\d{4}-\d{2}-\d{2}$/.test(end) ? end : today,
+      sources,
+      accountIds,
+    });
 
     const token = generateToken();
     const { error: insertErr } = await admin.from("report_share_links").insert({
       project_id: projectId,
       token,
       report_type: REPORT_TYPE,
-      period_end_iso: periodEnd.toISOString(),
+      period_end_iso: `${payload.period.end}T23:59:59.999Z`,
       report_snapshot: payload,
       created_by: user.id,
     });
@@ -133,7 +154,7 @@ export async function POST(req: Request) {
     }
 
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "";
-    const shareUrl = `${baseUrl.replace(/\/$/, "")}/share/weekly-report/${token}`;
+    const shareUrl = `${baseUrl.replace(/\/$/, "")}${PUBLIC_SHARE_PATH}/${token}`;
 
     return NextResponse.json({
       success: true,

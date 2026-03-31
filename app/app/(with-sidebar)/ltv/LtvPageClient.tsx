@@ -196,6 +196,7 @@ type LtvKpi = {
   plan_sales_plan_count?: number | null;
   plan_sales_plan_budget?: number | null;
   planned_revenue?: number | null;
+  planned_retention_revenue?: number | null;
   plan_cac?: number | null;
   spend: number;
   /** Расход на привлечение в окне KPI: spend − retention_spend (если retention посчитан), иначе весь spend. Дублирует расчёт на API. */
@@ -513,6 +514,22 @@ const DEMO_KPI_BY_COHORT: Record<string, LtvKpi> = {
 export default function LtvPageClient() {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project_id")?.trim() ?? "";
+  const selectedSources = useMemo(
+    () =>
+      (searchParams.get("sources") ?? "")
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    [searchParams]
+  );
+  const selectedAccountIds = useMemo(
+    () =>
+      (searchParams.get("account_ids") ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    [searchParams]
+  );
 
   const [metric, setMetric] = useState<"money" | "users" | "percent">("percent");
 
@@ -610,6 +627,8 @@ export default function LtvPageClient() {
       });
       if (cohortMonth) params.set("cohort_month", cohortMonth);
       if (acquisitionSource && acquisitionSource !== "all") params.set("acquisition_source", acquisitionSource);
+      if (selectedSources.length > 0) params.set("sources", selectedSources.join(","));
+      if (selectedAccountIds.length > 0) params.set("account_ids", selectedAccountIds.join(","));
       const res = await fetch(`/api/ltv?${params.toString()}`, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok) {
@@ -652,7 +671,7 @@ export default function LtvPageClient() {
     } finally {
       setLoading(false);
     }
-  }, [projectId, dateRange.start, dateRange.end, cohortMonth, acquisitionSource]);
+  }, [projectId, dateRange.start, dateRange.end, cohortMonth, acquisitionSource, selectedSources, selectedAccountIds]);
 
   useEffect(() => {
     fetchLtv();
@@ -723,7 +742,10 @@ export default function LtvPageClient() {
   const planRepeatSalesCount = effectiveKpi?.plan_repeat_sales_count ?? null;
   const planSalesPlanCount = effectiveKpi?.plan_sales_plan_count ?? null;
   const planSalesPlanBudget = effectiveKpi?.plan_sales_plan_budget ?? null;
-  const plannedRevenueKpi = effectiveKpi?.planned_revenue ?? null;
+  const plannedRevenueKpi =
+    effectiveKpi?.planned_retention_revenue ??
+    effectiveKpi?.planned_revenue ??
+    null;
   const planCac = effectiveKpi?.plan_cac ?? null;
   const spend = effectiveKpi?.spend ?? 0;
   const acquisitionSpend =

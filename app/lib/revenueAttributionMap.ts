@@ -28,7 +28,11 @@ export type RevenueAttributionSummary = {
 
 export type RevenueAttributionOptions = {
   project_id: string;
-  days: number;
+  days?: number;
+  start?: string | null;
+  end?: string | null;
+  sources?: string[] | null;
+  account_ids?: string[] | null;
 };
 
 type ChannelAcc = {
@@ -60,6 +64,10 @@ export async function buildRevenueAttributionMap(
   const assisted = await buildAssistedAttribution(admin, {
     project_id,
     days,
+    start: options.start ?? null,
+    end: options.end ?? null,
+    sources: options.sources ?? null,
+    account_ids: options.account_ids ?? null,
   });
 
   const purchases = assisted.conversions.filter(({ conversion }) =>

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import Link from "next/link";
 import WeeklyReportContent, { type WeeklyReportData } from "@/app/app/components/WeeklyReportContent";
 
 type Props = { token: string };
@@ -43,12 +44,15 @@ export default function SharedWeeklyReportClient({ token }: Props) {
         setState({
           status: "ok",
           data: {
+            period: json.period ?? undefined,
+            currency: json.currency ?? "USD",
             summary: json.summary ?? "",
             kpis: json.kpis ?? {},
+            insights_ru: Array.isArray(json.insights_ru) ? json.insights_ru : [],
+            risks_ru: Array.isArray(json.risks_ru) ? json.risks_ru : [],
+            actions_ru: Array.isArray(json.actions_ru) ? json.actions_ru : [],
             attribution_highlights: Array.isArray(json.attribution_highlights) ? json.attribution_highlights : [],
-            data_quality_highlights: Array.isArray(json.data_quality_highlights) ? json.data_quality_highlights : [],
             risks: Array.isArray(json.risks) ? json.risks : [],
-            growth_opportunities: Array.isArray(json.growth_opportunities) ? json.growth_opportunities : [],
             priority_actions: Array.isArray(json.priority_actions) ? json.priority_actions : [],
           },
         });
@@ -63,8 +67,10 @@ export default function SharedWeeklyReportClient({ token }: Props) {
 
   if (state.status === "loading") {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#0b0b10]">
-        <p className="text-white/50">Загрузка…</p>
+      <div className="flex min-h-screen items-center justify-center bg-[#0b0b10] p-6">
+        <div className="w-full max-w-5xl rounded-2xl border border-white/10 bg-[rgba(10,10,18,0.96)] p-8">
+          <p className="text-white/50">Загрузка…</p>
+        </div>
       </div>
     );
   }
@@ -72,8 +78,19 @@ export default function SharedWeeklyReportClient({ token }: Props) {
   if (state.status === "invalid" || state.status === "revoked" || state.status === "error") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#0b0b10] p-6">
-        <div className="max-w-md rounded-2xl border border-white/10 bg-white/5 p-8 text-center">
-          <h1 className="mb-2 text-xl font-semibold text-white/90">Shared Board Report</h1>
+        <div className="w-full max-w-xl rounded-2xl border border-white/10 bg-[rgba(10,10,18,0.96)] p-8 text-center">
+          <Link href="/" className="mb-4 inline-flex items-center justify-center gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40">
+            <div className="relative h-10 w-10 rounded-xl border border-white/10 bg-white/6">
+              <span className="absolute inset-0 grid place-items-center text-[13px] font-black leading-none text-white">
+                BIQ
+              </span>
+            </div>
+            <div className="leading-tight text-left">
+              <div className="text-sm font-extrabold text-white/95">BoardIQ</div>
+              <div className="text-xs text-white/50">analytics</div>
+            </div>
+          </Link>
+          <h1 className="mb-2 text-xl font-semibold text-white/90">Управленческий отчет</h1>
           <p className="text-white/70">{state.message}</p>
         </div>
       </div>
@@ -82,12 +99,25 @@ export default function SharedWeeklyReportClient({ token }: Props) {
 
   return (
     <div className="min-h-screen bg-[#0b0b10]">
-      <div className="mx-auto max-w-4xl px-6 py-8">
-        <header className="mb-8">
-          <h1 className="text-2xl font-extrabold tracking-tight text-white">Shared Board Report</h1>
-          <p className="mt-1 text-sm text-white/50">Shared report (read-only)</p>
+      <div className="mx-auto w-full max-w-5xl space-y-5 px-6 py-8">
+        <header className="rounded-2xl border border-white/10 bg-[rgba(10,10,18,0.96)] p-5">
+          <Link href="/" className="mb-4 inline-flex items-center gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40">
+            <div className="relative h-10 w-10 rounded-xl border border-white/10 bg-white/6">
+              <span className="absolute inset-0 grid place-items-center text-[13px] font-black leading-none text-white">
+                BIQ
+              </span>
+            </div>
+            <div className="leading-tight">
+              <div className="text-sm font-extrabold text-white/95">BoardIQ</div>
+              <div className="text-xs text-white/50">analytics</div>
+            </div>
+          </Link>
+          <h1 className="text-2xl font-extrabold tracking-tight text-white">Управленческий отчет</h1>
+          <p className="mt-1 text-sm text-white/50">Режим просмотра по открытой ссылке</p>
         </header>
-        <WeeklyReportContent data={state.data} showSubtitle={true} />
+        <section className="rounded-2xl border border-white/10 bg-[rgba(10,10,18,0.96)] p-5">
+          <WeeklyReportContent data={state.data} showSubtitle={true} />
+        </section>
       </div>
     </div>
   );
