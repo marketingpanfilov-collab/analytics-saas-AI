@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { applyMetaMarketingIntentForAdAccount, metaAdPayloadIndicatesRetention } from "@/app/lib/campaignMarketingIntent";
+import { applyMetaMarketingIntentForAdAccount, metaAdPayloadIntent } from "@/app/lib/campaignMarketingIntent";
 import { fetchMetaGraphGetJsonWithRetry } from "@/app/lib/metaGraphRetry";
 
 async function fbGetJson(url: string) {
@@ -61,6 +61,7 @@ export async function syncMetaMarketingIntentFromAdsApi(
   const fields = "campaign_id,url_tags,creative{object_story_spec,link_url,asset_feed_spec}";
 
   const retentionCampaigns = new Set<string>();
+  const acquisitionCampaigns = new Set<string>();
   let adsScanned = 0;
   let nextUrl: string | null =
     `https://graph.facebook.com/v19.0/${accountPath}/ads?` +
@@ -92,13 +93,21 @@ export async function syncMetaMarketingIntentFromAdsApi(
       adsScanned += 1;
       const cid = ad.campaign_id != null ? String(ad.campaign_id) : "";
       if (!cid) continue;
-      if (metaAdPayloadIndicatesRetention(ad)) retentionCampaigns.add(cid);
+      const intent = metaAdPayloadIntent(ad);
+      if (intent === "retention") retentionCampaigns.add(cid);
+      else if (intent === "acquisition") acquisitionCampaigns.add(cid);
     }
     const next = json?.paging?.next;
     nextUrl = typeof next === "string" && next.length > 0 ? next : null;
   }
 
-  const apply = await applyMetaMarketingIntentForAdAccount(admin, projectId, adAccountId, retentionCampaigns);
+  const apply = await applyMetaMarketingIntentForAdAccount(
+    admin,
+    projectId,
+    adAccountId,
+    retentionCampaigns,
+    acquisitionCampaigns
+  );
 
   return {
     success: true,

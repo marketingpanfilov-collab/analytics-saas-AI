@@ -104,11 +104,11 @@ export async function buildSummaryPayload(
       campaign_rows: canonical?.rowCount ?? 0,
     },
   };
-  applyBackfillMetadata(body, backfillResult);
-  if (!didSync && !shouldSkipCanonicalCache(body)) {
-    dashboardCacheSet(cacheKey, body, DASHBOARD_CACHE_TTL.summary);
+  const withBackfill = applyBackfillMetadata(body, backfillResult);
+  if (!didSync && !shouldSkipCanonicalCache(withBackfill)) {
+    dashboardCacheSet(cacheKey, withBackfill, DASHBOARD_CACHE_TTL.summary);
   }
-  return body;
+  return withBackfill;
 }
 
 export async function buildTimeseriesPayload(
@@ -141,11 +141,11 @@ export async function buildTimeseriesPayload(
       source: "daily_ad_metrics (canonical)",
       points,
     };
-    applyBackfillMetadata(body, backfillResult);
-    if (!didSync && !shouldSkipCanonicalCache(body)) {
-      dashboardCacheSet(cacheKey, body, DASHBOARD_CACHE_TTL.timeseries);
+    const withBackfill = applyBackfillMetadata(body, backfillResult);
+    if (!didSync && !shouldSkipCanonicalCache(withBackfill)) {
+      dashboardCacheSet(cacheKey, withBackfill, DASHBOARD_CACHE_TTL.timeseries);
     }
-    return body;
+    return withBackfill;
   }
 
   const emptyBody: Record<string, unknown> = {

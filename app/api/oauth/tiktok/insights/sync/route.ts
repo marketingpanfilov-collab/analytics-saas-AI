@@ -12,6 +12,7 @@ import { withSyncLock } from "@/app/lib/syncLock";
 import { startSyncRun, finishSyncRunSuccess, finishSyncRunError } from "@/app/lib/syncRuns";
 import { runPostSyncInvariantChecks } from "@/app/lib/postSyncInvariantChecks";
 import { applyTiktokMarketingIntentFromAdsApi } from "@/app/lib/campaignMarketingIntent";
+import { upsertDailyMetricsAccountCompat, upsertDailyMetricsCampaignCompat } from "@/app/lib/dailyMetricsUpsert";
 
 function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
@@ -274,7 +275,7 @@ async function fetchTikTokReportWithOptionalTokenHeal(
   tokenRef: { access_token: string },
   baseParams: Record<string, string>
 ): Promise<TikTokReportFetchResult> {
-  let r = await fetchTikTokIntegratedReportAllPages(tokenRef.access_token, baseParams);
+  const r = await fetchTikTokIntegratedReportAllPages(tokenRef.access_token, baseParams);
   if (!r.errorMessage) return r;
   const http = r.errorHttp ?? 0;
   if (!isTikTokAuthReportError(r.errorCode, r.errorMessage, http)) return r;
@@ -433,22 +434,7 @@ export async function GET(req: Request) {
       }));
 
       if (accountRows.length > 0) {
-        const accountDates = [...new Set(accountRows.map((r) => r.date))];
-        const { error: delAccErr } = await admin
-          .from("daily_ad_metrics")
-          .delete()
-          .eq("ad_account_id", canonicalAdAccountId)
-          .is("campaign_id", null)
-          .in("date", accountDates);
-        if (delAccErr) {
-          const msg = delAccErr.message ?? String(delAccErr);
-          await finishSyncRunError(admin, syncRunId, "tiktok_daily_metrics_delete_account", { message: msg, since, until });
-          return NextResponse.json(
-            { success: false, step: "tiktok_daily_metrics_delete_account", error: msg, period: { since, until } },
-            { status: 500 }
-          );
-        }
-        const { error: insAccErr } = await admin.from("daily_ad_metrics").insert(accountRows);
+        const { error: insAccErr } = await upsertDailyMetricsAccountCompat(admin, accountRows);
         if (insAccErr) {
           const msg = insAccErr.message ?? String(insAccErr);
           await finishSyncRunError(admin, syncRunId, "tiktok_daily_metrics_insert_account", { message: msg, since, until });
@@ -606,29 +592,15 @@ export async function GET(req: Request) {
 
             if (campMetricsRows.length > 0) {
               const campIds = [...new Set(campMetricsRows.map((r) => r.campaign_id))];
-              const dates = [...new Set(campMetricsRows.map((r) => r.date))];
-              const minDate = dates.reduce((a, b) => (a < b ? a : b));
-              const maxDate = dates.reduce((a, b) => (a > b ? a : b));
-              const { error: delCampErr } = await admin
-                .from("daily_ad_metrics")
-                .delete()
-                .eq("ad_account_id", canonicalAdAccountId)
-                .in("campaign_id", campIds)
-                .gte("date", minDate)
-                .lte("date", maxDate);
-              if (delCampErr) {
-                console.warn("[TIKTOK_SYNC_DAILY_METRICS_DELETE_CAMPAIGN_NON_FATAL]", delCampErr);
+              const { error: insCampErr } = await upsertDailyMetricsCampaignCompat(admin, campMetricsRows);
+              if (insCampErr) {
+                console.warn("[TIKTOK_SYNC_DAILY_METRICS_UPSERT_CAMPAIGN_NON_FATAL]", insCampErr);
               } else {
-                const { error: insCampErr } = await admin.from("daily_ad_metrics").insert(campMetricsRows);
-                if (insCampErr) {
-                  console.warn("[TIKTOK_SYNC_DAILY_METRICS_INSERT_CAMPAIGN_NON_FATAL]", insCampErr);
-                } else {
-                  campaignRowsInserted = campMetricsRows.length;
-                  console.log("[TIKTOK_SYNC_CAMPAIGN_METRICS_WRITTEN]", {
-                    rows: campMetricsRows.length,
-                    campaigns: campIds.length,
-                  });
-                }
+                campaignRowsInserted = campMetricsRows.length;
+                console.log("[TIKTOK_SYNC_CAMPAIGN_METRICS_WRITTEN]", {
+                  rows: campMetricsRows.length,
+                  campaigns: campIds.length,
+                });
               }
             }
           }

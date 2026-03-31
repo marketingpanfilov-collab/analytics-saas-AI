@@ -76,7 +76,10 @@ export async function GET(req: Request) {
   }
 
   const admin = supabaseAdmin();
-  const backfillResult = await ensureBackfill(admin, projectId, start, end, req.url);
+  const backfillResult = await ensureBackfill(admin, projectId, start, end, req.url, {
+    sources: params.sources ?? null,
+    accountIds: params.accountIds ?? null,
+  });
   const didSync = backfillResult.triggered;
 
   if (!didSync) {

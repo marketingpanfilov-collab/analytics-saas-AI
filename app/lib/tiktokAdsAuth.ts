@@ -101,37 +101,6 @@ const TIKTOK_OAUTH_ACCESS_TOKEN_URL = "https://business-api.tiktok.com/open_api/
 const TIKTOK_OAUTH_REFRESH_TOKEN_URL = "https://business-api.tiktok.com/open_api/v1.3/oauth2/refresh_token/";
 
 /**
- * Тело POST .../oauth2/access_token/ при обмене auth_code.
- * `TIKTOK_OAUTH_EXCHANGE_MODE`:
- * - `full` (по умолчанию): grant_type=authorization_code + redirect_uri
- * - `minimal`: только app_id, secret, auth_code (как в официальном Python SDK)
- * - `redirect_only`: app_id, secret, auth_code, redirect_uri (без grant_type)
- */
-export function buildTikTokAuthorizationCodeExchangeBody(opts: {
-  appId: string;
-  secret: string;
-  authCode: string;
-  redirectUri: string;
-  exchangeMode?: "full" | "minimal" | "redirect_only";
-}): Record<string, string> {
-  const mode = (opts.exchangeMode || process.env.TIKTOK_OAUTH_EXCHANGE_MODE || "full").trim().toLowerCase();
-  const base: Record<string, string> = {
-    app_id: opts.appId,
-    secret: opts.secret,
-    auth_code: opts.authCode,
-  };
-  if (mode === "minimal") return base;
-  if (mode === "redirect_only") {
-    return { ...base, redirect_uri: opts.redirectUri };
-  }
-  return {
-    ...base,
-    grant_type: "authorization_code",
-    redirect_uri: opts.redirectUri,
-  };
-}
-
-/**
  * Parses TikTok Marketing API `POST .../oauth2/access_token/` JSON (auth_code or refresh_token grant).
  * Respects envelope `code !== 0` and reads tokens from `data` or top-level (and optional `access_token_info`).
  */
@@ -226,53 +195,6 @@ export function parseTikTokOAuthAccessTokenResult(
   };
 }
 
-/** Safe snapshot for DB meta / logs (no token values). */
-export function summarizeTikTokTokenResponse(payload: unknown): {
-  code: string | number | null;
-  message: string | null;
-  request_id: string | null;
-  root_keys: string[];
-  data_kind: string;
-  data_keys: string[];
-  refresh_token_detected: boolean;
-} {
-  const root = asRecord(payload);
-  if (!root) {
-    return {
-      code: null,
-      message: null,
-      request_id: null,
-      root_keys: [],
-      data_kind: "none",
-      data_keys: [],
-      refresh_token_detected: false,
-    };
-  }
-  const d = root.data;
-  let data_kind: string;
-  let data_keys: string[] = [];
-  if (d == null) data_kind = "null";
-  else if (Array.isArray(d)) {
-    data_kind = "array";
-    const first = d[0];
-    if (first && typeof first === "object") data_keys = Object.keys(first as object);
-  } else if (typeof d === "string") data_kind = "string";
-  else if (typeof d === "object") {
-    data_kind = "object";
-    data_keys = Object.keys(d as object);
-  } else data_kind = typeof d;
-
-  return {
-    code: (root.code as string | number | null) ?? null,
-    message: strField(root.message),
-    request_id: strField(root.request_id),
-    root_keys: Object.keys(root),
-    data_kind,
-    data_keys,
-    refresh_token_detected: deepFindRefreshToken(payload, 0, 8) !== null,
-  };
-}
-
 function normalizeTokenPayload(payload: TikTokTokenResponse): {
   access_token: string | null;
   refresh_token: string | null;
@@ -351,12 +273,21 @@ export async function resolveTikTokAccessToken(
   const refreshToken = row.refresh_token?.trim() || null;
   const expiresAt = row.token_expires_at ? new Date(row.token_expires_at).getTime() : null;
   const isExpired = expiresAt != null && expiresAt <= Date.now() + EXPIRY_BUFFER_MS;
+  const forceRefresh = opts?.forceRefresh === true;
 
-  if (accessToken && !isExpired) {
+  if (accessToken && !forceRefresh && !isExpired) {
     return { outcome: "valid", access_token: accessToken };
   }
 
-  if (!refreshToken) return { outcome: "permanent", detail: "no_refresh_token" };
+  // TikTok support: some apps get long-term access token without refresh_token.
+  // In this mode token can remain valid after token_expires_at from initial envelope.
+  if (!refreshToken) {
+    if (accessToken && !forceRefresh) return { outcome: "valid", access_token: accessToken };
+    if (accessToken && forceRefresh) {
+      return { outcome: "permanent", detail: "no_refresh_token_cannot_rotate" };
+    }
+    return { outcome: "permanent", detail: "no_refresh_token" };
+  }
 
   let primaryRes: Response;
   try {

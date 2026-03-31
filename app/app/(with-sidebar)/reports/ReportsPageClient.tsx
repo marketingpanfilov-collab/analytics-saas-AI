@@ -809,12 +809,12 @@ function DonutChart({
   const displayName = (p: string) => ACQUISITION_CHANNEL_LABELS[p] ?? PLATFORM_LABELS[p] ?? p;
   const valueWord = valueLabel === "spend" ? "Расход" : "Выручка";
 
-  let accFrac = 0;
   const arcs = positive.map((s, i) => {
     const pct = total > 0 ? s.value / total : 0;
-    const a0 = -Math.PI / 2 + accFrac * 2 * Math.PI;
-    accFrac += pct;
-    const a1 = -Math.PI / 2 + accFrac * 2 * Math.PI;
+    const prevFrac = positive.slice(0, i).reduce((sum, x) => sum + (total > 0 ? x.value / total : 0), 0);
+    const nextFrac = prevFrac + pct;
+    const a0 = -Math.PI / 2 + prevFrac * 2 * Math.PI;
+    const a1 = -Math.PI / 2 + nextFrac * 2 * Math.PI;
     const segmentKey = donutSegmentKeyFromPlatform(s.platform);
     const color = DONUT_COLORS[segmentKey] ?? ["#1877f2", "#ea4335", "#52525b", "#fc3f7c"][i % 4];
     const d = annulusWedgePath(cx, cy, rInner, rOuter, a0, a1);

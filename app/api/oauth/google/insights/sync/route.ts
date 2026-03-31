@@ -20,6 +20,7 @@ import { datesInRange } from "@/app/lib/dashboardBackfill";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
 import { startSyncRun, finishSyncRunSuccess, finishSyncRunError } from "@/app/lib/syncRuns";
 import { runPostSyncInvariantChecks } from "@/app/lib/postSyncInvariantChecks";
+import { upsertDailyMetricsAccountCompat, upsertDailyMetricsCampaignCompat } from "@/app/lib/dailyMetricsUpsert";
 
 function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
@@ -427,30 +428,7 @@ export async function GET(req: Request) {
 
   let accountRowsWritten = 0;
   if (metricsRows.length > 0) {
-    const dates = [...new Set(metricsRows.map((r) => r.date))];
-    const { error: delErr } = await admin
-      .from("daily_ad_metrics")
-      .delete()
-      .eq("ad_account_id", canonicalAdAccountId)
-      .is("campaign_id", null)
-      .in("date", dates);
-
-    if (delErr) {
-      console.log("[GOOGLE_SYNC_500_DAILY_METRICS_DELETE_ACCOUNT]", {
-        projectId,
-        canonical_ad_account_id: canonicalAdAccountId,
-        error: delErr?.message ?? delErr,
-      });
-      const body = {
-        success: false,
-        step: "daily_ad_metrics_delete_account",
-        error: delErr?.message ?? delErr,
-        period: { since, until },
-      };
-      return syncRunErrorAndReturn(admin, syncRunId, "daily_ad_metrics_delete_account", { period: { since, until } }, body, 500);
-    }
-
-    const { error: insErr } = await admin.from("daily_ad_metrics").insert(metricsRows);
+    const { error: insErr } = await upsertDailyMetricsAccountCompat(admin, metricsRows);
     if (insErr) {
       console.log("[GOOGLE_SYNC_500_DAILY_METRICS_INSERT_ACCOUNT]", {
         projectId,
@@ -796,45 +774,26 @@ export async function GET(req: Request) {
     });
 
     if (campMetricsRows.length > 0) {
-      const campIds = [...new Set(campMetricsRows.map((r) => r.campaign_id))];
-      const dates = [...new Set(campMetricsRows.map((r) => r.date))];
-      const minDate = dates.reduce((a, b) => (a < b ? a : b));
-      const maxDate = dates.reduce((a, b) => (a > b ? a : b));
-      const { error: delCampErr } = await admin
-        .from("daily_ad_metrics")
-        .delete()
-        .eq("ad_account_id", canonicalAdAccountId)
-        .in("campaign_id", campIds)
-        .gte("date", minDate)
-        .lte("date", maxDate);
-        if (delCampErr) {
-          console.warn("[GOOGLE_SYNC_DAILY_METRICS_DELETE_CAMPAIGN_NON_FATAL]", {
-            projectId,
-            error: delCampErr?.message ?? delCampErr,
-            period: { since, until },
-          });
-        } else {
-        const { error: insCampErr } = await admin.from("daily_ad_metrics").insert(campMetricsRows);
-        if (insCampErr) {
-          console.warn("[GOOGLE_SYNC_DAILY_METRICS_INSERT_CAMPAIGN_NON_FATAL]", {
-            projectId,
-            error: insCampErr?.message ?? insCampErr,
-            rows_prepared: campMetricsRows.length,
-            rows_actually_inserted: 0,
-            period: { since, until },
-          });
-        } else {
-          campaignRowsWritten = campMetricsRows.length;
-          console.log("[GOOGLE_SYNC_CAMPAIGN_INSERT_OK]", {
-            projectId,
-            rows_prepared: campMetricsRows.length,
-            rows_actually_inserted: campaignRowsWritten,
-            unique_dates: mappedUniqueDates.size,
-            unique_campaign_ids: mappedUniqueCampaignIds.size,
-            period: { since, until },
-          });
-        }
-        }
+      const { error: insCampErr } = await upsertDailyMetricsCampaignCompat(admin, campMetricsRows);
+      if (insCampErr) {
+        console.warn("[GOOGLE_SYNC_DAILY_METRICS_UPSERT_CAMPAIGN_NON_FATAL]", {
+          projectId,
+          error: insCampErr?.message ?? insCampErr,
+          rows_prepared: campMetricsRows.length,
+          rows_actually_inserted: 0,
+          period: { since, until },
+        });
+      } else {
+        campaignRowsWritten = campMetricsRows.length;
+        console.log("[GOOGLE_SYNC_CAMPAIGN_INSERT_OK]", {
+          projectId,
+          rows_prepared: campMetricsRows.length,
+          rows_actually_inserted: campaignRowsWritten,
+          unique_dates: mappedUniqueDates.size,
+          unique_campaign_ids: mappedUniqueCampaignIds.size,
+          period: { since, until },
+        });
+      }
     }
 
     const exactDropReason =

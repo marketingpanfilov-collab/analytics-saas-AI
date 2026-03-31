@@ -1104,6 +1104,8 @@ export default function AppDashboardClient() {
 
   // Load metrics when applied range changes (not on draft changes). Do not run until access is validated.
   const hasLoadedRef = useRef(false);
+  const [entrySyncSettled, setEntrySyncSettled] = useState(false);
+  const skipNextLoadRef = useRef(false);
   useEffect(() => {
     const key = `${projectId}:${appliedDateFrom}:${appliedDateTo}:${sourcesKey}:${accountIdsKey}`;
     console.log("[DASHBOARD_EFFECT]", {
@@ -1119,6 +1121,13 @@ export default function AppDashboardClient() {
     if (!projectId) return;
     if (!isSupportedNow) return;
     if (isInvalidApplied) return;
+    if (!entrySyncSettled) return;
+
+    if (skipNextLoadRef.current) {
+      // Entry refresh flow already loaded DB once.
+      skipNextLoadRef.current = false;
+      return;
+    }
 
     hasLoadedRef.current = true;
     const c = makeController();
@@ -1129,7 +1138,7 @@ export default function AppDashboardClient() {
       abortInFlight();
       clearBackfillPolling();
     };
-  }, [projectId, appliedDateFrom, appliedDateTo, sourcesKey, accountIdsKey]);
+  }, [projectId, appliedDateFrom, appliedDateTo, sourcesKey, accountIdsKey, entrySyncSettled]);
 
   // Force sync once on entry (only when online & visible), with a 15-minute per-tab cooldown.
   const FORCE_SYNC_COOLDOWN_MS = 15 * 60 * 1000;
@@ -1137,11 +1146,23 @@ export default function AppDashboardClient() {
   const forceSyncDoneForProjectRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!projectId) return;
-    if (typeof window === "undefined") return;
-    if (!navigator.onLine) return;
-    if (document.visibilityState !== "visible") return;
-    if (forceSyncDoneForProjectRef.current === projectId) return;
+    if (!projectId) {
+      setEntrySyncSettled(false);
+      return;
+    }
+    if (typeof window === "undefined") {
+      setEntrySyncSettled(true);
+      return;
+    }
+    if (!navigator.onLine || document.visibilityState !== "visible") {
+      // Don't block first render when sync-on-entry is impossible.
+      setEntrySyncSettled(true);
+      return;
+    }
+    if (forceSyncDoneForProjectRef.current === projectId) {
+      setEntrySyncSettled(true);
+      return;
+    }
 
     let lastMs = 0;
     try {
@@ -1159,6 +1180,7 @@ export default function AppDashboardClient() {
         cooldownMs: FORCE_SYNC_COOLDOWN_MS,
       });
       forceSyncDoneForProjectRef.current = projectId;
+      setEntrySyncSettled(true);
       return;
     }
 
@@ -1166,14 +1188,20 @@ export default function AppDashboardClient() {
     console.log("[BOARD_FORCE_SYNC_ENTRY_TRIGGER]", { projectId, ageMs: nowMs - lastMs });
     void (async () => {
       const ok = await refreshAndReload();
+      if (ok) {
+        // refreshAndReload already called loadFromDb once.
+        skipNextLoadRef.current = true;
+      }
       if (!ok) return;
       try {
         sessionStorage.setItem(FORCE_SYNC_SESSION_KEY, String(Date.now()));
       } catch {
         // ignore
       }
-    })();
-  }, [projectId]);
+    })().finally(() => {
+      setEntrySyncSettled(true);
+    });
+  }, [projectId, isSupportedNow]);
 
   // Auto-refresh every 15 min while user is online & tab is visible (uses applied range)
   useEffect(() => {

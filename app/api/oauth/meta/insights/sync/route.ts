@@ -8,6 +8,8 @@ import { startSyncRun, finishSyncRunSuccess, finishSyncRunError } from "@/app/li
 import { runPostSyncInvariantChecks } from "@/app/lib/postSyncInvariantChecks";
 import { getMetaIntegrationForProject } from "@/app/lib/metaIntegration";
 import { fetchMetaGraphGetJsonWithRetry } from "@/app/lib/metaGraphRetry";
+import { upsertDailyMetricsAccountCompat, upsertDailyMetricsCampaignCompat } from "@/app/lib/dailyMetricsUpsert";
+import { syncMetaMarketingIntentFromAdsApi } from "@/app/lib/metaAdsMarketingIntentSync";
 
 async function fbGetJson(url: string): Promise<any> {
   const res = await fetchMetaGraphGetJsonWithRetry(url);
@@ -536,30 +538,7 @@ export async function GET(req: Request) {
         });
       }
       if (accMetricsRows.length > 0) {
-        const dates = [...new Set(accMetricsRows.map((r: { date: string }) => r.date))];
-        const { error: delErr } = await admin
-          .from("daily_ad_metrics")
-          .delete()
-          .eq("ad_account_id", canonicalAdAccountId)
-          .is("campaign_id", null)
-          .in("date", dates);
-        if (delErr) {
-          console.log("[META_SYNC_500_DAILY_METRICS_DELETE_ACCOUNT]", {
-            projectId,
-            canonical_ad_account_id: canonicalAdAccountId,
-            error: delErr?.message ?? delErr,
-          });
-          const body = {
-            success: false,
-            step: "daily_ad_metrics_delete_account",
-            error: delErr?.message ?? delErr,
-            tz: accountTz,
-            period: { since, until },
-            canonical_ad_account_id: canonicalAdAccountId,
-          };
-          return syncRunErrorAndReturn(admin, syncRunId, "daily_ad_metrics_delete_account", { period: { since, until } }, body, 500);
-        }
-        const { error: insErr } = await admin.from("daily_ad_metrics").insert(accMetricsRows);
+        const { error: insErr } = await upsertDailyMetricsAccountCompat(admin, accMetricsRows);
         if (insErr) {
           console.log("[META_SYNC_500_DAILY_METRICS_INSERT_ACCOUNT]", {
             projectId,
@@ -934,36 +913,12 @@ export async function GET(req: Request) {
               };
             });
           if (campMetricsRows.length > 0) {
-            const campaignIds = [...new Set(campMetricsRows.map((r) => r.campaign_id))];
             const dates = campMetricsRows.map((r) => r.date);
             const chunkStart = dates.reduce((a, b) => (a < b ? a : b));
             const chunkEnd = dates.reduce((a, b) => (a > b ? a : b));
-            const { error: delErr } = await admin
-              .from("daily_ad_metrics")
-              .delete()
-              .eq("ad_account_id", canonicalAdAccountId)
-              .in("campaign_id", campaignIds)
-              .gte("date", chunkStart)
-              .lte("date", chunkEnd);
-            if (delErr) {
-              console.log("[META_SYNC_500_DAILY_METRICS_DELETE_CAMPAIGN]", {
-                projectId,
-                page: pages,
-                error: delErr?.message ?? delErr,
-              });
-              const body = {
-                success: false,
-                step: "daily_ad_metrics_delete_campaign",
-                error: delErr?.message ?? delErr,
-                tz: accountTz,
-                period: { since, until },
-                page: pages,
-              };
-              return syncRunErrorAndReturn(admin, syncRunId, "daily_ad_metrics_delete_campaign", { page: pages }, body, 500);
-            }
-            const { error: insErr } = await admin.from("daily_ad_metrics").insert(campMetricsRows);
+            const { error: insErr } = await upsertDailyMetricsCampaignCompat(admin, campMetricsRows);
             if (insErr) {
-              console.log("[META_SYNC_500_DAILY_METRICS_INSERT_CAMPAIGN]", {
+              console.log("[META_SYNC_500_DAILY_METRICS_UPSERT_CAMPAIGN]", {
                 projectId,
                 page: pages,
                 error: insErr?.message ?? insErr,
@@ -1074,30 +1029,7 @@ export async function GET(req: Request) {
       roas: agg.spend > 0 ? agg.revenue / agg.spend : 0,
     }));
     if (accFallbackRows.length > 0) {
-      const dates = [...new Set(accFallbackRows.map((r) => r.date))];
-      const { error: delErr } = await admin
-        .from("daily_ad_metrics")
-        .delete()
-        .eq("ad_account_id", canonicalAdAccountId)
-        .is("campaign_id", null)
-        .in("date", dates);
-      if (delErr) {
-        console.log("[META_SYNC_500_DAILY_METRICS_DELETE_ACCOUNT_FALLBACK]", {
-          projectId,
-          canonical_ad_account_id: canonicalAdAccountId,
-          error: delErr?.message ?? delErr,
-        });
-        const body = {
-          success: false,
-          step: "daily_ad_metrics_delete_account_fallback",
-          error: delErr?.message ?? delErr,
-          tz: accountTz,
-          period: { since, until },
-          canonical_ad_account_id: canonicalAdAccountId,
-        };
-        return syncRunErrorAndReturn(admin, syncRunId, "daily_ad_metrics_delete_account_fallback", { period: { since, until } }, body, 500);
-      }
-      const { error: insErr } = await admin.from("daily_ad_metrics").insert(accFallbackRows);
+      const { error: insErr } = await upsertDailyMetricsAccountCompat(admin, accFallbackRows);
       if (insErr) {
         console.log("[META_SYNC_500_DAILY_METRICS_INSERT_ACCOUNT_FALLBACK]", {
           projectId,
@@ -1177,6 +1109,13 @@ export async function GET(req: Request) {
       dateStart: since,
       dateEnd: until,
     });
+  }
+
+  // Ensure intent is refreshed even when sync route is called directly (not via dashboard/sync wrapper).
+  try {
+    await syncMetaMarketingIntentFromAdsApi(accessToken, adAccountId, admin, projectId);
+  } catch (intentEx) {
+    console.warn("[META_MARKETING_INTENT_SYNC_EXCEPTION]", intentEx);
   }
 
   const responseBody = {

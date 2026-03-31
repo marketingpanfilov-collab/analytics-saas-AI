@@ -36,7 +36,10 @@ export async function GET(req: Request) {
 
   console.log("[ROUTE_BACKFILL_ENTER]", { projectId, start, end, access_source: access.source });
   const admin = supabaseAdmin();
-  const backfillResult = await ensureBackfill(admin, projectId, start, end, req.url);
+  const backfillResult = await ensureBackfill(admin, projectId, start, end, req.url, {
+    sources: params.sources ?? null,
+    accountIds: params.accountIds ?? null,
+  });
   const didSync = backfillResult.triggered;
 
   const body = await buildSummaryPayload(admin, params, backfillResult, didSync);
