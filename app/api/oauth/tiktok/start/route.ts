@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { buildTikTokAdvertiserAuthUrl } from "@/app/lib/tiktokOAuthAuthorize";
 
 function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
@@ -37,24 +38,24 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: false, error: "project_id must be a valid UUID" }, { status: 400 });
   }
 
+  const forceReauth = req.nextUrl.searchParams.get("reauth") === "1";
+
   const statePayload = {
     project_id: projectId,
     return_to: returnTo,
     nonce: crypto.randomUUID(),
-    v: 1,
+    issued_at_ms: Date.now(),
+    v: 2,
   };
   const state = Buffer.from(JSON.stringify(statePayload), "utf8").toString("base64");
 
-  const params = new URLSearchParams({
-    app_id: appId,
-    redirect_uri: redirectUri,
+  const url = buildTikTokAdvertiserAuthUrl({
+    appId: appId,
+    redirectUri: redirectUri,
     state,
+    scopes: SCOPES,
+    forceReauth,
   });
-  if (SCOPES.length > 0) {
-    params.set("scope", SCOPES.join(","));
-  }
 
-  // TikTok Marketing API advertiser authorization (TikTok Ads / Business flow).
-  const url = `https://ads.tiktok.com/marketing_api/auth?${params.toString()}`;
   return NextResponse.redirect(url, { status: 302 });
 }

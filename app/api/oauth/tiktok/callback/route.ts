@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import type { NextRequest } from "next/server";
 import { mergeRefreshTokenForUpsert, upsertIntegrationsAuth } from "@/app/lib/integrationsAuthUpsert";
-import { parseTikTokOAuthAccessTokenResult } from "@/app/lib/tiktokAdsAuth";
+import { parseTikTokOAuthAccessTokenResult, summarizeTikTokTokenResponse } from "@/app/lib/tiktokAdsAuth";
 
 function parseState(state: string | null): { project_id?: string; return_to?: string } | null {
   if (!state || !state.trim()) return null;
@@ -74,9 +74,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(back, { status: 302 });
   }
 
-  // TikTok Marketing API v1.3: exchange requires grant_type "authorization_code" (not "auth_code").
-  // Docs / integrator guides use app_id + secret + auth_code only; redirect_uri is not required here
-  // if it matches the app-registered URL used in /marketing_api/auth (must match env TIKTOK_REDIRECT_URI).
+  // TikTok Marketing API v1.3: use OAuth-style grant + redirect_uri matching the authorize URL
+  // (see /api/oauth/tiktok/start — same TIKTOK_REDIRECT_URI). Some tenants omit refresh_token without this.
   const primaryRes = await fetch("https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -85,6 +84,7 @@ export async function GET(req: NextRequest) {
       secret: clientSecret,
       auth_code: code,
       grant_type: "authorization_code",
+      redirect_uri: redirectUri,
     }),
   });
   const tokenJson: unknown = await primaryRes.json().catch(() => ({}));
@@ -148,6 +148,9 @@ export async function GET(req: NextRequest) {
     });
   }
 
+  const debugEnvelope =
+    process.env.NODE_ENV === "development" || process.env.TIKTOK_DEBUG_TOKEN_ENVELOPE === "1";
+
   const { error: authErr } = await upsertIntegrationsAuth(admin, {
     integration_id: canonicalInt.id,
     access_token: accessToken,
@@ -158,6 +161,7 @@ export async function GET(req: NextRequest) {
       expires_in: expiresIn,
       source: "tiktok_oauth_callback",
       ...(!mergedRefreshPreview ? { missing_refresh_token: true } : {}),
+      ...(debugEnvelope ? { tiktok_token_envelope: summarizeTikTokTokenResponse(tokenJson) } : {}),
     },
     updated_at: nowIso,
   });

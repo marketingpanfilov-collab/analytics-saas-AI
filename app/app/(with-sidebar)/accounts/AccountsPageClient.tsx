@@ -867,7 +867,8 @@ export default function AccountsPageClient() {
       return;
     }
     const returnTo = `/app/accounts?project_id=${encodeURIComponent(projectId)}`;
-    window.location.href = `/api/oauth/tiktok/start?project_id=${encodeURIComponent(projectId)}&return_to=${encodeURIComponent(
+    // reauth=1 → сервер добавит reauth к URL TikTok; снижает шанс «тихого» переподключения без refresh_token
+    window.location.href = `/api/oauth/tiktok/start?project_id=${encodeURIComponent(projectId)}&reauth=1&return_to=${encodeURIComponent(
       returnTo
     )}`;
   }

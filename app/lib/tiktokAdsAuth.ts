@@ -128,8 +128,14 @@ export function parseTikTokOAuthAccessTokenResult(
     };
   }
 
-  const apiCode = root.code;
-  if (typeof apiCode === "number" && apiCode !== 0) {
+  const rawCode = root.code;
+  const numericCode =
+    typeof rawCode === "number" && Number.isFinite(rawCode)
+      ? rawCode
+      : typeof rawCode === "string" && rawCode.trim() !== "" && Number.isFinite(Number(rawCode))
+        ? Number(rawCode)
+        : null;
+  if (numericCode !== null && numericCode !== 0) {
     return {
       ok: false,
       access_token: null,
@@ -140,8 +146,8 @@ export function parseTikTokOAuthAccessTokenResult(
         strField(root.message) ||
         strField(root.error_description) ||
         strField(root.error) ||
-        `tiktok_code_${apiCode}`,
-      api_code: apiCode,
+        `tiktok_code_${numericCode}`,
+      api_code: numericCode,
     };
   }
 
@@ -186,6 +192,53 @@ export function parseTikTokOAuthAccessTokenResult(
     expires_in: Number.isFinite(expiresIn) ? expiresIn : 86400,
     scope,
     message: null,
+  };
+}
+
+/** Safe snapshot for DB meta / logs (no token values). */
+export function summarizeTikTokTokenResponse(payload: unknown): {
+  code: string | number | null;
+  message: string | null;
+  request_id: string | null;
+  root_keys: string[];
+  data_kind: string;
+  data_keys: string[];
+  refresh_token_detected: boolean;
+} {
+  const root = asRecord(payload);
+  if (!root) {
+    return {
+      code: null,
+      message: null,
+      request_id: null,
+      root_keys: [],
+      data_kind: "none",
+      data_keys: [],
+      refresh_token_detected: false,
+    };
+  }
+  const d = root.data;
+  let data_kind: string;
+  let data_keys: string[] = [];
+  if (d == null) data_kind = "null";
+  else if (Array.isArray(d)) {
+    data_kind = "array";
+    const first = d[0];
+    if (first && typeof first === "object") data_keys = Object.keys(first as object);
+  } else if (typeof d === "string") data_kind = "string";
+  else if (typeof d === "object") {
+    data_kind = "object";
+    data_keys = Object.keys(d as object);
+  } else data_kind = typeof d;
+
+  return {
+    code: (root.code as string | number | null) ?? null,
+    message: strField(root.message),
+    request_id: strField(root.request_id),
+    root_keys: Object.keys(root),
+    data_kind,
+    data_keys,
+    refresh_token_detected: deepFindRefreshToken(payload, 0, 8) !== null,
   };
 }
 
