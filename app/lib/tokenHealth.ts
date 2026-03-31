@@ -12,7 +12,9 @@ export type TokenHealthReasonCode =
   | "permissions_revoked"
   | "account_unavailable"
   | "token_missing"
-  | "temporary_oauth_failure";
+  | "temporary_oauth_failure"
+  /** TikTok: access истёк, refresh_token в БД нет (API не выдал / не положили) — нужен повторный OAuth */
+  | "reauth_required";
 
 export type TokenHealthResult = {
   connected: boolean;
@@ -177,7 +179,8 @@ export async function getGoogleTokenHealth(
 }
 
 function tiktokPermanentReason(detail: string | undefined): TokenHealthReasonCode {
-  if (!detail || detail === "no_refresh_token") return "token_missing";
+  if (detail === "no_refresh_token") return "reauth_required";
+  if (!detail) return "token_missing";
   const m = detail.toLowerCase();
   if (m.includes("invalid") || m.includes("revoke") || m.includes("expired")) return "permissions_revoked";
   return "refresh_failed";

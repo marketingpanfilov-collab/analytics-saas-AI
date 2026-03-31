@@ -101,6 +101,37 @@ const TIKTOK_OAUTH_ACCESS_TOKEN_URL = "https://business-api.tiktok.com/open_api/
 const TIKTOK_OAUTH_REFRESH_TOKEN_URL = "https://business-api.tiktok.com/open_api/v1.3/oauth2/refresh_token/";
 
 /**
+ * Тело POST .../oauth2/access_token/ при обмене auth_code.
+ * `TIKTOK_OAUTH_EXCHANGE_MODE`:
+ * - `full` (по умолчанию): grant_type=authorization_code + redirect_uri
+ * - `minimal`: только app_id, secret, auth_code (как в официальном Python SDK)
+ * - `redirect_only`: app_id, secret, auth_code, redirect_uri (без grant_type)
+ */
+export function buildTikTokAuthorizationCodeExchangeBody(opts: {
+  appId: string;
+  secret: string;
+  authCode: string;
+  redirectUri: string;
+  exchangeMode?: "full" | "minimal" | "redirect_only";
+}): Record<string, string> {
+  const mode = (opts.exchangeMode || process.env.TIKTOK_OAUTH_EXCHANGE_MODE || "full").trim().toLowerCase();
+  const base: Record<string, string> = {
+    app_id: opts.appId,
+    secret: opts.secret,
+    auth_code: opts.authCode,
+  };
+  if (mode === "minimal") return base;
+  if (mode === "redirect_only") {
+    return { ...base, redirect_uri: opts.redirectUri };
+  }
+  return {
+    ...base,
+    grant_type: "authorization_code",
+    redirect_uri: opts.redirectUri,
+  };
+}
+
+/**
  * Parses TikTok Marketing API `POST .../oauth2/access_token/` JSON (auth_code or refresh_token grant).
  * Respects envelope `code !== 0` and reads tokens from `data` or top-level (and optional `access_token_info`).
  */

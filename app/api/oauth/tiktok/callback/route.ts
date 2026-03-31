@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import type { NextRequest } from "next/server";
 import { mergeRefreshTokenForUpsert, upsertIntegrationsAuth } from "@/app/lib/integrationsAuthUpsert";
-import { parseTikTokOAuthAccessTokenResult, summarizeTikTokTokenResponse } from "@/app/lib/tiktokAdsAuth";
+import {
+  buildTikTokAuthorizationCodeExchangeBody,
+  parseTikTokOAuthAccessTokenResult,
+  summarizeTikTokTokenResponse,
+} from "@/app/lib/tiktokAdsAuth";
 
 function parseState(state: string | null): { project_id?: string; return_to?: string } | null {
   if (!state || !state.trim()) return null;
@@ -74,21 +78,79 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(back, { status: 302 });
   }
 
-  // TikTok Marketing API v1.3: use OAuth-style grant + redirect_uri matching the authorize URL
-  // (see /api/oauth/tiktok/start — same TIKTOK_REDIRECT_URI). Some tenants omit refresh_token without this.
-  const primaryRes = await fetch("https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      app_id: appId,
+  const preferredMode = (process.env.TIKTOK_OAUTH_EXCHANGE_MODE || "full").trim().toLowerCase();
+  const baseModes = ["full", "minimal", "redirect_only"] as const;
+  const candidateModes = [
+    ...baseModes.filter((m) => m === preferredMode),
+    ...baseModes.filter((m) => m !== preferredMode),
+  ];
+
+  let exchangeMode = preferredMode;
+  let exchangeHttpOk = false;
+  let tokenJson: unknown = {};
+  let envelopeSnap = summarizeTikTokTokenResponse(tokenJson);
+  let parsed = parseTikTokOAuthAccessTokenResult(tokenJson, false);
+
+  let fallbackOkWithoutRefresh:
+    | { mode: string; tokenJson: unknown; envelopeSnap: ReturnType<typeof summarizeTikTokTokenResponse>; parsed: typeof parsed }
+    | null = null;
+
+  const attemptSummary: Array<{ mode: string; http_ok: boolean; refresh_in_payload: boolean; parsed_ok: boolean }> = [];
+
+  for (const mode of candidateModes) {
+    const exchangeBody = buildTikTokAuthorizationCodeExchangeBody({
+      appId,
       secret: clientSecret,
-      auth_code: code,
-      grant_type: "authorization_code",
-      redirect_uri: redirectUri,
-    }),
+      authCode: code,
+      redirectUri,
+      exchangeMode: mode,
+    });
+
+    const res = await fetch("https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(exchangeBody),
+    });
+    const rawJson: unknown = await res.json().catch(() => ({}));
+    const p = parseTikTokOAuthAccessTokenResult(rawJson, res.ok);
+    const snap = summarizeTikTokTokenResponse(rawJson);
+
+    attemptSummary.push({
+      mode,
+      http_ok: res.ok,
+      refresh_in_payload: snap.refresh_token_detected,
+      parsed_ok: p.ok && !!p.access_token,
+    });
+
+    if (p.ok && p.access_token && p.refresh_token) {
+      exchangeMode = mode;
+      exchangeHttpOk = res.ok;
+      tokenJson = rawJson;
+      envelopeSnap = snap;
+      parsed = p;
+      break;
+    }
+
+    if (p.ok && p.access_token && !fallbackOkWithoutRefresh) {
+      fallbackOkWithoutRefresh = { mode, tokenJson: rawJson, envelopeSnap: snap, parsed: p };
+    }
+  }
+
+  if ((!parsed.ok || !parsed.access_token) && fallbackOkWithoutRefresh) {
+    exchangeMode = fallbackOkWithoutRefresh.mode;
+    exchangeHttpOk = true;
+    tokenJson = fallbackOkWithoutRefresh.tokenJson;
+    envelopeSnap = fallbackOkWithoutRefresh.envelopeSnap;
+    parsed = fallbackOkWithoutRefresh.parsed;
+  }
+
+  console.log("[TIKTOK_OAUTH_CALLBACK]", {
+    projectId,
+    chosen_mode: exchangeMode,
+    refresh_in_payload: envelopeSnap.refresh_token_detected,
+    data_keys: envelopeSnap.data_keys,
+    attempts: attemptSummary,
   });
-  const tokenJson: unknown = await primaryRes.json().catch(() => ({}));
-  const parsed = parseTikTokOAuthAccessTokenResult(tokenJson, primaryRes.ok);
 
   if (!parsed.ok || !parsed.access_token) {
     const back = new URL(returnTo, req.nextUrl.origin);
@@ -143,8 +205,9 @@ export async function GET(req: NextRequest) {
     console.warn("[TIKTOK_OAUTH_NO_REFRESH_TOKEN_AFTER_EXCHANGE]", {
       projectId,
       integration_id: canonicalInt.id,
+      data_keys: envelopeSnap.data_keys,
       hint:
-        "TikTok often omits refresh_token on re-consent if the app was not revoked; access ~24h. After full disconnect there is no old refresh to keep — revoke the app in TikTok Ads developer settings and authorize again to obtain a new refresh_token, or ensure token exchange includes redirect_uri matching authorize URL.",
+        "Если в ответе API нет refresh_token (см. data_keys / refresh_in_payload в логе выше) — это ограничение TikTok для вашего приложения/режима. Попробуйте TIKTOK_OAUTH_EXCHANGE_MODE=minimal в .env и снова OAuth; иначе только access ~24ч и повторное подключение. Тикет в поддержку TikTok For Business: App ID + факт отсутствия refresh_token в data.",
     });
   }
 
@@ -160,6 +223,12 @@ export async function GET(req: NextRequest) {
     meta: {
       expires_in: expiresIn,
       source: "tiktok_oauth_callback",
+      tiktok_exchange: {
+        mode: exchangeMode,
+        http_ok: exchangeHttpOk,
+        refresh_in_response: envelopeSnap.refresh_token_detected,
+        data_keys: envelopeSnap.data_keys,
+      },
       ...(!mergedRefreshPreview ? { missing_refresh_token: true } : {}),
       ...(debugEnvelope ? { tiktok_token_envelope: summarizeTikTokTokenResponse(tokenJson) } : {}),
     },
