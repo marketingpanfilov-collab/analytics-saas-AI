@@ -34,6 +34,7 @@ import {
 } from "./reportHelpCopy";
 import { getChannelInsight } from "./channelInsight";
 import { ignoreAbortRejection, isAbortError, safeAbortController } from "@/app/lib/abortUtils";
+import { getSharedCached } from "@/app/lib/sharedDataCache";
 import { parseDashboardRangeParams } from "@/app/lib/dashboardRangeParams";
 import { supabase } from "@/app/lib/supabaseClient";
 import {
@@ -1173,7 +1174,11 @@ export default function ReportsPageClient() {
       return;
     }
     try {
-      const res = await fetch(`/api/projects/currency?project_id=${encodeURIComponent(projectId)}`, { cache: "no-store" });
+      const res = await getSharedCached(
+        `projects-currency:${projectId}`,
+        () => fetch(`/api/projects/currency?project_id=${encodeURIComponent(projectId)}`, { cache: "no-store" }),
+        { ttlMs: 120_000 }
+      );
       const json = await res.json();
       if (res.ok && json?.success && typeof json.currency === "string") {
         setCurrency(String(json.currency).toUpperCase() === "KZT" ? "KZT" : "USD");
@@ -1442,9 +1447,14 @@ export default function ReportsPageClient() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(
-          `/api/dashboard/accounts?project_id=${encodeURIComponent(projectId)}&selected_only=1`,
-          { cache: "no-store" }
+        const res = await getSharedCached(
+          `dashboard-accounts:${projectId}:selected-only`,
+          () =>
+            fetch(
+              `/api/dashboard/accounts?project_id=${encodeURIComponent(projectId)}&selected_only=1`,
+              { cache: "no-store" }
+            ),
+          { ttlMs: 90_000 }
         );
         const json = (await res.json()) as { success?: boolean; accounts?: DashboardAccount[] };
         if (!cancelled) setDashboardAccounts(json?.accounts ?? []);
@@ -1462,11 +1472,16 @@ export default function ReportsPageClient() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(
-          `/api/dashboard/source-options?project_id=${encodeURIComponent(projectId)}&start=${encodeURIComponent(
-            appliedDateFrom
-          )}&end=${encodeURIComponent(appliedDateTo)}`,
-          { cache: "no-store" }
+        const res = await getSharedCached(
+          `dashboard-source-options:${projectId}:${appliedDateFrom}:${appliedDateTo}`,
+          () =>
+            fetch(
+              `/api/dashboard/source-options?project_id=${encodeURIComponent(projectId)}&start=${encodeURIComponent(
+                appliedDateFrom
+              )}&end=${encodeURIComponent(appliedDateTo)}`,
+              { cache: "no-store" }
+            ),
+          { ttlMs: 90_000 }
         );
         const json = await res.json();
         if (!cancelled && res.ok && json?.success && Array.isArray(json.options)) {

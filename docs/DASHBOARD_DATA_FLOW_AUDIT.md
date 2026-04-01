@@ -234,3 +234,11 @@ const [sRes, tRes, kRes, cRes] = await Promise.all([
 
 - При `historicalBackfill?.started === true` под блоком с датами показывается жёлтый inline-баннер: **«Подгружаем исторические данные»** и при наличии — интервалы в формате «ДД.ММ.ГГГГ — ДД.ММ.ГГГГ».
 - После того как sync закрывает пропуски, следующий refetch возвращает ответ без backfill → баннер исчезает, графики и KPI обновляются без ручного refresh.
+
+### 6. Политика refresh / ensureBackfill (актуализация)
+
+- **`ensureBackfill` (ветка «сегодня»):** при полном покрытии диапазона и `end === UTC today` фоновый fresh-sync идёт только по окну **вчера + сегодня** (`max(requested_start, today−1d)…today`), а не по всему выбранному `[start, end]`.
+- **Historical gaps:** длинные `missingIntervals` режутся на **чанки по 7 календарных дней**; каждый чанк — отдельный POST `/api/dashboard/sync` (последовательно по списку чанков).
+- **`POST /api/dashboard/refresh`:** по умолчанию при `end === UTC today` диапазон **нормализуется** так же (узкое окно), если в body **нет** `force_full_sync: true`. Ручной **Full re-sync** в UI передаёт `force_full_sync: true` и синкает **весь** выбранный applied-диапазон.
+- **Internal cron** (`internal-sync/cron`): по-прежнему только `today…today`; узкое окно refresh на него не распространяется.
+- **Прямой** `POST /api/dashboard/sync` без изменений: политика узкого окна относится к `ensureBackfill` и к default refresh, не к произвольным прямым вызовам sync.

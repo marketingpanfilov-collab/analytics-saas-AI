@@ -223,21 +223,21 @@ export default function PixelsPageClient() {
   const projectIdPlaceholder = projectId || "PROJECT_ID";
 
   const copyToClipboard = useCallback(async (text: string) => {
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
   }, []);
 
   const fetchVisitStatus = useCallback(async () => {
@@ -603,19 +603,19 @@ ${generatedPurchaseJson}`;
       {/* Tabs */}
       <div className="mb-4 flex gap-1 rounded-xl bg-neutral-900/80 p-1 ring-1 ring-neutral-800">
         {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
+            <button
+              key={tab.id}
+              type="button"
             onClick={() => setActiveTab(tab.id)}
-            className={cx(
+              className={cx(
               "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
               activeTab === tab.id ? "bg-neutral-800 text-white shadow-sm" : "text-neutral-400 hover:text-neutral-200"
             )}
           >
             <span>{tab.icon}</span>
-            {tab.label}
-          </button>
-        ))}
+              {tab.label}
+            </button>
+          ))}
       </div>
 
       {/* Tab content */}
@@ -647,7 +647,7 @@ ${generatedPurchaseJson}`;
                 <span key={i} className="flex items-center gap-2">
                   <span className="rounded-full bg-neutral-700 px-2.5 py-1 text-xs font-medium text-white">{i + 1}. {step}</span>
                   {i < GTM_STEPS.length - 1 && <span className="text-neutral-600">→</span>}
-                </span>
+            </span>
               ))}
             </div>
             <div className="mt-4">
@@ -684,10 +684,10 @@ ${generatedPurchaseJson}`;
                     </code>
                     {canManageIngestKey && (
                       <>
-                        <button
-                          type="button"
+            <button
+              type="button"
                           onClick={() => copyToClipboard(ingestKey)}
-                          className={cx(
+              className={cx(
                             "rounded px-2 py-1 text-xs font-medium",
                             copied ? "bg-emerald-500/20 text-emerald-300" : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
                           )}
@@ -718,7 +718,7 @@ ${generatedPurchaseJson}`;
                         className="rounded bg-neutral-700 px-2 py-1 text-xs text-white hover:bg-neutral-600 disabled:opacity-50"
                       >
                         {regenerateIngestLoading ? "…" : "Generate key"}
-                      </button>
+            </button>
                     )}
                   </>
                 )}
@@ -728,8 +728,8 @@ ${generatedPurchaseJson}`;
               )}
               {!canManageIngestKey && ingestKey && (
                 <p className="mt-1.5 text-[11px] text-neutral-500">Only project admins can view or regenerate the full ingest key.</p>
-              )}
-            </div>
+        )}
+      </div>
 
             <div className="mt-4 rounded-lg border-2 border-amber-500/40 bg-amber-500/10 px-3 py-3">
               <div className="text-sm font-semibold text-amber-200">Authentication</div>
@@ -751,18 +751,18 @@ ${generatedPurchaseJson}`;
               >
                 Registration
               </button>
-              <button
-                type="button"
+          <button
+            type="button"
                 onClick={() => setConversionTab("purchase")}
                 className={conversionTab === "purchase" ? "rounded-md bg-neutral-800 px-3 py-1.5 text-sm font-medium text-white" : "rounded-md bg-neutral-900 px-3 py-1.5 text-sm text-neutral-400 hover:text-neutral-200"}
-              >
+          >
                 Purchase
-              </button>
-            </div>
+          </button>
+        </div>
 
             {/* Test conversion event */}
             <div className="mt-4 rounded-lg border border-neutral-700 bg-neutral-800/40 px-3 py-2">
-              <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-semibold text-white">Test conversion event</span>
                 {canManageIngestKey && ingestKey ? (
                   <>
@@ -978,13 +978,13 @@ ${generatedPurchaseJson}`;
                   </li>
                 ))}
               </ul>
-            </div>
+          </div>
             <div className="mt-4 rounded-lg border-2 border-red-500/40 bg-red-500/15 p-4">
               <div className="text-xs font-semibold text-red-200">Важно</div>
               <p className="mt-2 text-sm text-red-100/90">
                 Если у вас одновременно подключены сайт и CRM, обязательно используйте единый внутренний user id и единый order/payment id. Иначе система создаст дубликаты registration и purchase событий.
-              </p>
-            </div>
+            </p>
+          </div>
             <p className="mt-3 text-xs text-neutral-500">Сайт и CRM должны использовать согласованные идентификаторы пользователя и заказа.</p>
           </>
         )}
@@ -1001,7 +1001,7 @@ ${generatedPurchaseJson}`;
           <span className="flex items-center gap-2 text-xs text-neutral-500">
             {eventCount}
             <span className={cx("transition-transform", eventsOpen && "rotate-180")}>▼</span>
-          </span>
+              </span>
         </button>
         {eventsOpen && (
           <div className="border-t border-neutral-800 px-4 pb-4 pt-2">

@@ -351,12 +351,40 @@ export async function GET(req: Request) {
 
   const now = new Date();
   const ymd = (d: Date) => d.toISOString().slice(0, 10);
+  const yesterdayUtc = new Date(now);
+  yesterdayUtc.setUTCDate(yesterdayUtc.getUTCDate() - 1);
   const defaultStart = new Date(now);
   defaultStart.setDate(1);
   const since = dateStartParam ?? ymd(defaultStart);
-  const until = dateEndParam ?? ymd(now);
+  const requestedUntil = dateEndParam ?? ymd(now);
+  const yesterday = ymd(yesterdayUtc);
+  const until = requestedUntil > yesterday ? yesterday : requestedUntil;
+  const wasClamped = until !== requestedUntil;
+  const requestedStart = since;
+  const requestedEnd = requestedUntil;
+  console.log("[TIKTOK_SYNC] date_end_clamp", {
+    requested_end: requestedUntil,
+    effective_end: until,
+    was_clamped: wasClamped,
+  });
   if (since > until) {
-    return NextResponse.json({ success: false, error: "date_start must be <= date_end", period: { since, until } }, { status: 400 });
+    console.log("[TIKTOK_SYNC] skipped_after_clamp", {
+      project_id: projectId,
+      ad_account_id: adAccountId,
+      requested_start: requestedStart,
+      requested_end: requestedEnd,
+      effective_start: since,
+      effective_end: until,
+      reason: "no_data_for_today_after_clamp",
+      outcome: "skipped",
+    });
+    return NextResponse.json({
+      success: true,
+      skipped: true,
+      reason: "no_data_for_today_after_clamp",
+      requested_period: { since: requestedStart, until: requestedEnd },
+      effective_period: { since, until },
+    });
   }
 
   return withSyncLock("tiktok", adAccountId, since, until, "insights", async () => {

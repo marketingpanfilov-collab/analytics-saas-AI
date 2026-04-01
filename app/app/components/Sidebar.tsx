@@ -10,6 +10,8 @@ import {
   type ProjectCurrency,
 } from "@/app/lib/currency";
 import { SIDEBAR_TODAY_REFRESH_EVENT } from "@/app/lib/sidebarTodayRefreshEvent";
+import { getSharedCached } from "@/app/lib/sharedDataCache";
+import { POST_REFRESH_GUARD_MS, REFRESH_BASELINE_SESSION_KEY } from "@/app/lib/refreshOrchestration";
 
 type ProjectItem = { id: string; name: string | null; organization_id: string | null };
 
@@ -356,7 +358,9 @@ export default function Sidebar() {
     let mounted = true;
     (async () => {
       try {
-        const res = await fetch("/api/projects", { cache: "no-store" });
+        const res = await getSharedCached("projects:list", () => fetch("/api/projects", { cache: "no-store" }), {
+          ttlMs: 90_000,
+        });
         const json = (await res.json()) as {
           success?: boolean;
           projects?: ProjectItem[];
@@ -380,9 +384,14 @@ export default function Sidebar() {
     let mounted = true;
     (async () => {
       try {
-        const res = await fetch(`/api/projects/currency?project_id=${encodeURIComponent(projectId)}`, {
-          cache: "no-store",
-        });
+        const res = await getSharedCached(
+          `projects-currency:${projectId}`,
+          () =>
+            fetch(`/api/projects/currency?project_id=${encodeURIComponent(projectId)}`, {
+              cache: "no-store",
+            }),
+          { ttlMs: 120_000 }
+        );
         const json = await res.json();
         if (!mounted) return;
         if (res.ok && json?.success && typeof json.currency === "string") {
@@ -655,13 +664,30 @@ export default function Sidebar() {
     await Promise.all(tasks);
   }, [fetchTodaySpend, fetchFactSalesToday, fetchFactSalesThisMonth, fetchFactToYesterday, fetchTodayKpi, currentMonthPlan]);
 
+  const isDashboardPostRefreshGuardActive = useCallback(() => {
+    if (typeof window === "undefined") return false;
+    const key = `${REFRESH_BASELINE_SESSION_KEY}:${projectId}`;
+    try {
+      const raw = Number(sessionStorage.getItem(key) ?? 0) || 0;
+      if (!raw) return false;
+      return Date.now() - raw < POST_REFRESH_GUARD_MS;
+    } catch {
+      return false;
+    }
+  }, [projectId]);
+
   useEffect(() => {
     if (!projectId) return;
     void refreshTodayWidget();
     const id = window.setInterval(() => {
+      if (typeof window === "undefined") return;
+      if (!navigator.onLine) return;
+      if (document.visibilityState !== "visible") return;
+      if (isDashboardPostRefreshGuardActive()) return;
       void refreshTodayWidget();
     }, 15 * 60 * 1000);
     const onRefresh = () => {
+      if (isDashboardPostRefreshGuardActive()) return;
       void refreshTodayWidget();
     };
     window.addEventListener(SIDEBAR_TODAY_REFRESH_EVENT, onRefresh);
@@ -669,7 +695,7 @@ export default function Sidebar() {
       window.clearInterval(id);
       window.removeEventListener(SIDEBAR_TODAY_REFRESH_EVENT, onRefresh);
     };
-  }, [projectId, refreshTodayWidget]);
+  }, [projectId, refreshTodayWidget, isDashboardPostRefreshGuardActive]);
 
   const hasCurrentMonthPlan = currentMonthPlan !== null;
   const primaryCountPlan = currentMonthPlan?.sales_plan_count ?? 0;
@@ -1188,8 +1214,8 @@ export default function Sidebar() {
               {extendedMetrics.map((m) => (
                 <MetricRow key={m.key} m={m} currency={projectCurrency} usdToKztRate={usdToKztRate} />
               ))}
-        </div>
-      ) : (
+            </div>
+          ) : (
             <div style={{ opacity: 0.55, fontSize: 12 }}>Показать ROAS / CAC / CPR</div>
           )}
         </div>
@@ -1274,7 +1300,7 @@ export default function Sidebar() {
           usdToKztRate={usdToKztRate}
         />
       ) : null}
-      </aside>
+    </aside>
     </div>
   );
 }

@@ -7,6 +7,7 @@ import CohortHeatmap, { type CohortRow } from "../../components/CohortHeatmap";
 import HelpTooltip from "../../components/HelpTooltip";
 import type { ProjectCurrency } from "@/app/lib/currency";
 import { fmtProjectCurrency } from "@/app/lib/currency";
+import { getSharedCached } from "@/app/lib/sharedDataCache";
 import { LTV_HELP_CROSS_BOARD_PARITY } from "./ltvHelpCopy";
 
 const pillStyle = (active: boolean) => ({
@@ -569,7 +570,11 @@ export default function LtvPageClient() {
     let mounted = true;
     (async () => {
       try {
-        const res = await fetch(`/api/projects/currency?project_id=${encodeURIComponent(projectId)}`, { cache: "no-store" });
+        const res = await getSharedCached(
+          `projects-currency:${projectId}`,
+          () => fetch(`/api/projects/currency?project_id=${encodeURIComponent(projectId)}`, { cache: "no-store" }),
+          { ttlMs: 120_000 }
+        );
         const json = await res.json();
         if (!mounted) return;
         if (res.ok && json?.success && typeof json.currency === "string") {

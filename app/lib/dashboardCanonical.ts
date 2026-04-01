@@ -331,7 +331,7 @@ export async function fetchCampaignLevelMetricRowsForProject(
  * Account-level totals remain the source for dashboard spend when campaign-level is missing or filtered.
  * Yandex: account-level only.
  */
-async function fetchCanonicalRowsViaJoin(
+async function fetchCanonicalRowsViaJoinUncached(
   admin: SupabaseClient,
   projectId: string,
   start: string,
@@ -475,6 +475,116 @@ async function fetchCanonicalRowsViaJoin(
   return convertRawMetricRowsToUsd(admin, rows);
 }
 
+const canonicalRowsInflight = new Map<string, Promise<CanonicalMetricRow[]>>();
+const canonicalRowsTtlStore = new Map<string, { rows: CanonicalMetricRow[]; exp: number }>();
+
+/** Stable key for in-process canonical row reuse (singleflight + optional TTL). See plan §4. */
+export function canonicalMetricRowsServerCacheKey(
+  projectId: string,
+  start: string,
+  end: string,
+  options?: CanonicalFilterOptions | null
+): string {
+  const normSources = normalizeSources(options?.sources ?? null);
+  const sourcesPart = normSources.length ? [...normSources].sort().join(",") : "all";
+  const rawIds = (options?.accountIds ?? []).map((id) => String(id).trim()).filter(Boolean);
+  const accountPart = rawIds.length ? [...new Set(rawIds)].sort().join(",") : "all";
+  return `cr:${projectId}:${start}:${end}:${sourcesPart}:${accountPart}`;
+}
+
+/** Stage 2.5: cross-endpoint TTL is intended for 1–10s; cap prevents accidental multi-minute cache. */
+const CANONICAL_ROWS_TTL_MS_HARD_CAP = 10_000;
+
+function canonicalRowsTtlMsFromEnv(): number {
+  const raw = process.env.CANONICAL_ROWS_CACHE_TTL_MS;
+  if (raw == null || raw === "") return 0;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, CANONICAL_ROWS_TTL_MS_HARD_CAP) : 0;
+}
+
+/** If > 0, do not store rows in TTL when length exceeds this (memory guard for large reports). 0 = no limit. */
+function canonicalRowsTtlMaxRowCountFromEnv(): number {
+  const raw = process.env.CANONICAL_ROWS_CACHE_MAX_ROWS;
+  if (raw == null || raw === "") return 0;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+/** Drop in-process canonical row entries for a project (call after sync writes). */
+export function invalidateCanonicalRowsServerCache(projectId: string): void {
+  if (!projectId) return;
+  const prefix = `cr:${projectId}:`;
+  for (const k of [...canonicalRowsTtlStore.keys()]) {
+    if (k.startsWith(prefix)) canonicalRowsTtlStore.delete(k);
+  }
+  for (const k of [...canonicalRowsInflight.keys()]) {
+    if (k.startsWith(prefix)) canonicalRowsInflight.delete(k);
+  }
+}
+
+/**
+ * Account-level canonical rows: single in-process entry (singleflight + optional TTL).
+ * All routes/helpers must use `fetchCanonicalMetricRowsForProject` or `getCanonical*` — do not call
+ * `fetchCanonicalRowsViaJoinUncached` directly. `[CANONICAL_FETCH]` logs only from the uncached path.
+ */
+function fetchCanonicalRowsViaJoin(
+  admin: SupabaseClient,
+  projectId: string,
+  start: string,
+  end: string,
+  options?: { sources?: string[] | null; accountIds?: string[] | null }
+): Promise<CanonicalMetricRow[]> {
+  const key = canonicalMetricRowsServerCacheKey(projectId, start, end, options ?? undefined);
+  const ttlMs = canonicalRowsTtlMsFromEnv();
+  const debugReuse = process.env.CANONICAL_ROWS_CACHE_DEBUG === "1";
+  if (ttlMs > 0) {
+    const hit = canonicalRowsTtlStore.get(key);
+    if (hit && Date.now() < hit.exp) {
+      if (debugReuse) {
+        console.log("[CANONICAL_ROWS_TTL_HIT]", {
+          projectId,
+          start,
+          end,
+          rowCount: hit.rows.length,
+        });
+        console.log("[CANONICAL_ROWS_REUSE_HIT]", { layer: "ttl", projectId, start, end });
+      }
+      return Promise.resolve(hit.rows);
+    }
+  }
+  let inflight = canonicalRowsInflight.get(key);
+  if (!inflight) {
+    inflight = fetchCanonicalRowsViaJoinUncached(admin, projectId, start, end, options)
+      .then((rows) => {
+        if (ttlMs > 0) {
+          const maxRows = canonicalRowsTtlMaxRowCountFromEnv();
+          if (maxRows > 0 && rows.length > maxRows) {
+            if (debugReuse) {
+              console.log("[CANONICAL_ROWS_TTL_SKIP_LARGE]", {
+                projectId,
+                start,
+                end,
+                rowCount: rows.length,
+                maxRows,
+              });
+            }
+          } else {
+            canonicalRowsTtlStore.set(key, { rows, exp: Date.now() + ttlMs });
+          }
+        }
+        return rows;
+      })
+      .finally(() => {
+        canonicalRowsInflight.delete(key);
+      });
+    canonicalRowsInflight.set(key, inflight);
+  } else if (debugReuse) {
+    console.log("[CANONICAL_ROWS_SINGLEFLIGHT_HIT]", { projectId, start, end, keySuffix: key.slice(-48) });
+    console.log("[CANONICAL_ROWS_REUSE_HIT]", { layer: "singleflight", projectId, start, end });
+  }
+  return inflight;
+}
+
 /** Account-level canonical rows (Meta, Google, TikTok, Yandex) — same totals as main dashboard. */
 export async function fetchCanonicalMetricRowsForProject(
   admin: SupabaseClient,
@@ -484,6 +594,119 @@ export async function fetchCanonicalMetricRowsForProject(
   options?: CanonicalFilterOptions | null
 ): Promise<CanonicalMetricRow[]> {
   return fetchCanonicalRowsViaJoin(admin, projectId, start, end, options ?? undefined);
+}
+
+/** Pure: summary totals from pre-fetched canonical rows (same math as legacy getCanonicalSummary). */
+export function aggregateCanonicalMetricRowsToSummaryResult(
+  rows: CanonicalMetricRow[]
+): { data: CanonicalSummary; rowCount: number } | null {
+  const inputRowCount = rows.length;
+  if (inputRowCount === 0) {
+    console.log("[CANONICAL_SUMMARY_AGG]", {
+      branch: "canonical",
+      inputRowCount: 0,
+      spend: 0,
+      impressions: 0,
+      clicks: 0,
+      reason: "no rows",
+    });
+    return null;
+  }
+
+  const spend = rows.reduce((s, r) => s + r.spend, 0);
+  const impressions = rows.reduce((s, r) => s + r.impressions, 0);
+  const clicks = rows.reduce((s, r) => s + r.clicks, 0);
+  const leads = rows.reduce((s, r) => s + r.leads, 0);
+  const purchases = rows.reduce((s, r) => s + r.purchases, 0);
+  const revenue = rows.reduce((s, r) => s + r.revenue, 0);
+  console.log("[CANONICAL_SUMMARY_AGG]", { branch: "canonical", inputRowCount, spend, impressions, clicks });
+  const dates = rows.map((r) => r.date);
+  const minDay = dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : null;
+  const maxDay = dates.length ? dates.reduce((a, b) => (a > b ? a : b)) : null;
+
+  return {
+    data: {
+      spend,
+      impressions,
+      clicks,
+      leads,
+      purchases,
+      revenue,
+      roas: spend > 0 ? revenue / spend : 0,
+      min_day: minDay,
+      max_day: maxDay,
+      campaigns_cnt: null,
+    },
+    rowCount: rows.length,
+  };
+}
+
+/** Pure: daily points from pre-fetched canonical rows. */
+export function aggregateCanonicalMetricRowsToTimeseriesPoints(rows: CanonicalMetricRow[]): CanonicalPoint[] | null {
+  if (rows.length === 0) {
+    console.log("[CANONICAL_TIMESERIES_PATH]", {
+      branch: "canonical",
+      used: "canonical",
+      reason: "no rows",
+      rowCount: 0,
+    });
+    return null;
+  }
+
+  console.log("[CANONICAL_TIMESERIES_PATH]", { branch: "canonical", used: "canonical", rowCount: rows.length });
+  const byDate = new Map<
+    string,
+    { spend: number; clicks: number; leads: number; purchases: number; revenue: number }
+  >();
+  for (const r of rows) {
+    const cur = byDate.get(r.date) ?? {
+      spend: 0,
+      clicks: 0,
+      leads: 0,
+      purchases: 0,
+      revenue: 0,
+    };
+    cur.spend += r.spend;
+    cur.clicks += r.clicks;
+    cur.leads += r.leads;
+    cur.purchases += r.purchases;
+    cur.revenue += r.revenue;
+    byDate.set(r.date, cur);
+  }
+
+  return Array.from(byDate.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([day, agg]) => ({
+      day,
+      spend: agg.spend,
+      clicks: agg.clicks,
+      purchases: agg.purchases,
+      revenue: agg.revenue,
+      roas: agg.spend > 0 ? agg.revenue / agg.spend : 0,
+    }));
+}
+
+/** Pure: metrics chart rows from pre-fetched canonical rows. */
+export function aggregateCanonicalMetricRowsToMetricsRows(rows: CanonicalMetricRow[]): CanonicalMetricsRow[] | null {
+  if (rows.length === 0) return null;
+
+  const byDate = new Map<string, { spend: number; clicks: number; purchases: number }>();
+  for (const r of rows) {
+    const cur = byDate.get(r.date) ?? { spend: 0, clicks: 0, purchases: 0 };
+    cur.spend += r.spend;
+    cur.clicks += r.clicks;
+    cur.purchases += r.purchases;
+    byDate.set(r.date, cur);
+  }
+
+  return Array.from(byDate.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([day, agg]) => ({
+      day,
+      spend: agg.spend,
+      clicks: agg.clicks,
+      purchases: agg.purchases,
+    }));
 }
 
 /**
@@ -498,39 +721,8 @@ export async function getCanonicalSummary(
   options?: CanonicalFilterOptions | null
 ): Promise<{ data: CanonicalSummary; rowCount: number } | null> {
   try {
-    const rows = await fetchCanonicalRowsViaJoin(admin, projectId, start, end, options ?? undefined);
-    const inputRowCount = rows.length;
-    if (inputRowCount === 0) {
-      console.log("[CANONICAL_SUMMARY_AGG]", { branch: "canonical", inputRowCount: 0, spend: 0, impressions: 0, clicks: 0, reason: "no rows" });
-      return null;
-    }
-
-    const spend = rows.reduce((s, r) => s + r.spend, 0);
-    const impressions = rows.reduce((s, r) => s + r.impressions, 0);
-    const clicks = rows.reduce((s, r) => s + r.clicks, 0);
-    const leads = rows.reduce((s, r) => s + r.leads, 0);
-    const purchases = rows.reduce((s, r) => s + r.purchases, 0);
-    const revenue = rows.reduce((s, r) => s + r.revenue, 0);
-    console.log("[CANONICAL_SUMMARY_AGG]", { branch: "canonical", inputRowCount, spend, impressions, clicks });
-    const dates = rows.map((r) => r.date);
-    const minDay = dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : null;
-    const maxDay = dates.length ? dates.reduce((a, b) => (a > b ? a : b)) : null;
-
-    return {
-      data: {
-        spend,
-        impressions,
-        clicks,
-        leads,
-        purchases,
-        revenue,
-        roas: spend > 0 ? revenue / spend : 0,
-        min_day: minDay,
-        max_day: maxDay,
-        campaigns_cnt: null, // not aggregated in daily_ad_metrics
-      },
-      rowCount: rows.length,
-    };
+    const rows = await fetchCanonicalMetricRowsForProject(admin, projectId, start, end, options);
+    return aggregateCanonicalMetricRowsToSummaryResult(rows);
   } catch {
     return null;
   }
@@ -547,45 +739,8 @@ export async function getCanonicalTimeseries(
   options?: CanonicalFilterOptions | null
 ): Promise<CanonicalPoint[] | null> {
   try {
-    const rows = await fetchCanonicalRowsViaJoin(admin, projectId, start, end, options ?? undefined);
-    if (rows.length === 0) {
-      console.log("[CANONICAL_TIMESERIES_PATH]", { branch: "canonical", used: "canonical", reason: "no rows", rowCount: 0 });
-      return null;
-    }
-
-    console.log("[CANONICAL_TIMESERIES_PATH]", { branch: "canonical", used: "canonical", rowCount: rows.length });
-    const byDate = new Map<
-      string,
-      { spend: number; clicks: number; leads: number; purchases: number; revenue: number }
-    >();
-    for (const r of rows) {
-      const cur = byDate.get(r.date) ?? {
-        spend: 0,
-        clicks: 0,
-        leads: 0,
-        purchases: 0,
-        revenue: 0,
-      };
-      cur.spend += r.spend;
-      cur.clicks += r.clicks;
-      cur.leads += r.leads;
-      cur.purchases += r.purchases;
-      cur.revenue += r.revenue;
-      byDate.set(r.date, cur);
-    }
-
-    const points: CanonicalPoint[] = Array.from(byDate.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([day, agg]) => ({
-        day,
-        spend: agg.spend,
-        clicks: agg.clicks,
-        purchases: agg.purchases,
-        revenue: agg.revenue,
-        roas: agg.spend > 0 ? agg.revenue / agg.spend : 0,
-      }));
-
-    return points;
+    const rows = await fetchCanonicalMetricRowsForProject(admin, projectId, start, end, options);
+    return aggregateCanonicalMetricRowsToTimeseriesPoints(rows);
   } catch {
     return null;
   }
@@ -602,26 +757,8 @@ export async function getCanonicalMetrics(
   options?: CanonicalFilterOptions | null
 ): Promise<CanonicalMetricsRow[] | null> {
   try {
-    const rows = await fetchCanonicalRowsViaJoin(admin, projectId, start, end, options ?? undefined);
-    if (rows.length === 0) return null;
-
-    const byDate = new Map<string, { spend: number; clicks: number; purchases: number }>();
-    for (const r of rows) {
-      const cur = byDate.get(r.date) ?? { spend: 0, clicks: 0, purchases: 0 };
-      cur.spend += r.spend;
-      cur.clicks += r.clicks;
-      cur.purchases += r.purchases;
-      byDate.set(r.date, cur);
-    }
-
-    return Array.from(byDate.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([day, agg]) => ({
-        day,
-        spend: agg.spend,
-        clicks: agg.clicks,
-        purchases: agg.purchases,
-      }));
+    const rows = await fetchCanonicalMetricRowsForProject(admin, projectId, start, end, options);
+    return aggregateCanonicalMetricRowsToMetricsRows(rows);
   } catch {
     return null;
   }

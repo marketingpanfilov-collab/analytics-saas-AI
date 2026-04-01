@@ -4,6 +4,8 @@
  * Only successful responses are cached; errors are not cached.
  */
 
+import { invalidateCanonicalRowsServerCache } from "@/app/lib/dashboardCanonical";
+
 type CacheEntry = { value: unknown; expiresAt: number };
 
 const store = new Map<string, CacheEntry>();
@@ -53,6 +55,7 @@ export function dashboardCacheInvalidateProject(projectId: string): void {
       store.delete(key);
     }
   }
+  invalidateCanonicalRowsServerCache(projectId);
 }
 
 /** TTLs in milliseconds (summary 30s, metrics 30s, timeseries 60s, bundle 60s) */

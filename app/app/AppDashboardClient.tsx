@@ -6,6 +6,12 @@ import { ignoreAbortRejection, isAbortError, safeAbortController } from "@/app/l
 import { SIDEBAR_TODAY_REFRESH_EVENT } from "@/app/lib/sidebarTodayRefreshEvent";
 import { supabase } from "@/app/lib/supabaseClient";
 import { type ProjectCurrency } from "@/app/lib/currency";
+import { getSharedCached } from "@/app/lib/sharedDataCache";
+import {
+  FRESHNESS_MIN_CHECK_INTERVAL_MS,
+  POST_REFRESH_GUARD_MS,
+  REFRESH_BASELINE_SESSION_KEY,
+} from "@/app/lib/refreshOrchestration";
 import AssistedAttributionCard from "./components/AssistedAttributionCard";
 import { RevenueAttributionMapCard } from "./components/RevenueAttributionMapCard";
 import { ConversionBehaviorCard } from "./components/ConversionBehaviorCard";
@@ -553,10 +559,39 @@ function utcTodayYmd(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function calendarDayBeforeUtc(isoDate: string): string {
+  const d = new Date(isoDate + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function maxIsoDate(a: string, b: string): string {
+  return a > b ? a : b;
+}
+
+/** Matches server refresh clamp: when end === UTC today, sync window is max(start, yesterday)…today. */
+function narrowRefreshRangeForTodayEnd(start: string, end: string): { start: string; end: string } {
+  const today = utcTodayYmd();
+  if (end !== today) return { start, end };
+  const yesterday = calendarDayBeforeUtc(today);
+  return { start: maxIsoDate(start, yesterday), end: today };
+}
+
 export default function AppDashboardClient() {
   const router = useRouter();
   const sp = useSearchParams();
   const projectId = sp.get("project_id") || "";
+  const refreshBaselineKey = `${REFRESH_BASELINE_SESSION_KEY}:${projectId}`;
+
+  const entryStaleAutoRefreshPendingRef = useRef(true);
+  /** One deferred refresh after first bundle when read-only mode reports coverage gaps (no implicit sync from GET). */
+  const entryReadOnlyGapRefreshPendingRef = useRef(true);
+  const prevProjectIdForStaleRef = useRef<string>("");
+  if (prevProjectIdForStaleRef.current !== projectId) {
+    prevProjectIdForStaleRef.current = projectId;
+    entryStaleAutoRefreshPendingRef.current = true;
+    entryReadOnlyGapRefreshPendingRef.current = true;
+  }
 
   useEffect(() => {
     if (!projectId) return;
@@ -596,6 +631,18 @@ export default function AppDashboardClient() {
 
   const [loading, setLoading] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
+  /** Manual Full re-sync in progress (separate from safe auto-refresh). */
+  const [fullResyncPending, setFullResyncPending] = useState(false);
+  const [fullResyncBanner, setFullResyncBanner] = useState<string | null>(null);
+  const fullResyncRunIdRef = useRef<string | null>(null);
+  const fullResyncPendingRef = useRef(false);
+  useEffect(() => {
+    fullResyncPendingRef.current = fullResyncPending;
+  }, [fullResyncPending]);
+  const refreshAndReloadRef = useRef<() => Promise<boolean>>(async () => false);
+  const freshnessCheckInFlightRef = useRef<Promise<boolean> | null>(null);
+  const lastFreshnessCheckAtRef = useRef(0);
+  const prevAppliedRangeKeyRef = useRef<string | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
 
   const [summary, setSummary] = useState<Summary>({ spend: 0 });
@@ -609,21 +656,33 @@ export default function AppDashboardClient() {
   const prevAccountCountRef = useRef<number>(0);
   const [connectionLost, setConnectionLost] = useState(false);
   const [dashboardIntegrationStatus, setDashboardIntegrationStatus] = useState<IntegrationStatusRow[]>([]);
+  /** False until first integration-status request for this project settles (avoids false "No integrations" while accounts + status load). */
+  const [integrationStatusHydrated, setIntegrationStatusHydrated] = useState(false);
+  const primedIntegrationAfterBundleRef = useRef<string | null>(null);
   const [isUserContextOnline, setIsUserContextOnline] = useState(true);
   const [projectCurrency, setProjectCurrency] = useState<ProjectCurrency>("USD");
   const [usdToKztRate, setUsdToKztRate] = useState<number | null>(null);
   const [projectMinDate, setProjectMinDate] = useState<string | null>(null);
+  const [backgroundReady, setBackgroundReady] = useState(false);
 
-  const fetchDashboardIntegrationStatus = useCallback(async (pid: string, opts?: { signal?: AbortSignal }) => {
+  const fetchDashboardIntegrationStatus = useCallback(async (pid: string, opts?: { signal?: AbortSignal; force?: boolean }) => {
     const signal = opts?.signal;
     if (!pid) {
-      if (!signal?.aborted) setDashboardIntegrationStatus([]);
+      if (!signal?.aborted) {
+        setDashboardIntegrationStatus([]);
+        setIntegrationStatusHydrated(true);
+      }
       return;
     }
     try {
-      const res = await fetch(
-        `/api/oauth/integration/status?project_id=${encodeURIComponent(pid)}`,
-        { cache: "no-store", signal }
+      const res = await getSharedCached(
+        `integration-status:${pid}`,
+        () =>
+          fetch(`/api/oauth/integration/status?project_id=${encodeURIComponent(pid)}`, {
+            cache: "no-store",
+            signal,
+          }),
+        { ttlMs: 45_000, force: opts?.force === true }
       );
       const json = (await res.json()) as { success?: boolean; integrations?: IntegrationStatusRow[] };
       if (signal?.aborted) return;
@@ -631,6 +690,8 @@ export default function AppDashboardClient() {
     } catch (e) {
       if (signal?.aborted || isAbortError(e)) return;
       setDashboardIntegrationStatus([]);
+    } finally {
+      if (!signal?.aborted) setIntegrationStatusHydrated(true);
     }
   }, []);
 
@@ -641,8 +702,8 @@ export default function AppDashboardClient() {
   } | null>(null);
   const backfillTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backfillAttemptRef = useRef(0);
-  const MAX_BACKFILL_ATTEMPTS = 6;
-  const BACKFILL_POLL_INTERVAL_MS = 8000;
+  const MAX_BACKFILL_ATTEMPTS = 12;
+  const BACKFILL_POLL_INTERVAL_MS = 10000;
 
   useEffect(() => {
     const prev = prevAccountCountRef.current;
@@ -704,9 +765,14 @@ export default function AppDashboardClient() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/projects/currency?project_id=${encodeURIComponent(projectId)}`, {
-          cache: "no-store",
-        });
+        const res = await getSharedCached(
+          `projects-currency:${projectId}`,
+          () =>
+            fetch(`/api/projects/currency?project_id=${encodeURIComponent(projectId)}`, {
+              cache: "no-store",
+            }),
+          { ttlMs: 120_000 }
+        );
         const json = await res.json();
         if (cancelled) return;
         if (res.ok && json?.success && typeof json.currency === "string") {
@@ -751,9 +817,14 @@ export default function AppDashboardClient() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(
-          `/api/dashboard/accounts?project_id=${encodeURIComponent(projectId)}&selected_only=1`,
-          { cache: "no-store" }
+        const res = await getSharedCached(
+          `dashboard-accounts:${projectId}:selected-only`,
+          () =>
+            fetch(
+              `/api/dashboard/accounts?project_id=${encodeURIComponent(projectId)}&selected_only=1`,
+              { cache: "no-store" }
+            ),
+          { ttlMs: 90_000 }
         );
         const json = (await res.json()) as { success?: boolean; accounts?: DashboardAccount[] };
         if (cancelled) return;
@@ -786,8 +857,12 @@ export default function AppDashboardClient() {
   useEffect(() => {
     if (!projectId) {
       setDashboardIntegrationStatus([]);
+      setIntegrationStatusHydrated(true);
+      primedIntegrationAfterBundleRef.current = null;
       return;
     }
+    setIntegrationStatusHydrated(false);
+    primedIntegrationAfterBundleRef.current = null;
     const ac = new AbortController();
     ignoreAbortRejection(
       fetchDashboardIntegrationStatus(projectId, { signal: ac.signal }),
@@ -870,9 +945,14 @@ export default function AppDashboardClient() {
           start: appliedDateFrom,
           end: appliedDateTo,
         });
-        const res = await fetch(`/api/dashboard/source-options?${params.toString()}`, {
-          cache: "no-store",
-        });
+        const res = await getSharedCached(
+          `dashboard-source-options:${projectId}:${appliedDateFrom}:${appliedDateTo}`,
+          () =>
+            fetch(`/api/dashboard/source-options?${params.toString()}`, {
+              cache: "no-store",
+            }),
+          { ttlMs: 90_000 }
+        );
         const json = await res.json();
         if (cancelled) return;
         if (res.ok && json?.success && Array.isArray(json.options)) {
@@ -1050,10 +1130,17 @@ export default function AppDashboardClient() {
       }
 
       const backfillMeta = (sJson?.backfill ?? tJson?.backfill) as
-        | { historical_sync_started?: boolean; range_partially_covered?: boolean; intervals?: { start: string; end: string }[] }
+        | {
+            historical_sync_started?: boolean;
+            range_partially_covered?: boolean;
+            read_only_no_sync?: boolean;
+            intervals?: { start: string; end: string }[];
+          }
         | undefined;
       const hasHistoricalBackfill =
         backfillMeta?.historical_sync_started === true || backfillMeta?.range_partially_covered === true;
+      const readOnlyCoverageGap =
+        backfillMeta?.read_only_no_sync === true && backfillMeta?.range_partially_covered === true;
 
       if (hasHistoricalBackfill) {
         setHistoricalBackfill({
@@ -1062,12 +1149,21 @@ export default function AppDashboardClient() {
         });
         if (backfillAttemptRef.current < MAX_BACKFILL_ATTEMPTS) {
           if (backfillTimeoutRef.current != null) clearTimeout(backfillTimeoutRef.current);
-          backfillTimeoutRef.current = setTimeout(() => {
-            backfillTimeoutRef.current = null;
-            backfillAttemptRef.current += 1;
-            const c = makeController();
-            ignoreAbortRejection(loadFromDb(c.signal, start, end), "dashboard backfill poll");
-          }, BACKFILL_POLL_INTERVAL_MS);
+          const scheduleBackfillPoll = () => {
+            backfillTimeoutRef.current = setTimeout(() => {
+              backfillTimeoutRef.current = null;
+              if (typeof window !== "undefined") {
+                if (!navigator.onLine || document.visibilityState !== "visible") {
+                  scheduleBackfillPoll();
+                  return;
+                }
+              }
+              backfillAttemptRef.current += 1;
+              const c = makeController();
+              ignoreAbortRejection(loadFromDb(c.signal, start, end), "dashboard backfill poll");
+            }, BACKFILL_POLL_INTERVAL_MS);
+          };
+          scheduleBackfillPoll();
         }
       } else {
         clearBackfillPolling();
@@ -1080,13 +1176,56 @@ export default function AppDashboardClient() {
         params: { projectId, start, end, effectiveSources, effectiveAccountIds },
       });
 
+      if (mySeq !== reqSeqRef.current) return false;
+
+      if (entryStaleAutoRefreshPendingRef.current) {
+        entryStaleAutoRefreshPendingRef.current = false;
+        const fr = bundleJson.freshness as { is_stale?: boolean } | undefined;
+        if (
+          !hasHistoricalBackfill &&
+          fr?.is_stale &&
+          typeof window !== "undefined" &&
+          navigator.onLine &&
+          document.visibilityState === "visible" &&
+          !fullResyncPendingRef.current &&
+          !isPostRefreshGuardActive()
+        ) {
+          void refreshAndReloadRef.current();
+        }
+      }
+
+      if (entryReadOnlyGapRefreshPendingRef.current) {
+        if (!readOnlyCoverageGap) {
+          entryReadOnlyGapRefreshPendingRef.current = false;
+        } else if (
+          typeof window !== "undefined" &&
+          navigator.onLine &&
+          document.visibilityState === "visible" &&
+          !fullResyncPendingRef.current &&
+          !isPostRefreshGuardActive()
+        ) {
+          entryReadOnlyGapRefreshPendingRef.current = false;
+          void refreshAndReloadRef.current();
+        }
+      }
+
       // Sidebar «Сегодня» грузит свои цифры отдельно; без события оно остаётся старым после смены фильтра на главном борде.
       const utcToday = new Date().toISOString().slice(0, 10);
       const localToday = toISO(new Date());
       const rangeTouchesToday =
         (start <= utcToday && end >= utcToday) || (start <= localToday && end >= localToday);
       if (rangeTouchesToday && typeof window !== "undefined") {
-        window.dispatchEvent(new Event(SIDEBAR_TODAY_REFRESH_EVENT));
+        window.setTimeout(() => {
+          window.dispatchEvent(new Event(SIDEBAR_TODAY_REFRESH_EVENT));
+        }, 0);
+      }
+
+      if (mySeq !== reqSeqRef.current) return false;
+
+      // One forced integration-status fetch after first successful bundle per project: session + project context are stable; refreshes stale shared cache.
+      if (primedIntegrationAfterBundleRef.current !== projectId) {
+        primedIntegrationAfterBundleRef.current = projectId;
+        void fetchDashboardIntegrationStatus(projectId, { force: true });
       }
     } catch (e: any) {
       if (isAbortError(e)) return;
@@ -1112,13 +1251,14 @@ export default function AppDashboardClient() {
 
     let ok = false;
     try {
+      const refreshRange = narrowRefreshRangeForTodayEnd(appliedDateFrom, appliedDateTo);
       const r = await fetch("/api/dashboard/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           project_id: projectId,
-          start: appliedDateFrom,
-          end: appliedDateTo,
+          start: refreshRange.start,
+          end: refreshRange.end,
           sources: effectiveSources,
           account_ids: effectiveAccountIds,
         }),
@@ -1149,10 +1289,17 @@ export default function AppDashboardClient() {
 
       await loadFromDb(c.signal);
 
-      await fetchDashboardIntegrationStatus(projectId);
+      await fetchDashboardIntegrationStatus(projectId, { force: true });
+      try {
+        sessionStorage.setItem(refreshBaselineKey, String(Date.now()));
+      } catch {
+        // ignore
+      }
 
       if (typeof window !== "undefined") {
-        window.dispatchEvent(new Event(SIDEBAR_TODAY_REFRESH_EVENT));
+        window.setTimeout(() => {
+          window.dispatchEvent(new Event(SIDEBAR_TODAY_REFRESH_EVENT));
+        }, 0);
       }
       ok = true;
     } catch (e: any) {
@@ -1166,10 +1313,185 @@ export default function AppDashboardClient() {
     return ok;
   }
 
+  refreshAndReloadRef.current = refreshAndReload;
+
+  function readRefreshBaselineAgeMs(): number | null {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = Number(sessionStorage.getItem(refreshBaselineKey) ?? 0) || 0;
+      if (!raw) return null;
+      return Math.max(0, Date.now() - raw);
+    } catch {
+      return null;
+    }
+  }
+
+  function isPostRefreshGuardActive(): boolean {
+    const ageMs = readRefreshBaselineAgeMs();
+    return ageMs != null && ageMs < POST_REFRESH_GUARD_MS;
+  }
+
+  async function checkFreshnessAndMaybeRefresh(reason: "interval" | "visible" | "reconnect"): Promise<boolean> {
+    if (!projectId) return false;
+    if (!isSupportedNow) return false;
+    if (typeof window === "undefined") return false;
+    if (!navigator.onLine || document.visibilityState !== "visible") return false;
+    if (loading || syncLoading || fullResyncPendingRef.current) return false;
+    if (isPostRefreshGuardActive()) return false;
+
+    const now = Date.now();
+    if (now - lastFreshnessCheckAtRef.current < FRESHNESS_MIN_CHECK_INTERVAL_MS) return false;
+    if (freshnessCheckInFlightRef.current) return freshnessCheckInFlightRef.current;
+    lastFreshnessCheckAtRef.current = now;
+
+    const task = (async () => {
+      try {
+        const r = await fetch(
+          `/api/dashboard/freshness?project_id=${encodeURIComponent(projectId)}`,
+          { cache: "no-store" }
+        );
+        const j = await r.json().catch(() => null);
+        if (!r.ok || !j?.success || !j?.freshness) return false;
+        if (!j.freshness.is_stale) return false;
+        if (isPostRefreshGuardActive()) return false;
+        if (fullResyncPendingRef.current) return false;
+        console.log("[BOARD_AUTO_REFRESH_STALE]", { projectId, plan: j.freshness?.plan, reason });
+        const ok = await refreshAndReloadRef.current();
+        if (!ok) return false;
+        try {
+          sessionStorage.setItem(AUTO_REFRESH_SESSION_KEY, String(Date.now()));
+        } catch {
+          // ignore
+        }
+        return true;
+      } catch {
+        return false;
+      } finally {
+        freshnessCheckInFlightRef.current = null;
+      }
+    })();
+
+    freshnessCheckInFlightRef.current = task;
+    return task;
+  }
+
+  async function runFullResync(): Promise<void> {
+    if (!projectId) return;
+    if (isInvalidApplied) return;
+    if (!isSupportedNow) return;
+    if (fullResyncPending || syncLoading) return;
+
+    const runId = crypto.randomUUID();
+    const snapFrom = appliedDateFrom;
+    const snapTo = appliedDateTo;
+    fullResyncRunIdRef.current = runId;
+    setFullResyncPending(true);
+    setFullResyncBanner(null);
+    setErrorText(null);
+
+    const c = makeController();
+    try {
+      const r = await fetch("/api/dashboard/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: projectId,
+          start: snapFrom,
+          end: snapTo,
+          force_full_sync: true,
+          sources: effectiveSources,
+          account_ids: effectiveAccountIds,
+        }),
+        signal: c.signal,
+      });
+      const text = await r.text();
+      let json: any = null;
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        json = null;
+      }
+
+      if (fullResyncRunIdRef.current !== runId) return;
+      if (appliedDateFrom !== snapFrom || appliedDateTo !== snapTo) return;
+
+      if (!r.ok || !json?.success) {
+        const apiErr = extractApiError(json);
+        const human =
+          apiErr ||
+          (text ? text.slice(0, 500) : "") ||
+          `HTTP ${r.status} ${r.statusText || ""}`.trim();
+        throw new Error(`Full re-sync failed (${r.status}): ${human}`.trim());
+      }
+
+      if (json?.sync?.skipped === true) {
+        setFullResyncBanner(
+          "Синхронизация пропущена (защита от дублей). Повторите Full re-sync позже или дождитесь фонового обновления."
+        );
+      }
+
+      if (fullResyncRunIdRef.current !== runId) return;
+      if (appliedDateFrom !== snapFrom || appliedDateTo !== snapTo) return;
+
+      const fromApi = safeIso(json?.refreshed_at) || safeIso(json?.sync?.refreshed_at);
+      setUpdatedAt(fromApi || new Date().toISOString());
+
+      await loadFromDb(c.signal);
+
+      if (fullResyncRunIdRef.current !== runId) return;
+      if (appliedDateFrom !== snapFrom || appliedDateTo !== snapTo) return;
+
+      await fetchDashboardIntegrationStatus(projectId, { force: true });
+      try {
+        sessionStorage.setItem(refreshBaselineKey, String(Date.now()));
+      } catch {
+        // ignore
+      }
+
+      if (fullResyncRunIdRef.current !== runId) return;
+      if (appliedDateFrom !== snapFrom || appliedDateTo !== snapTo) return;
+
+      if (typeof window !== "undefined") {
+        window.setTimeout(() => {
+          window.dispatchEvent(new Event(SIDEBAR_TODAY_REFRESH_EVENT));
+        }, 0);
+      }
+    } catch (e: any) {
+      if (isAbortError(e)) return;
+      if (fullResyncRunIdRef.current !== runId) return;
+      setErrorText(toErrorText(e));
+    } finally {
+      if (fullResyncRunIdRef.current === runId) {
+        fullResyncRunIdRef.current = null;
+        setFullResyncPending(false);
+      }
+    }
+  }
+
+  useEffect(() => {
+    const key = `${appliedDateFrom}|${appliedDateTo}`;
+    if (prevAppliedRangeKeyRef.current === null) {
+      prevAppliedRangeKeyRef.current = key;
+      return;
+    }
+    if (prevAppliedRangeKeyRef.current === key) return;
+    prevAppliedRangeKeyRef.current = key;
+    if (fullResyncPending) {
+      fullResyncRunIdRef.current = null;
+      setFullResyncPending(false);
+      setFullResyncBanner(
+        "Диапазон изменён. Полная синхронизация для предыдущего периода отменена. При необходимости запустите Full re-sync снова."
+      );
+    }
+  }, [appliedDateFrom, appliedDateTo, fullResyncPending]);
+
   // Load metrics when applied range changes (not on draft changes). Do not run until access is validated.
   const hasLoadedRef = useRef(false);
   const [entrySyncSettled, setEntrySyncSettled] = useState(false);
-  const skipNextLoadRef = useRef(false);
+  useEffect(() => {
+    if (projectId) setEntrySyncSettled(true);
+    else setEntrySyncSettled(false);
+  }, [projectId]);
   useEffect(() => {
     const key = `${projectId}:${appliedDateFrom}:${appliedDateTo}:${sourcesKey}:${accountIdsKey}`;
     console.log("[DASHBOARD_EFFECT]", {
@@ -1187,12 +1509,6 @@ export default function AppDashboardClient() {
     if (isInvalidApplied) return;
     if (!entrySyncSettled) return;
 
-    if (skipNextLoadRef.current) {
-      // Entry refresh flow already loaded DB once.
-      skipNextLoadRef.current = false;
-      return;
-    }
-
     hasLoadedRef.current = true;
     const c = makeController();
     console.log("[LOAD_FROM_DB_CALL]", { start: appliedDateFrom, end: appliedDateTo, key });
@@ -1204,107 +1520,69 @@ export default function AppDashboardClient() {
     };
   }, [projectId, appliedDateFrom, appliedDateTo, sourcesKey, accountIdsKey, entrySyncSettled]);
 
-  // Force sync once on entry (only when online & visible), with a 15-minute per-tab cooldown.
-  const FORCE_SYNC_COOLDOWN_MS = 15 * 60 * 1000;
-  const FORCE_SYNC_SESSION_KEY = "board_force_sync_last_ms";
-  const forceSyncDoneForProjectRef = useRef<string | null>(null);
+  /** Interval = stale-check cadence; TTL comes from GET /api/dashboard/freshness (server). */
+  const STALE_CHECK_INTERVAL_MS = 15 * 60 * 1000;
+  const AUTO_REFRESH_SESSION_KEY = "board_auto_refresh_last_ok_ms";
 
-  useEffect(() => {
-    if (!projectId) {
-      setEntrySyncSettled(false);
-      return;
-    }
-    if (typeof window === "undefined") {
-      setEntrySyncSettled(true);
-      return;
-    }
-    if (!navigator.onLine || document.visibilityState !== "visible") {
-      // Don't block first render when sync-on-entry is impossible.
-      setEntrySyncSettled(true);
-      return;
-    }
-    if (forceSyncDoneForProjectRef.current === projectId) {
-      setEntrySyncSettled(true);
-      return;
-    }
-
-    let lastMs = 0;
-    try {
-      lastMs = Number(sessionStorage.getItem(FORCE_SYNC_SESSION_KEY) ?? 0) || 0;
-    } catch {
-      lastMs = 0;
-    }
-
-    const nowMs = Date.now();
-    // Cooldown prevents repeated forced sync when user refreshes quickly or navigates within the app.
-    if (nowMs - lastMs < FORCE_SYNC_COOLDOWN_MS) {
-      console.log("[BOARD_FORCE_SYNC_ENTRY_SKIPPED_COOLDOWN]", {
-        projectId,
-        ageMs: nowMs - lastMs,
-        cooldownMs: FORCE_SYNC_COOLDOWN_MS,
-      });
-      forceSyncDoneForProjectRef.current = projectId;
-      setEntrySyncSettled(true);
-      return;
-    }
-
-    forceSyncDoneForProjectRef.current = projectId;
-    console.log("[BOARD_FORCE_SYNC_ENTRY_TRIGGER]", { projectId, ageMs: nowMs - lastMs });
-    void (async () => {
-      const ok = await refreshAndReload();
-      if (ok) {
-        // refreshAndReload already called loadFromDb once.
-        skipNextLoadRef.current = true;
-      }
-      if (!ok) return;
-      try {
-        sessionStorage.setItem(FORCE_SYNC_SESSION_KEY, String(Date.now()));
-      } catch {
-        // ignore
-      }
-    })().finally(() => {
-      setEntrySyncSettled(true);
-    });
-  }, [projectId, isSupportedNow]);
-
-  // Auto-refresh every 15 min while user is online & tab is visible (uses applied range)
+  // Auto-refresh: periodic server-driven stale-check; refresh only when API reports stale.
   useEffect(() => {
     if (!projectId) return;
     if (!isSupportedNow) return;
 
-    const MS = FORCE_SYNC_COOLDOWN_MS;
     const id = window.setInterval(() => {
       if (typeof window === "undefined") return;
       if (!navigator.onLine) return;
       if (document.visibilityState !== "visible") return;
-      if (loading || syncLoading) return;
+      if (loading || syncLoading || fullResyncPending) return;
 
-      // Extra safety: respect last refresh timestamp to avoid double refresh
-      // when another effect triggered (force-sync on entry).
-      let lastMs = 0;
-      try {
-        lastMs = Number(sessionStorage.getItem(FORCE_SYNC_SESSION_KEY) ?? 0) || 0;
-      } catch {
-        lastMs = 0;
-      }
-      const nowMs = Date.now();
-      const ageMs = nowMs - lastMs;
-      if (ageMs < MS) return;
-
-      void (async () => {
-        console.log("[BOARD_AUTO_REFRESH_TRIGGER]", { projectId, ageMs });
-        const ok = await refreshAndReload();
-        if (!ok) return;
-        try {
-          sessionStorage.setItem(FORCE_SYNC_SESSION_KEY, String(Date.now()));
-        } catch {
-          // ignore
-        }
-      })();
-    }, MS);
+      void checkFreshnessAndMaybeRefresh("interval");
+    }, STALE_CHECK_INTERVAL_MS);
 
     return () => window.clearInterval(id);
-  }, [projectId, appliedDateFrom, appliedDateTo, sourcesKey, accountIdsKey, loading, syncLoading]);
+  }, [projectId, appliedDateFrom, appliedDateTo, sourcesKey, accountIdsKey, loading, syncLoading, fullResyncPending]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      void checkFreshnessAndMaybeRefresh("visible");
+    };
+    const onReconnect = () => {
+      void checkFreshnessAndMaybeRefresh("reconnect");
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("online", onReconnect);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("online", onReconnect);
+    };
+  }, [projectId, appliedDateFrom, appliedDateTo, sourcesKey, accountIdsKey, loading, syncLoading, fullResyncPending]);
+
+  // Background analytics are staged: only after critical path settles and browser is idle.
+  useEffect(() => {
+    setBackgroundReady(false);
+    if (!projectId) return;
+    if (!entrySyncSettled || loading || syncLoading || fullResyncPending || isInvalidApplied) return;
+    let cancelled = false;
+    const activate = () => {
+      if (!cancelled) setBackgroundReady(true);
+    };
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+      const id = (window as Window & { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number })
+        .requestIdleCallback(activate, { timeout: 1200 });
+      return () => {
+        cancelled = true;
+        if ("cancelIdleCallback" in window) {
+          (window as Window & { cancelIdleCallback: (idleId: number) => void }).cancelIdleCallback(id);
+        }
+      };
+    }
+    const t = setTimeout(activate, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [projectId, entrySyncSettled, loading, syncLoading, fullResyncPending, isInvalidApplied, appliedDateFrom, appliedDateTo, sourcesKey, accountIdsKey]);
 
   useEffect(() => {
     return () => abortInFlight();
@@ -1361,8 +1639,18 @@ export default function AppDashboardClient() {
   }, [lastOkAt]);
 
   const systemStatus = useMemo(() => {
+    if (!integrationStatusHydrated) {
+      return {
+        status: "sync_delayed" as const,
+        label: "Checking…",
+        tooltip: "Loading integration and account state…",
+      };
+    }
     const count = dashboardAccounts.length;
-    if (count === 0) return { status: "no_connections" as const, label: "No integrations", tooltip: "No advertising sources connected." };
+    const integrationShowsActivity = adaptiveIntegrationStatus.some((i) => i.status !== "not_connected");
+    if (count === 0 && !integrationShowsActivity) {
+      return { status: "no_connections" as const, label: "No integrations", tooltip: "No advertising sources connected." };
+    }
     if (connectionLost) return { status: "connection_lost" as const, label: "Connection lost", tooltip: "One or more integrations lost connection." };
     const hasError = adaptiveIntegrationStatus.some((i) => i.status === "error");
     const hasStale = adaptiveIntegrationStatus.some((i) => i.status === "stale");
@@ -1377,7 +1665,13 @@ export default function AppDashboardClient() {
           "OAuth access needs re-authorization (e.g. revoked refresh token). Accounts stay saved; reconnect the platform.",
       };
     return { status: "healthy" as const, label: "Healthy", tooltip: "All integrations are connected and syncing normally." };
-  }, [dashboardAccounts.length, connectionLost, adaptiveIntegrationStatus, staleStatusTooltip]);
+  }, [
+    integrationStatusHydrated,
+    dashboardAccounts.length,
+    connectionLost,
+    adaptiveIntegrationStatus,
+    staleStatusTooltip,
+  ]);
 
   const dataFreshnessStr = useMemo(() => {
     const iso = safeIso(updatedAt);
@@ -1426,7 +1720,8 @@ export default function AppDashboardClient() {
     return map;
   }, [adaptiveIntegrationStatus]);
 
-  const platformStatusColor: Record<IntegrationStatusValue, string> = {
+  const platformStatusColor: Record<IntegrationStatusValue | "pending", string> = {
+    pending: "#64748b",
     healthy: "#22c55e",
     error: "#ef4444",
     stale: "#f97316",
@@ -1434,7 +1729,8 @@ export default function AppDashboardClient() {
     disconnected: "#94a3b8",
     not_connected: "#94a3b8",
   };
-  const platformStatusLabel: Record<IntegrationStatusValue, string> = {
+  const platformStatusLabel: Record<IntegrationStatusValue | "pending", string> = {
+    pending: "—",
     healthy: "Healthy",
     error: "Error",
     stale: "Stale / OAuth retry",
@@ -2066,28 +2362,83 @@ export default function AppDashboardClient() {
         </div>
 
         <div style={{ ...mini, ...card, padding: 20 }}>
-          <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <div
+            style={{
+              fontWeight: 900,
+              fontSize: 18,
+              marginBottom: fullResyncPending || fullResyncBanner ? 8 : 12,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 8,
+              flexWrap: "wrap",
+            }}
+          >
             <span>Data Status</span>
-            <span
-              title={systemStatus.tooltip}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => void runFullResync()}
+                disabled={Boolean(
+                  fullResyncPending || syncLoading || loading || isInvalidApplied || !projectId
+                )}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  margin: 0,
+                  cursor:
+                    fullResyncPending || syncLoading || loading || isInvalidApplied || !projectId
+                      ? "not-allowed"
+                      : "pointer",
+                  color: "rgba(147,197,253,0.95)",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  textDecoration: "underline",
+                  opacity:
+                    fullResyncPending || syncLoading || loading || isInvalidApplied || !projectId
+                      ? 0.45
+                      : 0.95,
+                }}
+              >
+                {fullResyncPending ? "Full re-sync…" : "Full re-sync"}
+              </button>
+              <span
+                title={systemStatus.tooltip}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  background: statusStyles[systemStatus.status].bg,
+                  color: statusStyles[systemStatus.status].color,
+                  fontWeight: 600,
+                  fontSize: 12,
+                }}
+              >
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "currentColor", flexShrink: 0 }} />
+                <span>
+                  {adPlatformsCount} / {totalPlatformsCount}&nbsp;&nbsp;{systemStatus.label}
+                </span>
+              </span>
+            </div>
+          </div>
+          {(fullResyncPending || fullResyncBanner) && (
+            <div
               style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "4px 8px",
-                borderRadius: 6,
-                background: statusStyles[systemStatus.status].bg,
-                color: statusStyles[systemStatus.status].color,
-                fontWeight: 600,
                 fontSize: 12,
+                opacity: 0.78,
+                marginBottom: 10,
+                lineHeight: 1.4,
+                color: "rgba(255,255,255,0.88)",
               }}
             >
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "currentColor", flexShrink: 0 }} />
-              <span>
-                {adPlatformsCount} / {totalPlatformsCount} healthy&nbsp;&nbsp;{systemStatus.label}
-              </span>
-            </span>
-          </div>
+              {fullResyncPending
+                ? "Полная синхронизация выбранного периода… Может занять несколько минут."
+                : fullResyncBanner}
+            </div>
+          )}
 
           <div style={{ fontSize: 13, color: "rgba(255,255,255,0.9)" }}>
             {/* Integrations */}
@@ -2114,7 +2465,9 @@ export default function AppDashboardClient() {
                 Integrations
               </div>
               {INTEGRATION_PLATFORMS.map((p) => {
-                const status = integrationStatusByPlatform.get(p.id) ?? "not_connected";
+                const status: IntegrationStatusValue | "pending" = !integrationStatusHydrated
+                  ? "pending"
+                  : (integrationStatusByPlatform.get(p.id) ?? "not_connected");
                 const dotColor = platformStatusColor[status];
                 const label = platformStatusLabel[status];
                 const row = integrationRowByPlatform.get(p.id);
@@ -2234,101 +2587,118 @@ export default function AppDashboardClient() {
         </div>
       </div>
 
-      {/* ROW 3: Помогающая атрибуция | Топ путей пользователей */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 20,
-          marginBottom: 20,
-          alignItems: "stretch",
-        }}
-      >
-        <AssistedAttributionCard
-          projectId={projectId || null}
-          start={appliedDateFrom}
-          end={appliedDateTo}
-          sources={effectiveSources}
-          accountIds={effectiveAccountIds}
-          days={
-            appliedDateFrom && appliedDateTo
-              ? Math.max(
-                  1,
-                  Math.ceil(
-                    (new Date(appliedDateTo).getTime() -
-                      new Date(appliedDateFrom).getTime()) /
-                      (24 * 60 * 60 * 1000)
-                  )
-                )
-              : 30
-          }
-        />
-        <AttributionFlowCard
-          projectId={projectId || null}
-          start={appliedDateFrom}
-          end={appliedDateTo}
-          sources={effectiveSources}
-          accountIds={effectiveAccountIds}
-          days={
-            appliedDateFrom && appliedDateTo
-              ? Math.max(
-                  1,
-                  Math.ceil(
-                    (new Date(appliedDateTo).getTime() -
-                      new Date(appliedDateFrom).getTime()) /
-                      (24 * 60 * 60 * 1000)
-                  )
-                )
-              : 30
-          }
-        />
-      </div>
+      {backgroundReady ? (
+        <>
+          {/* ROW 3: Помогающая атрибуция | Топ путей пользователей */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 20,
+              marginBottom: 20,
+              alignItems: "stretch",
+            }}
+          >
+            <AssistedAttributionCard
+              projectId={projectId || null}
+              start={appliedDateFrom}
+              end={appliedDateTo}
+              sources={effectiveSources}
+              accountIds={effectiveAccountIds}
+              days={
+                appliedDateFrom && appliedDateTo
+                  ? Math.max(
+                      1,
+                      Math.ceil(
+                        (new Date(appliedDateTo).getTime() -
+                          new Date(appliedDateFrom).getTime()) /
+                          (24 * 60 * 60 * 1000)
+                      )
+                    )
+                  : 30
+              }
+            />
+            <AttributionFlowCard
+              projectId={projectId || null}
+              start={appliedDateFrom}
+              end={appliedDateTo}
+              sources={effectiveSources}
+              accountIds={effectiveAccountIds}
+              days={
+                appliedDateFrom && appliedDateTo
+                  ? Math.max(
+                      1,
+                      Math.ceil(
+                        (new Date(appliedDateTo).getTime() -
+                          new Date(appliedDateFrom).getTime()) /
+                          (24 * 60 * 60 * 1000)
+                      )
+                    )
+                  : 30
+              }
+            />
+          </div>
 
-      {/* ROW 4: Карта выручки по атрибуции */}
-      <div style={{ marginBottom: 20 }}>
-        <RevenueAttributionMapCard
-          projectId={projectId || null}
-          start={appliedDateFrom}
-          end={appliedDateTo}
-          sources={effectiveSources}
-          accountIds={effectiveAccountIds}
-          days={
-            appliedDateFrom && appliedDateTo
-              ? Math.max(
-                  1,
-                  Math.ceil(
-                    (new Date(appliedDateTo).getTime() -
-                      new Date(appliedDateFrom).getTime()) /
-                      (24 * 60 * 60 * 1000)
-                  )
-                )
-              : 30
-          }
-        />
-      </div>
+          {/* ROW 4: Карта выручки по атрибуции */}
+          <div style={{ marginBottom: 20 }}>
+            <RevenueAttributionMapCard
+              projectId={projectId || null}
+              start={appliedDateFrom}
+              end={appliedDateTo}
+              sources={effectiveSources}
+              accountIds={effectiveAccountIds}
+              days={
+                appliedDateFrom && appliedDateTo
+                  ? Math.max(
+                      1,
+                      Math.ceil(
+                        (new Date(appliedDateTo).getTime() -
+                          new Date(appliedDateFrom).getTime()) /
+                          (24 * 60 * 60 * 1000)
+                      )
+                    )
+                  : 30
+              }
+            />
+          </div>
 
-      {/* ROW 5: Поведение конверсии */}
-      <div style={{ marginBottom: 20 }}>
-        <ConversionBehaviorCard
-          projectId={projectId || null}
-          start={appliedDateFrom}
-          end={appliedDateTo}
-          sources={effectiveSources}
-          accountIds={effectiveAccountIds}
-          days={
-            appliedDateFrom && appliedDateTo
-              ? Math.max(
-                  1,
-                  Math.ceil(
-                    (new Date(appliedDateTo).getTime() -
-                      new Date(appliedDateFrom).getTime()) /
-                      (24 * 60 * 60 * 1000)
-                  )
-                )
-              : 30
-          }
-        />
-      </div>
+          {/* ROW 5: Поведение конверсии */}
+          <div style={{ marginBottom: 20 }}>
+            <ConversionBehaviorCard
+              projectId={projectId || null}
+              start={appliedDateFrom}
+              end={appliedDateTo}
+              sources={effectiveSources}
+              accountIds={effectiveAccountIds}
+              days={
+                appliedDateFrom && appliedDateTo
+                  ? Math.max(
+                      1,
+                      Math.ceil(
+                        (new Date(appliedDateTo).getTime() -
+                          new Date(appliedDateFrom).getTime()) /
+                          (24 * 60 * 60 * 1000)
+                      )
+                    )
+                  : 30
+              }
+            />
+          </div>
+        </>
+      ) : (
+        <div
+          style={{
+            marginBottom: 20,
+            border: "1px dashed rgba(255,255,255,0.16)",
+            borderRadius: 12,
+            padding: "12px 14px",
+            color: "rgba(255,255,255,0.72)",
+            fontSize: 13,
+          }}
+        >
+          Дополнительная аналитика загружается после основного экрана...
+        </div>
+      )}
 
       {/* ✅ Advanced кнопка в самый низ справа (sandbars) */}
       <button

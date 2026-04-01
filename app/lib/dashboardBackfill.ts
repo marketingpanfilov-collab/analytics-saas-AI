@@ -28,6 +28,34 @@ async function getEnabledAdAccountIds(
   return resolveEnabledAdAccountIdsForProject(admin, projectId);
 }
 
+/** Previous calendar day in UTC (YYYY-MM-DD). */
+function calendarDayBefore(isoDate: string): string {
+  const d = new Date(isoDate + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Split [intervalStart, intervalEnd] into contiguous chunks of at most `maxCalendarDays` days each. */
+export function chunkDateInterval(
+  intervalStart: string,
+  intervalEnd: string,
+  maxCalendarDays: number
+): { start: string; end: string }[] {
+  const all = datesInRange(intervalStart, intervalEnd);
+  if (all.length === 0) return [];
+  const chunks: { start: string; end: string }[] = [];
+  for (let i = 0; i < all.length; i += maxCalendarDays) {
+    const slice = all.slice(i, i + maxCalendarDays);
+    chunks.push({ start: slice[0]!, end: slice[slice.length - 1]! });
+  }
+  return chunks;
+}
+
+/** Max of two YYYY-MM-DD strings (lexicographic order matches chronological). */
+function maxIsoDate(a: string, b: string): string {
+  return a > b ? a : b;
+}
+
 /** Generate all dates in [start, end] inclusive (YYYY-MM-DD). Exported for sync zero-fill. */
 export function datesInRange(start: string, end: string): string[] {
   const out: string[] = [];
@@ -261,7 +289,7 @@ export async function isRangeCovered(
 /**
  * Get latest sync run finished_at for the given ad_account ids (any platform).
  */
-async function getLastSyncFinishedAt(
+export async function getLastSyncFinishedAtForProject(
   admin: SupabaseClient,
   projectId: string,
   adAccountIds: string[]
@@ -336,6 +364,24 @@ function triggerSync(
   return true;
 }
 
+/** Run historical chunk syncs one after another (does not block callers — schedule with `void`). */
+async function runHistoricalChunksSequential(
+  requestUrl: string,
+  projectId: string,
+  chunks: { start: string; end: string }[]
+): Promise<void> {
+  for (const sub of chunks) {
+    const key = `${projectId}:${sub.start}:${sub.end}`;
+    if (syncPromises.has(key)) {
+      await syncPromises.get(key)!;
+      continue;
+    }
+    triggerSync(requestUrl, projectId, sub.start, sub.end, key, "historical");
+    const p = syncPromises.get(key);
+    if (p) await p;
+  }
+}
+
 /** Resolve base URL for sync POST so fetch hits the same app (no wrong host in serverless). */
 function getBaseUrlForSync(requestUrl: string): string {
   try {
@@ -354,10 +400,12 @@ function getBaseUrlForSync(requestUrl: string): string {
 }
 
 /**
- * If the requested range has missing days (incomplete coverage), trigger historical sync for missing intervals only.
- * If the range is fully covered, optionally trigger fresh tail sync (last FRESH_TAIL_DAYS) when TTL expired.
- * Does NOT await sync; returns immediately.
- * Returns { triggered: boolean, reason: 'historical' | 'fresh' | null } for logging/UI.
+ * Branches that enqueue sync (`triggerSync` → POST /api/dashboard/sync):
+ * 1. **Historical** — missing days in range → chunked `triggerSync(..., "historical")`.
+ * 2. **Today** — `end === today` and sync TTL expired → `triggerSync` on narrowed window, kind `"fresh"`.
+ * 3. **Fresh tail** — range overlaps last `FRESH_TAIL_DAYS` and TTL expired → `triggerSync(freshStart..today)`, kind `"fresh"`.
+ *
+ * With `scope.readOnly` (bundle + `BUNDLE_READ_ONLY_MODE`), none of the above runs; result uses `wouldSync` / `wouldSyncReason` only. See `[ENSURE_BACKFILL_RESULT]` logs.
  */
 export type EnsureBackfillResult = {
   triggered: boolean;
@@ -367,12 +415,20 @@ export type EnsureBackfillResult = {
   rangePartiallyCovered?: boolean;
   /** When reason === 'historical': missing intervals that were submitted for sync. */
   historicalSyncIntervals?: { start: string; end: string }[];
+  /**
+   * Same as `triggered` when not in read-only mode.
+   * In read-only mode: whether a sync **would** have been enqueued (for logs/UI; no sync runs).
+   */
+  wouldSync?: boolean;
+  wouldSyncReason?: "historical" | "fresh" | null;
 };
 
 /** Опционально: те же sources / account_ids, что у каноники дашборда (иначе backfill смотрит на все кабинеты и даёт ложные «дыры»). */
 export type EnsureBackfillScope = {
   sources?: string[] | null;
   accountIds?: string[] | null;
+  /** When true (bundle + BUNDLE_READ_ONLY_MODE): compute coverage/TTL but never call triggerSync. */
+  readOnly?: boolean;
 };
 
 export async function ensureBackfill(
@@ -383,6 +439,7 @@ export async function ensureBackfill(
   requestUrl: string,
   scope?: EnsureBackfillScope | null
 ): Promise<EnsureBackfillResult> {
+  const readOnly = Boolean(scope?.readOnly);
   const enabledIds = await resolveEnabledAdAccountIdsForProject(
     admin,
     projectId,
@@ -390,7 +447,7 @@ export async function ensureBackfill(
     scope?.accountIds?.length ? scope.accountIds : null
   );
   if (!enabledIds.length) {
-    return { triggered: false, reason: null };
+    return { triggered: false, reason: null, wouldSync: false, wouldSyncReason: null };
   }
 
   const coverage = await isRangeCovered(admin, projectId, start, end, enabledIds);
@@ -415,25 +472,67 @@ export async function ensureBackfill(
       },
       uncoveredAccountIds: coverage.uncoveredAccountIds,
     });
+    const HISTORICAL_CHUNK_DAYS = 7;
+    const submittedIntervals: { start: string; end: string }[] = [];
     for (const iv of validIntervals) {
       if (iv.end < iv.start) {
         console.warn("[BACKFILL_SKIP_INVALID_INTERVAL]", { projectId, interval: iv, reason: "end < start" });
         continue;
       }
-      const key = `${projectId}:${iv.start}:${iv.end}`;
-      triggerSync(requestUrl, projectId, iv.start, iv.end, key, "historical");
+      const subIntervals = chunkDateInterval(iv.start, iv.end, HISTORICAL_CHUNK_DAYS);
+      for (const sub of subIntervals) {
+        submittedIntervals.push(sub);
+      }
     }
+
+    if (readOnly) {
+      console.log("[ENSURE_BACKFILL_RESULT]", {
+        branch: "historical",
+        readOnly: true,
+        wouldSync: true,
+        triggered: false,
+        projectId,
+        chunkCount: submittedIntervals.length,
+      });
+      return {
+        triggered: false,
+        reason: null,
+        wouldSync: true,
+        wouldSyncReason: "historical",
+        rangePartiallyCovered: true,
+        historicalSyncIntervals: submittedIntervals,
+      };
+    }
+
+    void runHistoricalChunksSequential(requestUrl, projectId, submittedIntervals).catch((e) =>
+      console.error("[BACKFILL_HISTORICAL_CHUNKS_CHAIN_FAILED]", { projectId, error: e })
+    );
+    console.log("[BACKFILL_HISTORICAL_CHUNKS]", {
+      projectId,
+      chunkCount: submittedIntervals.length,
+      requestedIntervals: validIntervals.length,
+    });
+    console.log("[ENSURE_BACKFILL_RESULT]", {
+      branch: "historical",
+      readOnly: false,
+      wouldSync: true,
+      triggered: true,
+      projectId,
+    });
+
     return {
       triggered: true,
       reason: "historical",
+      wouldSync: true,
+      wouldSyncReason: "historical",
       rangePartiallyCovered: true,
-      historicalSyncIntervals: validIntervals,
+      historicalSyncIntervals: submittedIntervals,
     };
   }
 
   // --- B. Today-specific freshness: even if fully covered, today must be periodically resynced ---
   const today = new Date().toISOString().slice(0, 10);
-  const lastSyncAt = await getLastSyncFinishedAt(admin, projectId, enabledIds);
+  const lastSyncAt = await getLastSyncFinishedAtForProject(admin, projectId, enabledIds);
   if (end === today) {
     const ttlMs = getSyncTtlMs(start, end);
     const now = Date.now();
@@ -451,13 +550,35 @@ export async function ensureBackfill(
     });
 
     if (!lastSyncAt || now - lastSyncMs >= ttlMs) {
-      const key = `${projectId}:${start}:${end}`;
-      const triggered = triggerSync(requestUrl, projectId, start, end, key, "fresh");
+      const yesterday = calendarDayBefore(today);
+      const syncStart = maxIsoDate(start, yesterday);
+      const syncEnd = today;
+      if (readOnly) {
+        console.log("[ENSURE_BACKFILL_RESULT]", {
+          branch: "today_fresh",
+          readOnly: true,
+          wouldSync: true,
+          triggered: false,
+          projectId,
+          syncStart,
+          syncEnd,
+        });
+        return {
+          triggered: false,
+          reason: null,
+          wouldSync: true,
+          wouldSyncReason: "fresh",
+        };
+      }
+      const key = `${projectId}:${syncStart}:${syncEnd}`;
+      const triggered = triggerSync(requestUrl, projectId, syncStart, syncEnd, key, "fresh");
       if (triggered) {
         console.log("[TODAY_SYNC_TRIGGER]", {
           projectId,
-          start,
-          end,
+          requestedStart: start,
+          requestedEnd: end,
+          syncStart: syncStart,
+          syncEnd: syncEnd,
           today,
           last_sync_at: lastSyncAt ? lastSyncAt.toISOString() : null,
           age_ms: ageMs,
@@ -478,6 +599,8 @@ export async function ensureBackfill(
       return {
         triggered,
         reason: triggered ? "fresh" : null,
+        wouldSync: triggered,
+        wouldSyncReason: triggered ? "fresh" : null,
       };
     }
 
@@ -491,7 +614,7 @@ export async function ensureBackfill(
       age_ms: ageMs,
       ttl_ms: ttlMs,
     });
-    return { triggered: false, reason: null };
+    return { triggered: false, reason: null, wouldSync: false, wouldSyncReason: null };
   }
 
   // --- C. Fresh tail: range fully covered; refresh last N days if TTL expired ---
@@ -501,21 +624,48 @@ export async function ensureBackfill(
   const freshEnd = today;
   const rangeIncludesTail = end >= freshStart && start <= freshEnd;
   if (!rangeIncludesTail) {
-    return { triggered: false, reason: null };
+    return { triggered: false, reason: null, wouldSync: false, wouldSyncReason: null };
   }
 
   const ttlMs = getSyncTtlMs(freshStart, freshEnd);
   const now = Date.now();
   const lastSyncMs = lastSyncAt ? lastSyncAt.getTime() : 0;
   if (lastSyncMs > 0 && now - lastSyncMs < ttlMs) {
-    return { triggered: false, reason: null };
+    return { triggered: false, reason: null, wouldSync: false, wouldSyncReason: null };
+  }
+
+  if (readOnly) {
+    console.log("[ENSURE_BACKFILL_RESULT]", {
+      branch: "fresh_tail",
+      readOnly: true,
+      wouldSync: true,
+      triggered: false,
+      projectId,
+      freshStart,
+      freshEnd,
+    });
+    return {
+      triggered: false,
+      reason: null,
+      wouldSync: true,
+      wouldSyncReason: "fresh",
+    };
   }
 
   const key = `${projectId}:${freshStart}:${freshEnd}`;
   const triggered = triggerSync(requestUrl, projectId, freshStart, freshEnd, key, "fresh");
+  console.log("[ENSURE_BACKFILL_RESULT]", {
+    branch: "fresh_tail",
+    readOnly: false,
+    wouldSync: triggered,
+    triggered,
+    projectId,
+  });
   return {
     triggered,
     reason: triggered ? "fresh" : null,
+    wouldSync: triggered,
+    wouldSyncReason: triggered ? "fresh" : null,
   };
 }
 
@@ -537,6 +687,19 @@ export function applyBackfillMetadata<T extends Record<string, unknown>>(
     (next as Record<string, unknown>).backfill = {
       range_partially_covered: true,
       historical_sync_started: true,
+      intervals: backfillResult.historicalSyncIntervals,
+    };
+  } else if (
+    !backfillResult.triggered &&
+    backfillResult.wouldSync &&
+    backfillResult.wouldSyncReason === "historical" &&
+    Array.isArray(backfillResult.historicalSyncIntervals) &&
+    backfillResult.historicalSyncIntervals.length > 0
+  ) {
+    (next as Record<string, unknown>).backfill = {
+      range_partially_covered: true,
+      historical_sync_started: false,
+      read_only_no_sync: true,
       intervals: backfillResult.historicalSyncIntervals,
     };
   } else {
