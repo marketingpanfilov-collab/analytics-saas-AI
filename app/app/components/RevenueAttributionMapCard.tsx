@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { InsightTooltip } from "./InsightTooltip";
 import { fmtProjectCurrency, type ProjectCurrency } from "@/app/lib/currency";
+import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
+import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
+import { ActionId } from "@/app/lib/billingUiContract";
 
 type ChannelRow = {
   source: string;
@@ -123,6 +126,7 @@ export function RevenueAttributionMapCard({
   sources = [],
   accountIds = [],
 }: Props) {
+  const { resolvedUi } = useBillingBootstrap();
   const [summary, setSummary] = useState<Summary | null>(null);
   const [channels, setChannels] = useState<ChannelRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -208,6 +212,7 @@ export function RevenueAttributionMapCard({
     let cancelled = false;
     (async () => {
       try {
+        if (!billingActionAllowed(resolvedUi, ActionId.sync_refresh)) return;
         const res = await fetch("/api/system/update-rates", { method: "POST" });
         const json = await res.json();
         if (cancelled) return;
@@ -220,7 +225,7 @@ export function RevenueAttributionMapCard({
     return () => {
       cancelled = true;
     };
-  }, [projectCurrency]);
+  }, [projectCurrency, resolvedUi]);
 
   const totalPurchases = useMemo(
     () =>

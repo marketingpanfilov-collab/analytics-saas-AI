@@ -1,8 +1,11 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { IntegrationStatusRow, IntegrationStatusValue } from "@/app/api/oauth/integration/status/route";
+import { ActionId } from "@/app/lib/billingUiContract";
+import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
+import { useBillingBootstrap } from "../../components/BillingBootstrapProvider";
 
 /** Canonical account (same as dashboard). Optional fields from coverage + sync_runs. */
 type CanonicalAccount = {
@@ -231,6 +234,15 @@ function formatLastSync(iso: string | null | undefined, status: string | null | 
 export default function AccountsPageClient() {
   const router = useRouter();
   const sp = useSearchParams();
+  const { resolvedUi } = useBillingBootstrap();
+  const canMutateIntegrations = billingActionAllowed(resolvedUi, ActionId.sync_refresh);
+  const guardIntegrationWrite = useCallback(() => {
+    if (!canMutateIntegrations) {
+      setToast({ type: "error", text: "Действие недоступно при текущем статусе подписки." });
+      return false;
+    }
+    return true;
+  }, [canMutateIntegrations]);
 
   const urlProjectId = sp.get("project_id") || "";
   const connectedParam = sp.get("connected"); // meta / meta_error
@@ -685,6 +697,7 @@ export default function AccountsPageClient() {
 
   async function saveGoogleSelection() {
     if (!projectId) return;
+    if (!guardIntegrationWrite()) return;
     if (googleStatus === "not_connected") {
       setToast({ type: "error", text: "Google не подключён. Подключи OAuth и нажми «Обновить»." });
       return;
@@ -730,6 +743,7 @@ export default function AccountsPageClient() {
 
   async function saveTikTokSelection() {
     if (!projectId) return;
+    if (!guardIntegrationWrite()) return;
     if (tiktokStatus === "not_connected") {
       setToast({ type: "error", text: "TikTok не подключён. Подключи OAuth и нажми «Обновить»." });
       return;
@@ -775,6 +789,7 @@ export default function AccountsPageClient() {
 
   async function saveSelection() {
     if (!projectId) return;
+    if (!guardIntegrationWrite()) return;
 
     if (!integrationId || !metaShowSaveSelection) {
       setToast({ type: "error", text: "Сначала подключи Meta (OAuth), затем выбирай кабинеты." });
@@ -847,6 +862,7 @@ export default function AccountsPageClient() {
   async function connectTikTok() {
     if (!projectId) return;
     if (tiktokConnectedLike) {
+      if (!guardIntegrationWrite()) return;
       try {
         setLoading(true);
         const r = await fetch("/api/oauth/tiktok/accounts", {
@@ -874,6 +890,7 @@ export default function AccountsPageClient() {
 
   async function disconnectGoogle() {
     if (!projectId) return;
+    if (!guardIntegrationWrite()) return;
     setGoogleDisconnectLoading(true);
     try {
       const r = await fetch("/api/oauth/google/integration/disconnect", {
@@ -899,6 +916,7 @@ export default function AccountsPageClient() {
 
   async function disconnectTikTok() {
     if (!projectId) return;
+    if (!guardIntegrationWrite()) return;
     setTikTokDisconnectLoading(true);
     try {
       const r = await fetch("/api/oauth/tiktok/integration/disconnect", {
@@ -929,6 +947,7 @@ export default function AccountsPageClient() {
 
   async function syncAll() {
     if (!projectId) return;
+    if (!guardIntegrationWrite()) return;
     if (!hasAnyEnabledAccounts) {
       setToast({ type: "info", text: "Сначала подключи источник (Meta или Google) и выбери аккаунты для sync." });
       return;
@@ -1009,6 +1028,7 @@ export default function AccountsPageClient() {
 
   async function disconnectMeta() {
     if (!projectId) return;
+    if (!guardIntegrationWrite()) return;
     setDisconnectLoading(true);
     try {
       const r = await fetch("/api/oauth/meta/integration/disconnect", {
@@ -1033,6 +1053,7 @@ export default function AccountsPageClient() {
 
   async function syncOneAccount(platformAccountId: string, platform: "meta" | "google" | "tiktok") {
     if (!projectId) return;
+    if (!guardIntegrationWrite()) return;
     if (platform === "meta" && metaStatus === "not_connected") return;
     if (platform === "google" && googleStatus === "not_connected") return;
     if (platform === "tiktok" && tiktokStatus === "not_connected") return;

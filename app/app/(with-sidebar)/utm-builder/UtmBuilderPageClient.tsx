@@ -2,6 +2,9 @@
 
 import React, { useMemo, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
+import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
+import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
+import { ActionId } from "@/app/lib/billingUiContract";
 
 function clsx(...arr: Array<string | false | null | undefined>) {
   return arr.filter(Boolean).join(" ");
@@ -192,6 +195,11 @@ const SELECT_CLASS =
 export default function UtmBuilderPageClient() {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project_id")?.trim() ?? null;
+  const { resolvedUi } = useBillingBootstrap();
+  const canSaveRedirectLink = useMemo(
+    () => billingActionAllowed(resolvedUi, ActionId.sync_refresh),
+    [resolvedUi]
+  );
 
   const [destinationUrl, setDestinationUrl] = useState("");
   const [preset, setPreset] = useState<TrafficPreset>("meta");
@@ -344,7 +352,7 @@ export default function UtmBuilderPageClient() {
   }, [projectId]);
 
   const handleGenerate = async () => {
-    if (!projectId || !destinationValid) return;
+    if (!canSaveRedirectLink || !projectId || !destinationValid) return;
     setSaveError(null);
     setGenerateLoading(true);
     try {
@@ -825,7 +833,7 @@ export default function UtmBuilderPageClient() {
                     <button
                       type="button"
                       onClick={handleGenerate}
-                      disabled={generateLoading || !destinationValid}
+                      disabled={!canSaveRedirectLink || generateLoading || !destinationValid}
                       className="rounded-xl bg-white/15 px-6 py-3 text-sm font-medium text-white hover:bg-white/25 disabled:opacity-50"
                     >
                       {generateLoading ? "Generating…" : "Generate link"}

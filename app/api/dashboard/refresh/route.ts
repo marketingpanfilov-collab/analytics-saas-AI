@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getInternalSyncHeaders } from "@/app/lib/auth/requireProjectAccessOrInternal";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingHeavySyncGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
 
 /** UTC calendar day before `isoDate` (YYYY-MM-DD). */
 function calendarDayBefore(isoDate: string): string {
@@ -38,6 +39,9 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
+    const billingPre = await billingHeavySyncGateBeforeProject(req);
+    if (!billingPre.ok) return billingPre.response;
 
     const access = await requireProjectAccessOrInternal(req, project_id);
     if (!access.allowed) {

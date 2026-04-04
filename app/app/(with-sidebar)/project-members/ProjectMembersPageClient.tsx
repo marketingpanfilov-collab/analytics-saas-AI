@@ -1,6 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
+import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
+import { ActionId } from "@/app/lib/billingUiContract";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/app/lib/supabaseClient";
@@ -69,6 +72,11 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project_id")?.trim() ?? "";
   const isEmbedded = variant === "embedded";
+  const { resolvedUi } = useBillingBootstrap();
+  const canSyncMembers = useMemo(
+    () => billingActionAllowed(resolvedUi, ActionId.sync_refresh),
+    [resolvedUi]
+  );
 
   const [loading, setLoading] = useState(true);
   const [allowed, setAllowed] = useState(false);
@@ -213,6 +221,7 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
 
   const handleRoleChange = useCallback(
     async (memberId: string, newRole: string) => {
+      if (!canSyncMembers) return;
       setActionLoadingId(memberId);
       const { error } = await supabase
         .from("project_members")
@@ -221,23 +230,28 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
       setActionLoadingId(null);
       if (!error) await fetchMembers();
     },
-    [fetchMembers]
+    [fetchMembers, canSyncMembers]
   );
 
   const handleRemove = useCallback(
     async (row: MemberRow) => {
+      if (!canSyncMembers) return;
       if (row.user_id === currentUserId && row.role === "project_admin") return;
       setActionLoadingId(row.id);
       const { error } = await supabase.from("project_members").delete().eq("id", row.id);
       setActionLoadingId(null);
       if (!error) await fetchMembers();
     },
-    [currentUserId, fetchMembers]
+    [currentUserId, fetchMembers, canSyncMembers]
   );
 
   const handleAddSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
+      if (!canSyncMembers) {
+        setAddError("Действие недоступно при текущем статусе подписки");
+        return;
+      }
       const email = addEmail.trim().toLowerCase();
       if (!email) {
         setAddError("Введите email");
@@ -283,12 +297,16 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
       setAddError(null);
       await fetchMembers();
     },
-    [addEmail, addRole, projectId, members, fetchMembers]
+    [addEmail, addRole, projectId, members, fetchMembers, canSyncMembers]
   );
 
   const handleInviteByEmail = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
+      if (!canSyncMembers) {
+        setInviteByEmailError("Действие недоступно при текущем статусе подписки");
+        return;
+      }
       const email = inviteEmail.trim().toLowerCase();
       if (!email) {
         setInviteByEmailError("Введите email");
@@ -327,10 +345,11 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
         setInviteByEmailError(json?.error ?? "Ошибка создания приглашения");
       }
     },
-    [projectId, inviteEmail, inviteRole, fetchInvites]
+    [projectId, inviteEmail, inviteRole, fetchInvites, canSyncMembers]
   );
 
   const handleInviteByLink = useCallback(async () => {
+    if (!canSyncMembers) return;
     setInviteByLinkLoading(true);
     setInviteByLinkUrl(null);
     const res = await fetch("/api/project-invites/create", {
@@ -344,10 +363,11 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
       setInviteByLinkUrl(json.invite_url);
       await fetchInvites();
     }
-  }, [projectId, inviteByLinkRole, fetchInvites]);
+  }, [projectId, inviteByLinkRole, fetchInvites, canSyncMembers]);
 
   const handleRevokeInvite = useCallback(
     async (inviteId: string) => {
+      if (!canSyncMembers) return;
       setRevokeLoadingId(inviteId);
       const res = await fetch("/api/project-invites/revoke", {
         method: "PATCH",
@@ -357,7 +377,7 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
       setRevokeLoadingId(null);
       if (res.ok) await fetchInvites();
     },
-    [fetchInvites]
+    [fetchInvites, canSyncMembers]
   );
 
   const copyInviteLink = useCallback((url: string) => {

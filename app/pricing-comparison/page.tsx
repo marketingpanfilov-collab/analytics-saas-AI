@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { buildLoginPurchaseHref, type PricingPlanId } from "@/app/lib/auth/loginPurchaseUrl";
 import { LandingHeader } from "@/components/layout/LandingHeader";
+import PricingBuyButton from "./PricingBuyButton";
 
 type BillingPeriod = "monthly" | "yearly";
 type FeatureValue = string | boolean;
@@ -207,13 +208,13 @@ export default function PricingComparisonPage() {
                 <tr className="bg-white/[0.01]">
                   <td className="px-4 py-4 text-white/80">Действие</td>
                   <td className="px-4 py-4 text-center">
-                    <BuyButton href={starterHref} planId="starter" />
+                    <PricingBuyButton guestHref={starterHref} planId="starter" billing={starterBilling} />
                   </td>
                   <td className="px-4 py-4 text-center">
-                    <BuyButton href={growthHref} planId="growth" />
+                    <PricingBuyButton guestHref={growthHref} planId="growth" billing={growthBilling} />
                   </td>
                   <td className="px-4 py-4 text-center">
-                    <BuyButton href={agencyHref} planId="agency" />
+                    <PricingBuyButton guestHref={agencyHref} planId="agency" billing={agencyBilling} />
                   </td>
                 </tr>
               </tbody>
@@ -328,14 +329,3 @@ function PeriodSelect({
   );
 }
 
-function BuyButton({ href, planId }: { href: string; planId: PricingPlanId }) {
-  return (
-    <Link
-      href={href}
-      className="inline-flex h-10 min-w-[130px] cursor-pointer items-center justify-center rounded-xl border border-emerald-400/35 bg-emerald-500/[0.18] px-4 text-sm font-semibold text-white transition hover:bg-emerald-500/[0.28]"
-      aria-label={`Приобрести тариф ${planId}`}
-    >
-      Приобрести
-    </Link>
-  );
-}

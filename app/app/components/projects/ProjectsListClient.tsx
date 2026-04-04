@@ -2,7 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useMemo } from "react";
+import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
+import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
+import { ActionId } from "@/app/lib/billingUiContract";
 import { setActiveProjectId } from "@/app/lib/activeProjectClient";
 import type { Project } from "@/app/lib/auth/getCurrentUserContext";
 import {
@@ -57,6 +60,23 @@ export default function ProjectsListClient({
   organizationName = null,
 }: Props) {
   const router = useRouter();
+  const { resolvedUi } = useBillingBootstrap();
+  const canSyncProjectMutations = useMemo(
+    () => billingActionAllowed(resolvedUi, ActionId.sync_refresh),
+    [resolvedUi]
+  );
+  const canBillingManage = useMemo(
+    () => billingActionAllowed(resolvedUi, ActionId.billing_manage),
+    [resolvedUi]
+  );
+  const canNavigateApp = useMemo(
+    () => billingActionAllowed(resolvedUi, ActionId.navigate_app),
+    [resolvedUi]
+  );
+  const canCreateProjectAction = useMemo(
+    () => billingActionAllowed(resolvedUi, ActionId.create_project),
+    [resolvedUi]
+  );
   const menuAnchorRef = useRef<HTMLDivElement>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKind>("active");
@@ -141,7 +161,9 @@ export default function ProjectsListClient({
     setOpeningProjectId(projectId);
     setActiveProjectId(projectId);
     try {
-      await fetch(`/api/projects/${encodeURIComponent(projectId)}/touch`, { method: "POST" }).catch(() => null);
+      if (canNavigateApp) {
+        await fetch(`/api/projects/${encodeURIComponent(projectId)}/touch`, { method: "POST" }).catch(() => null);
+      }
       // Промис завершается, когда навигация (включая загрузку сегментов) завершена.
       // Состояние не сбрасываем при успехе — страница размонтируется; иначе «Подождите…» мигало бы «Открыть».
       await router.push(`/app?project_id=${encodeURIComponent(projectId)}`);
@@ -179,6 +201,10 @@ export default function ProjectsListClient({
 
   const submitRename = async () => {
     if (!renameProject || renameLoading) return;
+    if (!canSyncProjectMutations) {
+      setRenameError("Действие недоступно при текущем статусе подписки");
+      return;
+    }
     const name = renameName.trim();
     if (!name) {
       setRenameError("Введите название проекта");
@@ -213,6 +239,10 @@ export default function ProjectsListClient({
 
   const submitArchive = async () => {
     if (!archiveProject || archiveLoading) return;
+    if (!canSyncProjectMutations) {
+      setArchiveError("Действие недоступно при текущем статусе подписки");
+      return;
+    }
     setArchiveError(null);
     setArchiveLoading(true);
     try {
@@ -250,6 +280,10 @@ export default function ProjectsListClient({
       return;
     }
     if (!transferSelectedMember || !organizationId) return;
+    if (!canBillingManage) {
+      setTransferError("Действие недоступно при текущем статусе подписки");
+      return;
+    }
     setTransferError(null);
     setTransferLoading(true);
     try {
@@ -335,19 +369,25 @@ export default function ProjectsListClient({
             <button
               type="button"
               onClick={openTransferModal}
-              className="inline-flex h-10 cursor-pointer items-center rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 text-sm font-medium text-amber-200 hover:bg-amber-500/20"
+              disabled={!canBillingManage}
+              className="inline-flex h-10 cursor-pointer items-center rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 text-sm font-medium text-amber-200 hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Передать управление организацией
             </button>
           )}
-          {canCreate && (
-            <Link
-              href="/app/projects/new"
-              className="inline-flex h-10 items-center rounded-xl bg-white/10 px-5 text-sm font-medium text-white hover:bg-white/15"
-            >
-              Создать проект
-            </Link>
-          )}
+          {canCreate &&
+            (canCreateProjectAction ? (
+              <Link
+                href="/app/projects/new"
+                className="inline-flex h-10 items-center rounded-xl bg-white/10 px-5 text-sm font-medium text-white hover:bg-white/15"
+              >
+                Создать проект
+              </Link>
+            ) : (
+              <span className="inline-flex h-10 cursor-not-allowed items-center rounded-xl bg-white/5 px-5 text-sm font-medium text-white/40">
+                Создать проект
+              </span>
+            ))}
         </div>
       </header>
 
@@ -564,7 +604,7 @@ export default function ProjectsListClient({
               <button
                 type="button"
                 onClick={submitRename}
-                disabled={renameLoading}
+                disabled={!canSyncProjectMutations || renameLoading}
                 aria-busy={renameLoading}
                 className="rounded-xl bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -605,7 +645,7 @@ export default function ProjectsListClient({
               <button
                 type="button"
                 onClick={submitArchive}
-                disabled={archiveLoading}
+                disabled={!canSyncProjectMutations || archiveLoading}
                 aria-busy={archiveLoading}
                 className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -756,6 +796,7 @@ export default function ProjectsListClient({
                     onClick={submitTransfer}
                     disabled={
                       transferLoading ||
+                      !canBillingManage ||
                       (transferStep === 1 && !transferSelectedMember)
                     }
                     aria-busy={transferLoading}

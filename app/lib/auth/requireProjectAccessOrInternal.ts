@@ -10,8 +10,16 @@ import { requireProjectAccess } from "@/app/lib/auth/requireProjectAccess";
 
 const INTERNAL_HEADER = "x-internal-sync-secret";
 
+/** True when request carries a valid internal sync secret (server-to-server only). */
+export function isInternalSyncRequest(request: Request): boolean {
+  const secret = process.env.INTERNAL_SYNC_SECRET;
+  const headerSecret = request.headers.get(INTERNAL_HEADER) ?? request.headers.get(INTERNAL_HEADER.toLowerCase());
+  return typeof secret === "string" && secret.length > 0 && headerSecret === secret;
+}
+
 export type ProjectAccessCheckResult =
-  | { allowed: true; source: "user" | "internal" }
+  | { allowed: true; source: "internal" }
+  | { allowed: true; source: "user"; userId: string }
   | { allowed: false; status: 401 | 403; body: { success: false; error: string } };
 
 export type RequireProjectAccessOptions = {
@@ -68,7 +76,7 @@ export async function requireProjectAccessOrInternal(
     };
   }
 
-  return { allowed: true, source: "user" };
+  return { allowed: true, source: "user", userId: user.id };
 }
 
 /** Header to send when calling sync from server (e.g. backfill). Only use in server-side code. */

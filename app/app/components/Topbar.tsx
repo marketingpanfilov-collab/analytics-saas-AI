@@ -4,6 +4,12 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "../../lib/supabaseClient";
+import { billingActionAllowed, clearBillingRouteStorage } from "@/app/lib/billingBootstrapClient";
+import { billingPayloadFromResolved, emitBillingCjmEvent } from "@/app/lib/billingCjmAnalytics";
+import { ActionId } from "@/app/lib/billingUiContract";
+import { suggestUpgradePlanId } from "@/app/lib/billingPlanDisplay";
+import { useBillingBootstrap } from "./BillingBootstrapProvider";
+import BillingInlinePricing from "./BillingInlinePricing";
 import DataHealthMini, {
   type DataHealthIssue,
   type DataHealthRecommendation,
@@ -112,7 +118,13 @@ export default function Topbar({ email }: { email?: string }) {
   const [currentPlan, setCurrentPlan] = useState<CurrentPlan>("unknown");
   const [currentPlanStatus, setCurrentPlanStatus] = useState<string>("unknown");
   const [currentPlanUntil, setCurrentPlanUntil] = useState<string | null>(null);
-  const isMaxPlan = currentPlan === "agency";
+  const { bootstrap, resolvedUi, loading: billingUiLoading } = useBillingBootstrap();
+  const matrix = bootstrap?.plan_feature_matrix;
+  const isMaxPlan =
+    matrix?.plan === "agency" &&
+    matrix.max_projects == null &&
+    matrix.max_seats == null &&
+    matrix.max_ad_accounts == null;
 
   const planTheme =
     currentPlan === "starter"
@@ -194,6 +206,7 @@ export default function Topbar({ email }: { email?: string }) {
   const [notifOpen, setNotifOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [planTariffPanelOpen, setPlanTariffPanelOpen] = useState(false);
+  const [tariffModalOpen, setTariffModalOpen] = useState(false);
   const [maxPlanHover, setMaxPlanHover] = useState(false);
   const [maxPlanCursor, setMaxPlanCursor] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
@@ -282,43 +295,29 @@ export default function Topbar({ email }: { email?: string }) {
   }, [projectId]);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/billing/current-plan", { cache: "no-store" });
-        const json = (await res.json()) as {
-          success?: boolean;
-          subscription?: {
-            plan?: string;
-            status?: string;
-            current_period_end?: string | null;
-          } | null;
-        };
-        if (cancelled) return;
-        if (!res.ok || !json?.success || !json?.subscription) {
-          setCurrentPlan("unknown");
-          setCurrentPlanStatus("unknown");
-          setCurrentPlanUntil(null);
-          return;
-        }
-        const planRaw = String(json.subscription.plan ?? "").toLowerCase();
-        const nextPlan: CurrentPlan =
-          planRaw === "starter" || planRaw === "growth" || planRaw === "agency" ? (planRaw as CurrentPlan) : "unknown";
-        setCurrentPlan(nextPlan);
-        setCurrentPlanStatus(String(json.subscription.status ?? "unknown").toLowerCase());
-        setCurrentPlanUntil(json.subscription.current_period_end ?? null);
-      } catch {
-        if (!cancelled) {
-          setCurrentPlan("unknown");
-          setCurrentPlanStatus("unknown");
-          setCurrentPlanUntil(null);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    const m = bootstrap?.plan_feature_matrix;
+    const sub = bootstrap?.subscription;
+    if (m?.plan === "starter" || m?.plan === "growth" || m?.plan === "agency") {
+      setCurrentPlan(m.plan as CurrentPlan);
+    } else if (sub) {
+      const planRaw = String(sub.plan ?? "").toLowerCase();
+      setCurrentPlan(
+        planRaw === "starter" || planRaw === "growth" || planRaw === "agency" ? (planRaw as CurrentPlan) : "unknown"
+      );
+    } else {
+      setCurrentPlan("unknown");
+      setCurrentPlanStatus("unknown");
+      setCurrentPlanUntil(null);
+      return;
+    }
+    if (!sub) {
+      setCurrentPlanStatus("unknown");
+      setCurrentPlanUntil(null);
+      return;
+    }
+    setCurrentPlanStatus(String(sub.status ?? "unknown").toLowerCase());
+    setCurrentPlanUntil(sub.current_period_end ?? null);
+  }, [bootstrap]);
 
   // ✅ Закрытие попапа по клику вне
   useEffect(() => {
@@ -342,11 +341,20 @@ export default function Topbar({ email }: { email?: string }) {
   }, []);
 
   const logout = async () => {
+    clearBillingRouteStorage();
     await supabase.auth.signOut();
     router.replace("/login");
   };
 
+  const pendingPlanChange = !billingUiLoading && resolvedUi?.pending_plan_change === true;
+  const canManageBillingForCheckout =
+    !billingUiLoading &&
+    resolvedUi &&
+    billingActionAllowed(resolvedUi, ActionId.billing_manage) &&
+    !pendingPlanChange;
+
   return (
+    <>
     <header
       style={{
         height: 64,
@@ -644,13 +652,39 @@ export default function Topbar({ email }: { email?: string }) {
               <button
                 type="button"
                 className={
-                  isMaxPlan
+                  isMaxPlan || pendingPlanChange
                     ? "mt-4 h-11 cursor-not-allowed rounded-xl border border-white/10 bg-white/[0.06] px-6 text-sm font-extrabold text-white/55 md:mt-5"
                     : "mt-4 h-11 cursor-pointer rounded-xl border border-emerald-400/35 bg-emerald-500/[0.16] px-6 text-sm font-extrabold text-white transition hover:bg-emerald-500/[0.22] md:mt-5"
                 }
-                aria-disabled={isMaxPlan}
+                aria-disabled={isMaxPlan || pendingPlanChange}
+                title={
+                  pendingPlanChange
+                    ? "Смена тарифа уже обрабатывается — не оплачивайте повторно"
+                    : undefined
+                }
                 onClick={(e) => {
-                  if (isMaxPlan) e.preventDefault();
+                  if (isMaxPlan || pendingPlanChange) {
+                    e.preventDefault();
+                    return;
+                  }
+                  if (!canManageBillingForCheckout) {
+                    router.push("/app/settings");
+                    setPlanTariffPanelOpen(false);
+                    return;
+                  }
+                  emitBillingCjmEvent(
+                    "upgrade_clicked",
+                    billingPayloadFromResolved(resolvedUi ?? null, {
+                      plan:
+                        (matrix?.plan as string | undefined) ??
+                        bootstrap?.subscription?.plan ??
+                        "unknown",
+                      userId: null,
+                      source_action: "topbar_upgrade",
+                    })
+                  );
+                  setTariffModalOpen(true);
+                  setPlanTariffPanelOpen(false);
                 }}
                 onMouseEnter={(e) => {
                   if (!isMaxPlan) return;
@@ -708,5 +742,69 @@ export default function Topbar({ email }: { email?: string }) {
         </button>
       </div>
     </header>
+    {tariffModalOpen &&
+      typeof document !== "undefined" &&
+      createPortal(
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Смена тарифа"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 2200,
+            background: "rgba(8,8,12,0.88)",
+            backdropFilter: "blur(8px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+          onClick={() => setTariffModalOpen(false)}
+        >
+          <div
+            style={{
+              maxWidth: 520,
+              width: "100%",
+              borderRadius: 18,
+              border: "1px solid rgba(255,255,255,0.12)",
+              background: "rgba(18,18,26,0.98)",
+              padding: "22px 20px",
+              boxShadow: "0 24px 80px rgba(0,0,0,0.65)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+              <div style={{ fontWeight: 900, fontSize: 17, color: "white" }}>Сменить тариф</div>
+              <button
+                type="button"
+                onClick={() => setTariffModalOpen(false)}
+                style={{
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  background: "rgba(255,255,255,0.06)",
+                  color: "white",
+                  borderRadius: 10,
+                  width: 36,
+                  height: 36,
+                  cursor: "pointer",
+                  fontSize: 16,
+                  lineHeight: 1,
+                }}
+                aria-label="Закрыть"
+              >
+                ✕
+              </button>
+            </div>
+            <BillingInlinePricing
+              projectId={projectId}
+              suggestPlan={suggestUpgradePlanId(bootstrap?.plan_feature_matrix?.plan)}
+              showComparisonLink
+              onAfterCheckoutCompleted={() => setTariffModalOpen(false)}
+            />
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
   );
 }

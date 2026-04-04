@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccess } from "@/app/lib/auth/requireProjectAccess";
+import { billingHeavySyncGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
 
 export async function POST(req: Request) {
   try {
@@ -17,11 +18,14 @@ export async function POST(req: Request) {
 
     const supabase = await createServerSupabase();
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
+  if (!user) {
+    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  }
 
-    const admin = supabaseAdmin();
+  const billingPre = await billingHeavySyncGateBeforeProject(req);
+  if (!billingPre.ok) return billingPre.response;
+
+  const admin = supabaseAdmin();
     const { data: row, error: fetchErr } = await admin
       .from("report_share_links")
       .select("id, project_id, revoked_at")

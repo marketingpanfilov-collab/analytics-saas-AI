@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccess } from "@/app/lib/auth/requireProjectAccess";
+import { billingHeavySyncGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
 
 const ALLOWED_CURRENCIES = ["USD", "KZT"];
 
@@ -68,6 +69,9 @@ export async function POST(req: Request) {
   if (!user) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
+
+  const billingPre = await billingHeavySyncGateBeforeProject(req);
+  if (!billingPre.ok) return billingPre.response;
 
   const access = await requireProjectAccess(user.id, projectId);
   if (!access) {

@@ -12,6 +12,9 @@ import {
 import { SIDEBAR_TODAY_REFRESH_EVENT } from "@/app/lib/sidebarTodayRefreshEvent";
 import { getSharedCached } from "@/app/lib/sharedDataCache";
 import { POST_REFRESH_GUARD_MS, REFRESH_BASELINE_SESSION_KEY } from "@/app/lib/refreshOrchestration";
+import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
+import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
+import { ActionId } from "@/app/lib/billingUiContract";
 
 type ProjectItem = { id: string; name: string | null; organization_id: string | null };
 
@@ -316,6 +319,7 @@ export default function Sidebar() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { resolvedUi } = useBillingBootstrap();
 
   const [todayOpen, setTodayOpen] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -417,6 +421,7 @@ export default function Sidebar() {
     let mounted = true;
     (async () => {
       try {
+        if (!billingActionAllowed(resolvedUi, ActionId.sync_refresh)) return;
         const res = await fetch("/api/system/update-rates", { method: "POST" });
         const json = await res.json();
         if (!mounted) return;
@@ -433,7 +438,7 @@ export default function Sidebar() {
     return () => {
       mounted = false;
     };
-  }, [projectCurrency]);
+  }, [projectCurrency, resolvedUi]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -784,10 +789,12 @@ export default function Sidebar() {
       setActiveProjectId(id);
       setProjectId(id);
       setSwitcherOpen(false);
-      void fetch(`/api/projects/${encodeURIComponent(id)}/touch`, { method: "POST" }).catch(() => null);
+      if (billingActionAllowed(resolvedUi, ActionId.navigate_app)) {
+        void fetch(`/api/projects/${encodeURIComponent(id)}/touch`, { method: "POST" }).catch(() => null);
+      }
       router.push(`/app?project_id=${encodeURIComponent(id)}`);
     },
-    [router]
+    [router, resolvedUi]
   );
 
   const topMetrics: Metric[] = useMemo(

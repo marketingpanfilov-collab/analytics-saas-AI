@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { ActionId } from "@/app/lib/billingUiContract";
+import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
+import { useBillingBootstrap } from "./BillingBootstrapProvider";
+import { useBillingPricingModalRequest } from "./BillingPricingModalProvider";
 
 type MetaAccount = {
   ad_account_id: string; // act_...
@@ -30,6 +34,9 @@ export default function ConnectSourcesModal({
   const [accounts, setAccounts] = useState<MetaAccount[]>([]);
   const [connections, setConnections] = useState<MetaConnection[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const { resolvedUi } = useBillingBootstrap();
+  const { requestBillingPricingModal } = useBillingPricingModalRequest();
+  const canSync = billingActionAllowed(resolvedUi, ActionId.sync_refresh);
 
   const connectedSet = useMemo(
     () => new Set((connections ?? []).map((c) => c.ad_account_id)),
@@ -68,6 +75,12 @@ export default function ConnectSourcesModal({
   }
 
   async function connectMeta(adAccountId: string) {
+    if (!canSync) {
+      if (!requestBillingPricingModal("oauth_connect_click")) {
+        alert("Подключение кабинетов недоступно при текущем статусе подписки.");
+      }
+      return;
+    }
     try {
       setBusyId(adAccountId);
       const integrationId = await getIntegrationId();
@@ -98,6 +111,10 @@ export default function ConnectSourcesModal({
   }
 
   async function syncMeta(adAccountId: string) {
+    if (!canSync) {
+      alert("Синхронизация недоступна при текущем статусе подписки.");
+      return;
+    }
     const r = await fetch("/api/sync/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -184,7 +201,7 @@ export default function ConnectSourcesModal({
 
                       <div style={{ display: "flex", gap: 8 }}>
                         <button
-                          disabled={connected || busy}
+                          disabled={connected || busy || !canSync}
                           onClick={() => connectMeta(a.ad_account_id)}
                           style={connected ? styles.okBtn : styles.primaryBtn}
                         >
@@ -192,7 +209,7 @@ export default function ConnectSourcesModal({
                         </button>
 
                         <button
-                          disabled={!connected}
+                          disabled={!connected || !canSync}
                           onClick={() => syncMeta(a.ad_account_id)}
                           style={styles.secondaryBtn}
                         >

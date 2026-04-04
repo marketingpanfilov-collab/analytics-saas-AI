@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { buildRevenueAttributionMap } from "@/app/lib/revenueAttributionMap";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingAnalyticsReadGateFromAccess } from "@/app/lib/auth/requireBillingAccess";
 
 function parseDays(raw: string | null): number {
   if (!raw) return 30;
@@ -40,6 +41,9 @@ export async function GET(req: Request) {
     }
     const access = await requireProjectAccessOrInternal(req, projectId);
     if (!access.allowed) return NextResponse.json(access.body, { status: access.status });
+
+    const billing = await billingAnalyticsReadGateFromAccess(access);
+    if (!billing.ok) return billing.response;
 
     const admin = supabaseAdmin();
 

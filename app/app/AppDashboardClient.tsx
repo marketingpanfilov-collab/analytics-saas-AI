@@ -12,6 +12,16 @@ import {
   POST_REFRESH_GUARD_MS,
   REFRESH_BASELINE_SESSION_KEY,
 } from "@/app/lib/refreshOrchestration";
+import { ActionId } from "@/app/lib/billingUiContract";
+import {
+  billingActionAllowed,
+  canOfferBillingInlinePricing,
+  isBillingBlocking,
+} from "@/app/lib/billingBootstrapClient";
+import { resolveDashboardWidgetState } from "@/app/lib/billingWidgetState";
+import { useBillingBootstrap } from "./components/BillingBootstrapProvider";
+import { useBillingPricingModalRequest } from "./components/BillingPricingModalProvider";
+import BillingWidgetPlaceholder from "./components/BillingWidgetPlaceholder";
 import AssistedAttributionCard from "./components/AssistedAttributionCard";
 import { RevenueAttributionMapCard } from "./components/RevenueAttributionMapCard";
 import { ConversionBehaviorCard } from "./components/ConversionBehaviorCard";
@@ -580,7 +590,17 @@ function narrowRefreshRangeForTodayEnd(start: string, end: string): { start: str
 export default function AppDashboardClient() {
   const router = useRouter();
   const sp = useSearchParams();
+  const { resolvedUi, bootstrap } = useBillingBootstrap();
+  const { requestBillingPricingModal } = useBillingPricingModalRequest();
   const projectId = sp.get("project_id") || "";
+  const syncAllowed = billingActionAllowed(resolvedUi, ActionId.sync_refresh);
+  const syncWallClickable =
+    !syncAllowed && isBillingBlocking(resolvedUi) && canOfferBillingInlinePricing(resolvedUi);
+  const dashboardWidgetPack = useMemo(() => resolveDashboardWidgetState(resolvedUi), [resolvedUi]);
+  const attributionLimited = useMemo(() => {
+    const m = bootstrap?.plan_feature_matrix;
+    return Boolean(m && m.attribution_heavy === false && dashboardWidgetPack.state !== "BLOCKED");
+  }, [bootstrap?.plan_feature_matrix, dashboardWidgetPack.state]);
   const refreshBaselineKey = `${REFRESH_BASELINE_SESSION_KEY}:${projectId}`;
 
   const entryStaleAutoRefreshPendingRef = useRef(true);
@@ -595,8 +615,9 @@ export default function AppDashboardClient() {
 
   useEffect(() => {
     if (!projectId) return;
+    if (!billingActionAllowed(resolvedUi, ActionId.navigate_app)) return;
     void fetch(`/api/projects/${encodeURIComponent(projectId)}/touch`, { method: "POST" }).catch(() => null);
-  }, [projectId]);
+  }, [projectId, resolvedUi]);
 
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
@@ -795,6 +816,10 @@ export default function AppDashboardClient() {
     let cancelled = false;
     (async () => {
       try {
+        if (!billingActionAllowed(resolvedUi, ActionId.sync_refresh)) {
+          if (!cancelled) setUsdToKztRate(null);
+          return;
+        }
         const res = await fetch("/api/system/update-rates", { method: "POST" });
         const json = await res.json();
         if (cancelled) return;
@@ -807,7 +832,7 @@ export default function AppDashboardClient() {
     return () => {
       cancelled = true;
     };
-  }, [projectCurrency]);
+  }, [projectCurrency, resolvedUi]);
 
   useEffect(() => {
     if (!projectId) {
@@ -1242,6 +1267,10 @@ export default function AppDashboardClient() {
     if (!projectId) return false;
     if (isInvalidApplied) return false;
     if (!isSupportedNow) return false;
+    if (!billingActionAllowed(resolvedUi, ActionId.sync_refresh)) {
+      setErrorText("Синхронизация недоступна в текущем режиме подписки.");
+      return false;
+    }
 
     const c = makeController();
     const mySeq = ++reqSeqRef.current;
@@ -1380,6 +1409,10 @@ export default function AppDashboardClient() {
     if (isInvalidApplied) return;
     if (!isSupportedNow) return;
     if (fullResyncPending || syncLoading) return;
+    if (!billingActionAllowed(resolvedUi, ActionId.sync_refresh)) {
+      setErrorText("Полная синхронизация недоступна в текущем режиме подписки.");
+      return;
+    }
 
     const runId = crypto.randomUUID();
     const snapFrom = appliedDateFrom;
@@ -1953,6 +1986,11 @@ export default function AppDashboardClient() {
             {errorText}
           </div>
         ) : null}
+        {dashboardWidgetPack.state === "BLOCKED" || dashboardWidgetPack.state === "LIMITED" ? (
+          <div style={{ marginTop: 12 }}>
+            <BillingWidgetPlaceholder pack={dashboardWidgetPack} minHeight={dashboardWidgetPack.state === "BLOCKED" ? 100 : 88} />
+          </div>
+        ) : null}
       </div>
 
       {/* ✅ Строка фильтров + табы (одной линией) */}
@@ -2358,7 +2396,20 @@ export default function AppDashboardClient() {
           <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 10 }}>Динамика расхода</div>
           <div style={{ opacity: 0.7, marginBottom: 14 }}>Spend, Registrations, Sales (по выбранному диапазону)</div>
 
-          <MultiMetricLineChart points={chartPoints} formatMoney={formatMoneyValue} />
+          {dashboardWidgetPack.state === "BLOCKED" ? (
+            <BillingWidgetPlaceholder
+              pack={{
+                ...dashboardWidgetPack,
+                title: dashboardWidgetPack.title || "График недоступен",
+                hint:
+                  dashboardWidgetPack.hint ||
+                  "Данные скрыты из‑за ограничений подписки или статуса аккаунта.",
+              }}
+              minHeight={260}
+            />
+          ) : (
+            <MultiMetricLineChart points={chartPoints} formatMoney={formatMoneyValue} />
+          )}
         </div>
 
         <div style={{ ...mini, ...card, padding: 20 }}>
@@ -2378,9 +2429,20 @@ export default function AppDashboardClient() {
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
               <button
                 type="button"
-                onClick={() => void runFullResync()}
+                onClick={() => {
+                  if (syncWallClickable) {
+                    requestBillingPricingModal("sync_click");
+                    return;
+                  }
+                  void runFullResync();
+                }}
                 disabled={Boolean(
-                  fullResyncPending || syncLoading || loading || isInvalidApplied || !projectId
+                  fullResyncPending ||
+                    syncLoading ||
+                    loading ||
+                    isInvalidApplied ||
+                    !projectId ||
+                    (!syncAllowed && !syncWallClickable)
                 )}
                 style={{
                   background: "none",
@@ -2390,13 +2452,20 @@ export default function AppDashboardClient() {
                   cursor:
                     fullResyncPending || syncLoading || loading || isInvalidApplied || !projectId
                       ? "not-allowed"
-                      : "pointer",
+                      : syncAllowed || syncWallClickable
+                        ? "pointer"
+                        : "not-allowed",
                   color: "rgba(147,197,253,0.95)",
                   fontSize: 12,
                   fontWeight: 600,
                   textDecoration: "underline",
                   opacity:
-                    fullResyncPending || syncLoading || loading || isInvalidApplied || !projectId
+                    fullResyncPending ||
+                    syncLoading ||
+                    loading ||
+                    isInvalidApplied ||
+                    !projectId ||
+                    (!syncAllowed && !syncWallClickable)
                       ? 0.45
                       : 0.95,
                 }}
@@ -2589,6 +2658,20 @@ export default function AppDashboardClient() {
 
       {backgroundReady ? (
         <>
+          {dashboardWidgetPack.state === "BLOCKED" ? (
+            <BillingWidgetPlaceholder pack={dashboardWidgetPack} minHeight={280} />
+          ) : attributionLimited ? (
+            <BillingWidgetPlaceholder
+              pack={{
+                state: "LIMITED",
+                reasonCode: "PLAN_LIMIT_ATTRIBUTION_HEAVY",
+                title: "Расширенные виджеты атрибуции",
+                hint: "На тарифе Starter недоступны тяжёлые блоки атрибуции и карты выручки. Перейдите на Growth для полного набора.",
+              }}
+              minHeight={220}
+            />
+          ) : (
+            <>
           {/* ROW 3: Помогающая атрибуция | Топ путей пользователей */}
           <div
             style={{
@@ -2684,6 +2767,8 @@ export default function AppDashboardClient() {
               }
             />
           </div>
+            </>
+          )}
         </>
       ) : (
         <div

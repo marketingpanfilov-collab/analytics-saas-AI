@@ -1,7 +1,10 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
+import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
+import { ActionId } from "@/app/lib/billingUiContract";
 
 function cx(...a: (string | false | null | undefined)[]) {
   return a.filter(Boolean).join(" ");
@@ -194,6 +197,11 @@ type Activity = {
 export default function PixelsPageClient() {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project_id")?.trim() ?? null;
+  const { resolvedUi } = useBillingBootstrap();
+  const canMutatePixel = useMemo(
+    () => billingActionAllowed(resolvedUi, ActionId.sync_refresh),
+    [resolvedUi]
+  );
 
   const [origin, setOrigin] = useState("");
   const [activeTab, setActiveTab] = useState<(typeof TABS)[number]["id"]>("pixel");
@@ -300,7 +308,7 @@ export default function PixelsPageClient() {
   }, [projectId]);
 
   const regenerateIngestKey = useCallback(async () => {
-    if (!projectId || !canRegenerateIngestKey) return;
+    if (!canMutatePixel || !projectId || !canRegenerateIngestKey) return;
     setRegenerateIngestLoading(true);
     try {
       const res = await fetch("/api/projects/ingest-key/regenerate", {
@@ -315,10 +323,10 @@ export default function PixelsPageClient() {
     } finally {
       setRegenerateIngestLoading(false);
     }
-  }, [projectId, canRegenerateIngestKey]);
+  }, [projectId, canRegenerateIngestKey, canMutatePixel]);
 
   const sendTestEvent = useCallback(async () => {
-    if (!projectId || !ingestKey || !canManageIngestKey) return;
+    if (!canMutatePixel || !projectId || !ingestKey || !canManageIngestKey) return;
     setTestEventStatus("loading");
     const ts = Date.now();
     const boardiq = typeof window !== "undefined" ? (window as unknown as { BoardIQ?: { getVisitorId?: () => string; getSessionId?: () => string; getClickId?: () => string } }).BoardIQ : undefined;
@@ -371,10 +379,10 @@ export default function PixelsPageClient() {
       setTestEventStatus("error");
       setTimeout(() => setTestEventStatus("idle"), 4000);
     }
-  }, [projectId, ingestKey, canManageIngestKey, conversionTab, fetchActivity]);
+  }, [projectId, ingestKey, canManageIngestKey, conversionTab, fetchActivity, canMutatePixel]);
 
   const deleteTestConversions = useCallback(async () => {
-    if (!projectId) return;
+    if (!canMutatePixel || !projectId) return;
     setDeleteTestLoading(true);
     try {
       const res = await fetch("/api/pixels/delete-test-conversions", {
@@ -400,7 +408,7 @@ export default function PixelsPageClient() {
     } finally {
       setDeleteTestLoading(false);
     }
-  }, [projectId, fetchActivity]);
+  }, [projectId, fetchActivity, canMutatePixel]);
 
   useEffect(() => {
     if (!toastMessage) return;
@@ -698,7 +706,7 @@ ${generatedPurchaseJson}`;
                           <button
                             type="button"
                             onClick={regenerateIngestKey}
-                            disabled={regenerateIngestLoading}
+                            disabled={!canMutatePixel || regenerateIngestLoading}
                             className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-200 hover:bg-amber-500/20 disabled:opacity-50"
                           >
                             {regenerateIngestLoading ? "…" : "Regenerate"}
@@ -714,7 +722,7 @@ ${generatedPurchaseJson}`;
                       <button
                         type="button"
                         onClick={regenerateIngestKey}
-                        disabled={regenerateIngestLoading}
+                        disabled={!canMutatePixel || regenerateIngestLoading}
                         className="rounded bg-neutral-700 px-2 py-1 text-xs text-white hover:bg-neutral-600 disabled:opacity-50"
                       >
                         {regenerateIngestLoading ? "…" : "Generate key"}
@@ -769,7 +777,7 @@ ${generatedPurchaseJson}`;
                     <button
                       type="button"
                       onClick={sendTestEvent}
-                      disabled={testEventStatus === "loading"}
+                      disabled={!canMutatePixel || testEventStatus === "loading"}
                       className="rounded bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
                     >
                       {testEventStatus === "loading" ? "Sending…" : conversionTab === "registration" ? "Send test registration" : "Send test purchase"}
@@ -778,7 +786,7 @@ ${generatedPurchaseJson}`;
                     <button
                       type="button"
                       onClick={() => setDeleteTestConfirmOpen(true)}
-                      disabled={deleteTestLoading}
+                      disabled={!canMutatePixel || deleteTestLoading}
                       className="rounded bg-amber-500/90 px-2.5 py-1 text-xs font-medium text-neutral-900 hover:bg-amber-500 disabled:opacity-60"
                     >
                       {deleteTestLoading ? "…" : "Удалить тестовые конверсии"}
@@ -814,7 +822,7 @@ ${generatedPurchaseJson}`;
                     <button
                       type="button"
                       onClick={deleteTestConversions}
-                      disabled={deleteTestLoading}
+                      disabled={!canMutatePixel || deleteTestLoading}
                       className="rounded bg-amber-500 px-3 py-1.5 text-xs font-medium text-neutral-900 hover:bg-amber-400 disabled:opacity-50"
                     >
                       {deleteTestLoading ? "…" : "Delete test conversions"}

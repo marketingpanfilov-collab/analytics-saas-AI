@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingAnalyticsReadGateFromAccess } from "@/app/lib/auth/requireBillingAccess";
 import { getDashboardSourceOptions } from "@/app/lib/dashboardSourceOptions";
 
 function toISODate(s: string | null) {
@@ -30,6 +31,9 @@ export async function GET(req: Request) {
     console.log("[SOURCE_OPTIONS_ACCESS_DENIED]", { projectId, status: access.status });
     return NextResponse.json(access.body, { status: access.status });
   }
+
+  const billing = await billingAnalyticsReadGateFromAccess(access);
+  if (!billing.ok) return billing.response;
 
   const admin = supabaseAdmin();
 

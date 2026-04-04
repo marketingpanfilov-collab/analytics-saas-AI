@@ -14,6 +14,7 @@ import { getSyncTtlMs } from "./syncTtl";
 import { getInternalSyncHeaders } from "./auth/requireProjectAccessOrInternal";
 import { fetchAllPages } from "@/app/lib/supabasePagination";
 import { resolveEnabledAdAccountIdsForProject } from "@/app/lib/dashboardCanonical";
+import { tiktokMaxInclusiveReportDateUtcYmd } from "@/app/lib/tiktokReportDateBounds";
 
 export type Platform = "meta" | "google" | "tiktok";
 
@@ -54,6 +55,18 @@ export function chunkDateInterval(
 /** Max of two YYYY-MM-DD strings (lexicographic order matches chronological). */
 function maxIsoDate(a: string, b: string): string {
   return a > b ? a : b;
+}
+
+/** Dates an ad account must have rows for to satisfy historical coverage for [start,end]. TikTok is capped at UTC yesterday (sync contract). */
+function requiredCoverageDatesYmd(providerNorm: string, start: string, end: string): Set<string> {
+  const p = providerNorm.trim().toLowerCase();
+  if (p === "tiktok") {
+    const maxInclusive = tiktokMaxInclusiveReportDateUtcYmd();
+    const cappedEnd = end <= maxInclusive ? end : maxInclusive;
+    if (cappedEnd < start) return new Set();
+    return new Set(datesInRange(start, cappedEnd));
+  }
+  return new Set(datesInRange(start, end));
 }
 
 /** Generate all dates in [start, end] inclusive (YYYY-MM-DD). Exported for sync zero-fill. */
@@ -119,7 +132,7 @@ function filterValidIntervals(
 /** Per-account coverage for logging/debug (and future UI). */
 export type PerAccountCoverage = {
   ad_account_id: string;
-  /** Whether this account has data (campaign- or account-level, including zero-activity) for every day in [start, end]. */
+  /** Whether this account has data for every day it is required to cover in the requested range. */
   covered: boolean;
   min_date: string | null;
   max_date: string | null;
@@ -132,7 +145,7 @@ export type CoverageResult = {
   rowCount: number;
   minDate: string | null;
   maxDate: string | null;
-  /** Distinct dates that are covered by ALL enabled accounts (intersection). */
+  /** Calendar days in [start,end] that are satisfied for backfill (no missing interval). */
   coveredDates: string[];
   /** Contiguous [start,end] windows where at least one account is missing data. */
   missingIntervals: { start: string; end: string }[];
@@ -147,7 +160,8 @@ export type CoverageResult = {
  * A day is covered for an account if there is ANY row in daily_ad_metrics for that (ad_account_id, date):
  * - campaign-level rows (campaign_id IS NOT NULL), or
  * - account-level rows (campaign_id IS NULL), including zero-fill from sync when API returned no data.
- * Full coverage = EVERY enabled account has at least one row (any level) for EVERY day in [start, end].
+ * Full coverage = every enabled account has rows for each day it is required to cover in [start, end].
+ * TikTok required days end at UTC yesterday (same cap as TikTok insights sync); other providers require the full [start, end].
  * Do NOT filter by campaign_id here: zero-activity days are covered by account-level zero rows.
  */
 export async function isRangeCovered(
@@ -169,6 +183,15 @@ export async function isRangeCovered(
       uncoveredAccountIds: [],
       perAccountCoverage: [],
     };
+  }
+
+  const { data: providerRows } = await admin
+    .from("ad_accounts")
+    .select("id, provider")
+    .in("id", ids);
+  const providerById = new Map<string, string>();
+  for (const r of (providerRows ?? []) as { id: string; provider?: string | null }[]) {
+    providerById.set(r.id, String(r.provider ?? "").trim().toLowerCase());
   }
 
   // Any row (campaign- or account-level). Must NOT use .not("campaign_id", "is", null).
@@ -229,11 +252,18 @@ export async function isRangeCovered(
     }
   }
 
+  const requiredByAccountId = new Map<string, Set<string>>();
+  for (const id of ids) {
+    const prov = providerById.get(id) ?? "";
+    requiredByAccountId.set(id, requiredCoverageDatesYmd(prov, start, end));
+  }
+
   const perAccountCoverage: PerAccountCoverage[] = [];
   const uncoveredAccountIds: string[] = [];
   for (const id of ids) {
     const accountDates = datesByAccount.get(id) ?? new Set();
-    const covered = allDates.every((d) => accountDates.has(d));
+    const required = requiredByAccountId.get(id) ?? new Set();
+    const covered = [...required].every((d) => accountDates.has(d));
     const sorted = [...accountDates].sort();
     const min_date = sorted[0] ?? null;
     const max_date = sorted[sorted.length - 1] ?? null;
@@ -249,15 +279,23 @@ export async function isRangeCovered(
     }
   }
 
-  // Dates covered by ALL accounts (intersection)
-  const coveredByAll = new Set<string>();
+  // Days that need no backfill: nobody is required to have a row, or every account that is required does.
+  const globallyOkDates = new Set<string>();
   for (const d of allDates) {
-    if (ids.every((id) => datesByAccount.get(id)?.has(d))) {
-      coveredByAll.add(d);
+    const anyRequires = ids.some((id) => (requiredByAccountId.get(id) ?? new Set()).has(d));
+    if (!anyRequires) {
+      globallyOkDates.add(d);
+      continue;
     }
+    const allSatisfied = ids.every((id) => {
+      const required = requiredByAccountId.get(id) ?? new Set();
+      if (!required.has(d)) return true;
+      return datesByAccount.get(id)?.has(d) ?? false;
+    });
+    if (allSatisfied) globallyOkDates.add(d);
   }
-  const coveredDates = [...coveredByAll].sort();
-  const missingIntervalsRaw = getMissingIntervals(start, end, coveredByAll);
+  const coveredDates = [...globallyOkDates].sort();
+  const missingIntervalsRaw = getMissingIntervals(start, end, globallyOkDates);
   const missingIntervals = filterValidIntervals(missingIntervalsRaw, { projectId, rangeStart: start, rangeEnd: end });
   const covered = missingIntervals.length === 0;
   const rowCount = (rows ?? []).length;
@@ -270,7 +308,18 @@ export async function isRangeCovered(
       start,
       end,
       uncoveredAccountIds,
-      perAccount: perAccountCoverage.map((p) => ({ id: p.ad_account_id.slice(0, 8), covered: p.covered, min: p.min_date, max: p.max_date, date_count: p.date_count })),
+      uncoveredAccountProviders: uncoveredAccountIds.map((id) => ({
+        ad_account_id: id,
+        provider: providerById.get(id) ?? null,
+      })),
+      perAccount: perAccountCoverage.map((pa) => ({
+        id: pa.ad_account_id.slice(0, 8),
+        provider: providerById.get(pa.ad_account_id) ?? null,
+        covered: pa.covered,
+        min: pa.min_date,
+        max: pa.max_date,
+        date_count: pa.date_count,
+      })),
     });
   }
 

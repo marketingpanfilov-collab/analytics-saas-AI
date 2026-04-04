@@ -33,6 +33,11 @@ import {
   reportHelpReturningBuyers,
 } from "./reportHelpCopy";
 import { getChannelInsight } from "./channelInsight";
+import { ActionId } from "@/app/lib/billingUiContract";
+import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
+import { resolveReportsWidgetState } from "@/app/lib/billingWidgetState";
+import { useBillingBootstrap } from "../../components/BillingBootstrapProvider";
+import BillingWidgetPlaceholder from "../../components/BillingWidgetPlaceholder";
 import { ignoreAbortRejection, isAbortError, safeAbortController } from "@/app/lib/abortUtils";
 import { getSharedCached } from "@/app/lib/sharedDataCache";
 import { parseDashboardRangeParams } from "@/app/lib/dashboardRangeParams";
@@ -961,6 +966,11 @@ export default function ReportsPageClient() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project_id")?.trim() ?? null;
+  const { resolvedUi, bootstrap } = useBillingBootstrap();
+  const reportsPack = useMemo(
+    () => resolveReportsWidgetState(resolvedUi, bootstrap?.plan_feature_matrix),
+    [resolvedUi, bootstrap?.plan_feature_matrix]
+  );
   const [data, setData] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1198,6 +1208,10 @@ export default function ReportsPageClient() {
     let cancelled = false;
     (async () => {
       try {
+        if (!billingActionAllowed(resolvedUi, ActionId.sync_refresh)) {
+          if (!cancelled) setUsdToKztRate(null);
+          return;
+        }
         const res = await fetch("/api/system/update-rates", { method: "POST" });
         const json = await res.json();
         if (cancelled) return;
@@ -1210,7 +1224,7 @@ export default function ReportsPageClient() {
     return () => {
       cancelled = true;
     };
-  }, [currency]);
+  }, [currency, resolvedUi]);
 
   function abortInFlight() {
     const c = abortRef.current;
@@ -1228,6 +1242,18 @@ export default function ReportsPageClient() {
   const loadMarketingSummary = useCallback(
     async (signal?: AbortSignal) => {
       if (!projectId) return;
+      if (reportsPack.state === "BLOCKED") {
+        setLoading(false);
+        setData(null);
+        setError(reportsPack.hint || "Отчёт недоступен");
+        return;
+      }
+      if (!billingActionAllowed(resolvedUi, ActionId.navigate_app)) {
+        setLoading(false);
+        setData(null);
+        setError("Отчёт недоступен в текущем режиме доступа (нет navigate_app).");
+        return;
+      }
       const start = appliedDateFrom;
       const end = appliedDateTo;
       if (!start || !end || start > end) {
@@ -1254,7 +1280,14 @@ export default function ReportsPageClient() {
         });
         const json = await res.json();
         if (!res.ok || !json?.success) {
-          setError(extractApiError(json) || (typeof json?.error === "string" ? json.error : "") || "Ошибка загрузки");
+          if (json?.code === "BILLING_BLOCKED") {
+            setError(
+              "Отчёт недоступен при текущем статусе подписки (BILLING_BLOCKED). " +
+                (typeof json?.access_state === "string" ? `access_state=${json.access_state}` : "")
+            );
+          } else {
+            setError(extractApiError(json) || (typeof json?.error === "string" ? json.error : "") || "Ошибка загрузки");
+          }
           return;
         }
       const rawRows = (json.campaign_table ?? []) as Partial<CampaignRow>[];
@@ -1395,7 +1428,16 @@ export default function ReportsPageClient() {
         if (mySeq === reqSeqRef.current) setLoading(false);
       }
     },
-    [projectId, appliedDateFrom, appliedDateTo, effectiveSources, effectiveAccountIds]
+    [
+      projectId,
+      appliedDateFrom,
+      appliedDateTo,
+      effectiveSources,
+      effectiveAccountIds,
+      reportsPack.state,
+      reportsPack.hint,
+      resolvedUi,
+    ]
   );
 
   const handleDateBlur = () => {
@@ -1875,6 +1917,14 @@ export default function ReportsPageClient() {
     );
   }
 
+  if (reportsPack.state === "BLOCKED") {
+    return (
+      <div style={{ padding: 24, color: COLOR_TEXT }}>
+        <BillingWidgetPlaceholder pack={reportsPack} minHeight={220} />
+      </div>
+    );
+  }
+
   if (loading && !data) {
     return <ReportsPageSkeleton />;
   }
@@ -1955,6 +2005,9 @@ export default function ReportsPageClient() {
 
   return (
     <div style={{ background: REPORT_PAGE_BG, minHeight: "100%" }} className="mx-auto max-w-7xl space-y-5 px-6 py-6">
+      {reportsPack.state === "LIMITED" ? (
+        <BillingWidgetPlaceholder pack={reportsPack} minHeight={72} />
+      ) : null}
       <header className="flex flex-col gap-4">
         <div>
           <h1 className="text-[26px] font-semibold tracking-tight text-white" style={{ letterSpacing: "-0.02em" }}>

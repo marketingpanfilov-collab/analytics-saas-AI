@@ -1,6 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
+import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
+import { ActionId } from "@/app/lib/billingUiContract";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/app/lib/supabaseClient";
@@ -47,6 +50,11 @@ export type OrgMembersManagerProps = {
 
 export default function OrgMembersManager({ layout = "page" }: OrgMembersManagerProps) {
   const router = useRouter();
+  const { resolvedUi } = useBillingBootstrap();
+  const canMutateOrgMembers = useMemo(
+    () => billingActionAllowed(resolvedUi, ActionId.sync_refresh),
+    [resolvedUi]
+  );
   const [loading, setLoading] = useState(true);
   const [allowed, setAllowed] = useState(false);
   const [members, setMembers] = useState<MemberRow[]>([]);
@@ -114,6 +122,7 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
 
   const handleRoleChange = useCallback(
     async (memberId: string, newRole: string) => {
+      if (!canMutateOrgMembers) return;
       setActionLoadingId(memberId);
       const res = await fetch("/api/org-members/role", {
         method: "PATCH",
@@ -123,11 +132,12 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
       setActionLoadingId(null);
       if (res.ok) await fetchMembers();
     },
-    [fetchMembers]
+    [fetchMembers, canMutateOrgMembers]
   );
 
   const handleRemove = useCallback(
     async (row: MemberRow) => {
+      if (!canMutateOrgMembers) return;
       if (row.role === "owner") return;
       if (row.user_id === currentUserId && currentUserRole === "owner") return;
       setActionLoadingId(row.id);
@@ -137,12 +147,16 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
       setActionLoadingId(null);
       if (res.ok) await fetchMembers();
     },
-    [currentUserId, currentUserRole, fetchMembers]
+    [currentUserId, currentUserRole, fetchMembers, canMutateOrgMembers]
   );
 
   const handleAddSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
+      if (!canMutateOrgMembers) {
+        setAddError("Действие недоступно при текущем статусе подписки");
+        return;
+      }
       const email = addEmail.trim().toLowerCase();
       if (!email) {
         setAddError("Введите email");
@@ -169,7 +183,7 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
       }
       setAddError(json?.error ?? "Ошибка добавления");
     },
-    [addEmail, addRole, fetchMembers]
+    [addEmail, addRole, fetchMembers, canMutateOrgMembers]
   );
 
   if (loading || !allowed) {
@@ -364,7 +378,11 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
               </div>
               {addError && <p className="text-sm text-red-400">{addError}</p>}
               <div className="flex flex-wrap gap-3 pt-2">
-                <button type="submit" disabled={addLoading} className="settings-primary-btn">
+                <button
+                  type="submit"
+                  disabled={!canMutateOrgMembers || addLoading}
+                  className="settings-primary-btn"
+                >
                   {addLoading ? "Добавление…" : "Добавить"}
                 </button>
                 <button

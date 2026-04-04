@@ -7,6 +7,7 @@ import {
   parseDashboardRangeParams,
 } from "@/app/lib/dashboardPayloads";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingAnalyticsReadGateFromAccess } from "@/app/lib/auth/requireBillingAccess";
 import { ensureBackfill } from "@/app/lib/dashboardBackfill";
 
 export async function GET(req: Request) {
@@ -34,6 +35,9 @@ export async function GET(req: Request) {
       console.log("[TIMESERIES_ACCESS_DENIED]", { projectId, status: access.status });
       return NextResponse.json(access.body, { status: access.status });
     }
+
+    const billing = await billingAnalyticsReadGateFromAccess(access);
+    if (!billing.ok) return billing.response;
 
     console.log("[ROUTE_BACKFILL_ENTER]", { projectId, start, end, access_source: access.source });
     const admin = supabaseAdmin();

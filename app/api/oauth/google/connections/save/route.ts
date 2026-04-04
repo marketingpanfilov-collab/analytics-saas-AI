@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingHeavySyncGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
 import { logCabinetState } from "@/app/lib/cabinetAuditLog";
 
 function isUuid(v: string) {
@@ -42,6 +43,9 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
+
+  const billingPre = await billingHeavySyncGateBeforeProject(req);
+  if (!billingPre.ok) return billingPre.response;
 
   const access = await requireProjectAccessOrInternal(req, projectId, { allowInternalBypass: false });
   if (!access.allowed) {

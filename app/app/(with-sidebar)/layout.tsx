@@ -2,9 +2,19 @@
 
 import { Suspense, useEffect, useState } from "react";
 import DevAbortRejectionSuppressor from "../components/DevAbortRejectionSuppressor";
+import { BillingBootstrapProvider } from "../components/BillingBootstrapProvider";
+import { BillingPricingModalProvider } from "../components/BillingPricingModalProvider";
+import {
+  BillingAccessStricterBanner,
+  BillingClientSafeModeBanner,
+  PlanChangePendingBanner,
+  ReadOnlyPaywallBanner,
+} from "../components/BillingShellBanners";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 import PaddleAppInit from "../components/PaddleAppInit";
+import PostCheckoutOnboardingModal from "../components/PostCheckoutOnboardingModal";
+import { BillingShellGate } from "../components/BillingShellGate";
 import { supabase } from "../../lib/supabaseClient";
 
 function SidebarFallback() {
@@ -51,42 +61,53 @@ export default function WithSidebarLayout({ children }: { children: React.ReactN
   }, []);
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#0b0b10",
-        display: "grid",
-        gridTemplateColumns: "260px 1fr",
-      }}
-    >
-      <DevAbortRejectionSuppressor />
-      <PaddleAppInit />
-      {/* LEFT: SIDEBAR — 260px to match Sidebar component width; wrapped in Suspense because Sidebar uses useSearchParams() */}
-      <div style={{ minHeight: "100vh", minWidth: 0 }}>
-        <Suspense fallback={<SidebarFallback />}>
-          <Sidebar />
-        </Suspense>
-      </div>
-
-      {/* RIGHT: TOPBAR + CONTENT */}
+    <BillingBootstrapProvider>
+      <BillingPricingModalProvider>
       <div
         style={{
           minHeight: "100vh",
+          background: "#0b0b10",
           display: "grid",
-          gridTemplateRows: "64px 1fr",
+          gridTemplateColumns: "260px 1fr",
         }}
       >
-        {/* Topbar НЕ fixed/sticky — он в сетке, поэтому больше не “заезжает” */}
-        <div style={{ height: 64 }}>
-          <Suspense fallback={<TopbarFallback />}>
-            <Topbar email={email} />
+        <DevAbortRejectionSuppressor />
+        <PaddleAppInit />
+        <PostCheckoutOnboardingModal />
+        {/* LEFT: SIDEBAR — 260px to match Sidebar component width; wrapped in Suspense because Sidebar uses useSearchParams() */}
+        <div style={{ minHeight: "100vh", minWidth: 0 }}>
+          <Suspense fallback={<SidebarFallback />}>
+            <Sidebar />
           </Suspense>
         </div>
 
-        {/* Контент всегда ниже топбара */}
-        <main style={{ minHeight: 0 }}>{children}</main>
+        {/* RIGHT: TOPBAR + CONTENT */}
+        <div
+          style={{
+            minHeight: "100vh",
+            display: "grid",
+            gridTemplateRows: "auto 64px 1fr",
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <BillingClientSafeModeBanner />
+            <BillingAccessStricterBanner />
+            <PlanChangePendingBanner />
+          </div>
+          <div style={{ height: 64 }}>
+            <Suspense fallback={<TopbarFallback />}>
+              <Topbar email={email} />
+            </Suspense>
+          </div>
+
+          <main style={{ minHeight: 0 }}>
+            <ReadOnlyPaywallBanner />
+            <BillingShellGate>{children}</BillingShellGate>
+          </main>
+        </div>
       </div>
-    </div>
+      </BillingPricingModalProvider>
+    </BillingBootstrapProvider>
   );
 }
 

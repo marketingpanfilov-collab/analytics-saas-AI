@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingAnalyticsReadGateFromAccess } from "@/app/lib/auth/requireBillingAccess";
 import { getCanonicalSummary } from "@/app/lib/dashboardCanonical";
 import { pickInsightTexts } from "@/app/lib/weeklyReportInsightTexts";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
@@ -607,6 +608,9 @@ export async function GET(req: Request) {
     if (!access.allowed) {
       return NextResponse.json(access.body, { status: access.status });
     }
+
+    const billing = await billingAnalyticsReadGateFromAccess(access);
+    if (!billing.ok) return billing.response;
 
     const today = toYmd(new Date());
     const monthStart = `${today.slice(0, 8)}01`;

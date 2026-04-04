@@ -3,7 +3,11 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { withSyncLock } from "@/app/lib/syncLock";
 import { datesInRange } from "@/app/lib/dashboardBackfill";
-import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import {
+  requireProjectAccessOrInternal,
+  isInternalSyncRequest,
+} from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingHeavySyncGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
 import { startSyncRun, finishSyncRunSuccess, finishSyncRunError } from "@/app/lib/syncRuns";
 import { runPostSyncInvariantChecks } from "@/app/lib/postSyncInvariantChecks";
 import { getMetaIntegrationForProject } from "@/app/lib/metaIntegration";
@@ -225,6 +229,11 @@ export async function GET(req: Request) {
 
   const projectId = projectIdRaw;
   const adAccountId = adAccountIdRaw;
+
+  if (!isInternalSyncRequest(req)) {
+    const billingPre = await billingHeavySyncGateBeforeProject(req);
+    if (!billingPre.ok) return billingPre.response;
+  }
 
   const access = await requireProjectAccessOrInternal(req, projectId, { allowInternalBypass: true });
   if (!access.allowed) {

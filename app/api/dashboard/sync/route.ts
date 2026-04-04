@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
-import { requireProjectAccessOrInternal, getInternalSyncHeaders } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import {
+  requireProjectAccessOrInternal,
+  getInternalSyncHeaders,
+  isInternalSyncRequest,
+} from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingHeavySyncGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
 import { checkRateLimit } from "@/app/lib/security/rateLimit";
 import { resolveEnabledAdAccountIdsForProject } from "@/app/lib/dashboardCanonical";
 import { dashboardCacheInvalidateProject } from "@/app/lib/dashboardCache";
@@ -87,6 +92,11 @@ export async function POST(req: Request) {
       { success: false, error: "start must be <= end" },
       { status: 400 }
     );
+  }
+
+  if (!isInternalSyncRequest(req)) {
+    const billingPre = await billingHeavySyncGateBeforeProject(req);
+    if (!billingPre.ok) return billingPre.response;
   }
 
   const access = await requireProjectAccessOrInternal(req, projectId, { allowInternalBypass: true });

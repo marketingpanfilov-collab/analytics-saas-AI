@@ -17,6 +17,7 @@ import {
   DASHBOARD_CACHE_TTL,
 } from "@/app/lib/dashboardCache";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingAnalyticsReadGateFromAccess } from "@/app/lib/auth/requireBillingAccess";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { buildDashboardFreshnessPayload } from "@/app/lib/dashboardFreshness";
 import type { ProjectAccessCheckResult } from "@/app/lib/auth/requireProjectAccessOrInternal";
@@ -92,6 +93,8 @@ export async function GET(req: Request) {
     if (!access.allowed) {
       return NextResponse.json(access.body, { status: access.status });
     }
+    const billing = await billingAnalyticsReadGateFromAccess(access);
+    if (!billing.ok) return billing.response;
     const admin = supabaseAdmin();
     const { kpi, timeseriesConversions } = await buildKpiAndTimeseriesConversionsForBundle(
       admin,
@@ -126,6 +129,9 @@ export async function GET(req: Request) {
   if (!access.allowed) {
     return NextResponse.json(access.body, { status: access.status });
   }
+
+  const billing = await billingAnalyticsReadGateFromAccess(access);
+  if (!billing.ok) return billing.response;
 
   const admin = supabaseAdmin();
   const bundleReadOnly = isBundleReadOnlyMode();

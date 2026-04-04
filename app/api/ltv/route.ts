@@ -23,6 +23,8 @@ import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccess } from "@/app/lib/auth/requireProjectAccess";
+import { resolveBillingGateContext } from "@/app/lib/billingCurrentPlan";
+import { accessStateAllowsAnalyticsRead } from "@/app/lib/accessState";
 import { getCanonicalSummary } from "@/app/lib/dashboardCanonical";
 import {
   buildVisitorAndSessionMaps,
@@ -168,6 +170,20 @@ export async function GET(req: Request) {
     }
 
     const admin = supabaseAdmin();
+    const email = (user.email ?? "").trim().toLowerCase() || null;
+    const gate = await resolveBillingGateContext(admin, user.id, email);
+    if (!accessStateAllowsAnalyticsRead(gate.access_state)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Отчёт недоступен при текущем статусе подписки",
+          code: "BILLING_BLOCKED",
+          access_state: gate.access_state,
+          effective_plan: gate.effective_plan,
+        },
+        { status: 402 }
+      );
+    }
 
     // Project currency: conversion_events.value is stored in project currency. Expose for frontend formatting.
     const { data: projectRow } = await admin

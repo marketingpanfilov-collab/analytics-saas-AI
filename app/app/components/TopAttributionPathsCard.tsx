@@ -4,6 +4,9 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { InsightTooltip } from "./InsightTooltip";
 import { fmtProjectCurrency, type ProjectCurrency } from "@/app/lib/currency";
+import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
+import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
+import { ActionId } from "@/app/lib/billingUiContract";
 
 type PathRow = {
   path_label: string;
@@ -39,6 +42,7 @@ const DEMO_PATHS: PathRow[] = [
 type Props = { projectId: string | null; days?: number; limit?: number };
 
 export default function TopAttributionPathsCard({ projectId, days = 30, limit = 5 }: Props) {
+  const { resolvedUi } = useBillingBootstrap();
   const [paths, setPaths] = useState<PathRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -107,6 +111,7 @@ export default function TopAttributionPathsCard({ projectId, days = 30, limit = 
     let cancelled = false;
     (async () => {
       try {
+        if (!billingActionAllowed(resolvedUi, ActionId.sync_refresh)) return;
         const res = await fetch("/api/system/update-rates", { method: "POST" });
         const json = await res.json();
         if (cancelled) return;
@@ -119,7 +124,7 @@ export default function TopAttributionPathsCard({ projectId, days = 30, limit = 
     return () => {
       cancelled = true;
     };
-  }, [projectCurrency]);
+  }, [projectCurrency, resolvedUi]);
 
   const isDemo = !loading && !error && paths.length === 0;
   const displayPaths = paths.length > 0 ? paths : DEMO_PATHS;

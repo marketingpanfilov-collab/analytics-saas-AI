@@ -6,6 +6,10 @@ import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccess } from "@/app/lib/auth/requireProjectAccess";
+import {
+  billingAnalyticsReadGateBeforeProject,
+  billingHeavySyncGateBeforeProject,
+} from "@/app/lib/auth/requireBillingAccess";
 import { buildWeeklyReportPayload } from "../route";
 
 const REPORT_TYPE = "weekly_board_report";
@@ -34,6 +38,9 @@ export async function GET(req: Request) {
     if (!user) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
+
+    const billingRead = await billingAnalyticsReadGateBeforeProject(req);
+    if (!billingRead.ok) return billingRead.response;
 
     const access = await requireProjectAccess(user.id, projectId);
     if (!access) {
@@ -97,6 +104,9 @@ export async function POST(req: Request) {
     if (!user) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
+
+    const billingPre = await billingHeavySyncGateBeforeProject(req);
+    if (!billingPre.ok) return billingPre.response;
 
     const access = await requireProjectAccess(user.id, projectId);
     if (!access) {

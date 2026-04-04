@@ -1,12 +1,20 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import WeeklyReportContent, { type WeeklyReportData } from "@/app/app/components/WeeklyReportContent";
+import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
+import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
+import { ActionId } from "@/app/lib/billingUiContract";
 
 export default function WeeklyReportExportClient() {
   const searchParams = useSearchParams();
+  const { resolvedUi } = useBillingBootstrap();
+  const canExportReport = useMemo(
+    () => billingActionAllowed(resolvedUi, ActionId.export),
+    [resolvedUi]
+  );
   const projectId = searchParams.get("project_id")?.trim() ?? null;
   const start = searchParams.get("start")?.trim();
   const end = searchParams.get("end")?.trim();
@@ -16,7 +24,7 @@ export default function WeeklyReportExportClient() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchReport = useCallback(async () => {
-    if (!projectId) return;
+    if (!canExportReport || !projectId) return;
     setLoading(true);
     setError(null);
     try {
@@ -48,16 +56,31 @@ export default function WeeklyReportExportClient() {
     } finally {
       setLoading(false);
     }
-  }, [projectId, start, end]);
+  }, [projectId, start, end, canExportReport]);
 
   useEffect(() => {
-    if (projectId) fetchReport();
+    if (projectId && canExportReport) fetchReport();
     else setData(null);
-  }, [projectId, fetchReport]);
+  }, [projectId, fetchReport, canExportReport]);
 
   const handlePrint = useCallback(() => {
+    if (!canExportReport) return;
     window.print();
-  }, []);
+  }, [canExportReport]);
+
+  if (!canExportReport) {
+    return (
+      <div className="min-h-[60vh] bg-[#0b0b10] p-6" style={{ gridColumn: "2 / -1" }}>
+        <p className="text-white/70">Экспорт и печать отчёта недоступны при текущем статусе подписки.</p>
+        <Link
+          href="/app/weekly-report"
+          className="mt-4 inline-block rounded-lg border border-white/20 px-4 py-2 text-sm text-white/90 hover:bg-white/10"
+        >
+          Назад к отчёту
+        </Link>
+      </div>
+    );
+  }
 
   if (!projectId) {
     return (
@@ -108,7 +131,8 @@ export default function WeeklyReportExportClient() {
             <button
               type="button"
               onClick={handlePrint}
-              className="rounded-lg bg-white/15 px-4 py-2 text-sm font-medium text-white hover:bg-white/20"
+              disabled={!canExportReport}
+              className="rounded-lg bg-white/15 px-4 py-2 text-sm font-medium text-white hover:bg-white/20 disabled:opacity-50"
             >
               Печать / Save as PDF
             </button>

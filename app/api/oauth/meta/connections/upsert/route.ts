@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingHeavySyncGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
@@ -12,6 +14,14 @@ export async function POST(req: Request) {
       { success: false, error: "project_id, integration_id, ad_account_id required" },
       { status: 400 }
     );
+  }
+
+  const billingPre = await billingHeavySyncGateBeforeProject(req);
+  if (!billingPre.ok) return billingPre.response;
+
+  const access = await requireProjectAccessOrInternal(req, projectId, { allowInternalBypass: false });
+  if (!access.allowed) {
+    return NextResponse.json(access.body, { status: access.status });
   }
 
   const admin = supabaseAdmin();

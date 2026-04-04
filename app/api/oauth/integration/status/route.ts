@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
 import { getMetaIntegrationForProject } from "@/app/lib/metaIntegration";
+import { tiktokMaxInclusiveReportDateUtcYmd } from "@/app/lib/tiktokReportDateBounds";
 import {
   getGoogleTokenHealth,
   getMetaTokenHealth,
@@ -103,9 +104,12 @@ function resolveDataStatus(
   enabled_accounts: number,
   last_sync_status: string | null,
   last_sync_at: string | null,
-  data_max_date: string | null
+  data_max_date: string | null,
+  /** When set (TikTok), compare freshness vs this YMD instead of UTC calendar today — matches TikTok sync max report day. */
+  dataFreshnessThroughYmd?: string | null
 ): { status: IntegrationStatusValue; reason: string | null } {
-  const today = new Date().toISOString().slice(0, 10);
+  const calendarToday = new Date().toISOString().slice(0, 10);
+  const dataRefYmd = dataFreshnessThroughYmd ?? calendarToday;
   const now = Date.now();
   const lastSyncMs = last_sync_at ? new Date(last_sync_at).getTime() : 0;
   const thresholdMs = DATA_FRESHNESS_THRESHOLD_MINUTES * 60 * 1000;
@@ -122,19 +126,16 @@ function resolveDataStatus(
     return { status: "stale", reason: "data_behind" };
   }
 
-  // If we already have data for today, treat integration as healthy even when last sync is old.
-  // This prevents false "stale" noise after periods of inactivity.
-  if (data_max_date >= today) {
+  // If we already have data through the freshness target (usually UTC today; TikTok = max report day per sync contract).
+  if (data_max_date >= dataRefYmd) {
     return { status: "healthy", reason: null };
   }
 
-  // No today data: if the last sync run explicitly failed, surface it as Error.
   if (last_sync_status === "error") {
     return { status: "error", reason: "sync_failed" };
   }
 
-  // Data is behind today: stale for short lag, error for longer lag.
-  const lagDays = dayDiffUtc(data_max_date, today);
+  const lagDays = dayDiffUtc(data_max_date, dataRefYmd);
   if (lagDays >= 2) {
     return { status: "error", reason: "no_data_updates_today" };
   }
@@ -565,7 +566,8 @@ export async function GET(req: Request) {
             enabled_accounts,
             last_sync_status,
             last_sync_at,
-            data_max_date
+            data_max_date,
+            tiktokMaxInclusiveReportDateUtcYmd()
           );
           status = resolved.status;
           reason = resolved.reason ?? reason;

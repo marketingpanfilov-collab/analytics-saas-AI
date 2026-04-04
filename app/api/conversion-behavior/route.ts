@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingAnalyticsReadGateFromAccess } from "@/app/lib/auth/requireBillingAccess";
 
 type Bucket = { label: string; percent: number };
 const ATTRIBUTION_SOURCE_WHITELIST = new Set([
@@ -71,6 +72,9 @@ export async function GET(req: Request) {
 
   const access = await requireProjectAccessOrInternal(req, projectId);
   if (!access.allowed) return NextResponse.json(access.body, { status: access.status });
+
+  const billing = await billingAnalyticsReadGateFromAccess(access);
+  if (!billing.ok) return billing.response;
 
   const hasRange = /^\d{4}-\d{2}-\d{2}$/.test(start) && /^\d{4}-\d{2}-\d{2}$/.test(end) && start <= end;
   const since = hasRange ? `${start}T00:00:00.000Z` : new Date(Date.now() - days * 86400000).toISOString();

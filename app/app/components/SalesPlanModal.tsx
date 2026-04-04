@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
+import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
+import { ActionId } from "@/app/lib/billingUiContract";
 import {
   fmtProjectCurrency,
   fmtUsd,
@@ -106,6 +109,11 @@ export default function SalesPlanModal({
   currency: ProjectCurrency;
   usdToKztRate: number | null;
 }) {
+  const { resolvedUi } = useBillingBootstrap();
+  const canSavePlan = useMemo(
+    () => billingActionAllowed(resolvedUi, ActionId.sync_refresh),
+    [resolvedUi]
+  );
   const [tab, setTab] = useState<"plan" | "forecast">("plan");
 
   // Inputs — новая логика "от обратного"
@@ -201,6 +209,10 @@ export default function SalesPlanModal({
   );
 
   async function handleSave() {
+    if (!canSavePlan) {
+      setSaveError("Действие недоступно при текущем статусе подписки");
+      return;
+    }
     setSaving(true);
     setSaveError(null);
     try {
@@ -902,7 +914,7 @@ export default function SalesPlanModal({
                   <button
                     type="button"
                     onClick={handleSave}
-                    disabled={saving}
+                    disabled={!canSavePlan || saving}
                     style={{
                       padding: "10px 18px",
                       borderRadius: 10,

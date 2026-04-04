@@ -1,8 +1,16 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import WeeklyReportContent from "@/app/app/components/WeeklyReportContent";
+import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
+import { useBillingPricingModalRequest } from "@/app/app/components/BillingPricingModalProvider";
+import {
+  billingActionAllowed,
+  canOfferBillingInlinePricing,
+  isBillingBlocking,
+} from "@/app/lib/billingBootstrapClient";
+import { ActionId } from "@/app/lib/billingUiContract";
 
 type WeeklyReportData = {
   has_sufficient_data: boolean;
@@ -28,6 +36,19 @@ type ShareStatus = {
 export default function WeeklyReportClient() {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project_id")?.trim() ?? null;
+  const { resolvedUi } = useBillingBootstrap();
+  const { requestBillingPricingModal } = useBillingPricingModalRequest();
+  const canExportReport = useMemo(
+    () => billingActionAllowed(resolvedUi, ActionId.export),
+    [resolvedUi]
+  );
+  const exportWall = useMemo(
+    () =>
+      !canExportReport &&
+      isBillingBlocking(resolvedUi) &&
+      canOfferBillingInlinePricing(resolvedUi),
+    [canExportReport, resolvedUi]
+  );
   const today = new Date().toISOString().slice(0, 10);
   const monthStart = `${today.slice(0, 8)}01`;
   const urlStart = searchParams.get("start")?.trim();
@@ -148,7 +169,7 @@ export default function WeeklyReportClient() {
   }, [projectId, data?.has_sufficient_data, fetchShareStatus]);
 
   const createShare = useCallback(async () => {
-    if (!projectId) return;
+    if (!canExportReport || !projectId) return;
     setWarningOpen(false);
     setShareCreating(true);
     try {
@@ -165,11 +186,11 @@ export default function WeeklyReportClient() {
     } finally {
       setShareCreating(false);
     }
-  }, [projectId, dateFrom, dateTo]);
+  }, [projectId, dateFrom, dateTo, canExportReport]);
 
   const revokeShare = useCallback(async () => {
     const token = shareStatus?.token;
-    if (!token) return;
+    if (!canExportReport || !token) return;
     setRevokeConfirmOpen(false);
     setRevokeLoading(true);
     try {
@@ -187,7 +208,7 @@ export default function WeeklyReportClient() {
     } finally {
       setRevokeLoading(false);
     }
-  }, [shareStatus?.token]);
+  }, [shareStatus?.token, canExportReport]);
 
   useEffect(() => {
     const prev = previousRangeRef.current;
@@ -199,7 +220,7 @@ export default function WeeklyReportClient() {
     }
     previousRangeRef.current = { from: dateFrom, to: dateTo };
     if (!changed) return;
-    if (!shareStatus?.active || !shareStatus.token) return;
+    if (!canExportReport || !shareStatus?.active || !shareStatus.token) return;
     if (autoRevokingRef.current) return;
 
     autoRevokingRef.current = true;
@@ -216,7 +237,7 @@ export default function WeeklyReportClient() {
         autoRevokingRef.current = false;
       }
     })();
-  }, [dateFrom, dateTo, shareStatus?.active, shareStatus?.token]);
+  }, [dateFrom, dateTo, shareStatus?.active, shareStatus?.token, canExportReport]);
 
   useEffect(() => {
     return () => {
@@ -312,14 +333,28 @@ export default function WeeklyReportClient() {
             <div className="w-full min-w-0 max-w-xl shrink-0 lg:ml-auto">
               <h2 className="mb-3 text-right text-sm font-semibold uppercase tracking-wide text-white/70">Export &amp; Share</h2>
               <div className="flex flex-col items-end gap-2.5">
-                <a
-                  href={`/app/weekly-report/export?project_id=${encodeURIComponent(projectId!)}&start=${encodeURIComponent(dateFrom)}&end=${encodeURIComponent(dateTo)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex rounded-lg bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white/90 hover:bg-white/14"
-                >
-                  Export / Print
-                </a>
+                {canExportReport ? (
+                  <a
+                    href={`/app/weekly-report/export?project_id=${encodeURIComponent(projectId!)}&start=${encodeURIComponent(dateFrom)}&end=${encodeURIComponent(dateTo)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex rounded-lg bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white/90 hover:bg-white/14"
+                  >
+                    Export / Print
+                  </a>
+                ) : exportWall ? (
+                  <button
+                    type="button"
+                    onClick={() => requestBillingPricingModal("export_click")}
+                    className="inline-flex rounded-lg bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white/90 hover:bg-white/14"
+                  >
+                    Export / Print
+                  </button>
+                ) : (
+                  <span className="inline-flex cursor-not-allowed rounded-lg bg-white/5 px-2.5 py-1.5 text-xs font-medium text-white/40">
+                    Export / Print
+                  </span>
+                )}
                 {shareStatus?.active && shareStatus.url ? (
                   <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-2">
                     <button
@@ -328,7 +363,7 @@ export default function WeeklyReportClient() {
                         setShareCopied(false);
                         setRevokeConfirmOpen(true);
                       }}
-                      disabled={revokeLoading}
+                      disabled={!canExportReport || revokeLoading}
                       className="inline-flex shrink-0 self-start rounded-lg border border-amber-500/30 px-2.5 py-1.5 text-xs text-amber-200 hover:bg-amber-500/12 disabled:opacity-50 sm:self-center"
                     >
                       {revokeLoading ? "Отзыв…" : "Отозвать ссылку"}
@@ -336,7 +371,8 @@ export default function WeeklyReportClient() {
                     <button
                       type="button"
                       onClick={copyShareUrl}
-                      className="inline-flex shrink-0 self-start rounded-lg border border-white/15 px-2.5 py-1.5 text-xs text-white/85 hover:bg-white/8 sm:self-center"
+                      disabled={!canExportReport}
+                      className="inline-flex shrink-0 self-start rounded-lg border border-white/15 px-2.5 py-1.5 text-xs text-white/85 hover:bg-white/8 disabled:opacity-50 sm:self-center"
                     >
                       Copy
                     </button>
@@ -376,7 +412,7 @@ export default function WeeklyReportClient() {
                   <button
                     type="button"
                     onClick={() => setWarningOpen(true)}
-                    disabled={shareCreating || shareLoading}
+                    disabled={!canExportReport || shareCreating || shareLoading}
                     className="inline-flex rounded-lg border border-white/20 bg-amber-500/12 px-2.5 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-500/18 disabled:opacity-50"
                   >
                     {shareCreating ? "Создание…" : "Создать открытую ссылку"}

@@ -3,6 +3,8 @@ import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { getCurrentSystemRoleCheck } from "@/app/lib/auth/systemRoles";
 import { parseBearerToken } from "@/app/lib/auth/parseBearerAuth";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import type { ProjectAccessCheckResult } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { requireBillingHeavySyncForUser } from "@/app/lib/auth/requireBillingAccess";
 import { checkRateLimit, getRequestIp } from "@/app/lib/security/rateLimit";
 import { fetchAndStoreLatestUsdKztRate } from "@/app/lib/exchangeRatesUsdKzt";
 
@@ -37,6 +39,16 @@ async function handleUpdateRates(req: Request): Promise<NextResponse> {
     const {
       data: { user },
     } = await supabase.auth.getUser();
+
+    if (user) {
+      const synthetic: Extract<ProjectAccessCheckResult, { allowed: true }> = {
+        allowed: true,
+        source: "user",
+        userId: user.id,
+      };
+      const billing = await requireBillingHeavySyncForUser(synthetic, user.email ?? null);
+      if (!billing.ok) return billing.response;
+    }
 
     const ip = getRequestIp(req);
     const rlKey = user?.id ? `rates:update:${user.id}:${ip}` : `rates:update:anon:${ip}`;

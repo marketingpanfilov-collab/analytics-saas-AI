@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { syncMetaMarketingIntentFromAdsApi } from "@/app/lib/metaAdsMarketingIntentSync";
+import {
+  requireProjectAccessOrInternal,
+  isInternalSyncRequest,
+} from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingHeavySyncGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
 
 /**
  * GET ?project_id=&ad_account_id=
@@ -25,6 +30,16 @@ export async function GET(req: Request) {
       { success: false, error: "project_id and ad_account_id required" },
       { status: 400 }
     );
+  }
+
+  if (!isInternalSyncRequest(req)) {
+    const billingPre = await billingHeavySyncGateBeforeProject(req);
+    if (!billingPre.ok) return billingPre.response;
+  }
+
+  const access = await requireProjectAccessOrInternal(req, projectId, { allowInternalBypass: true });
+  if (!access.allowed) {
+    return NextResponse.json(access.body, { status: access.status });
   }
 
   const admin = supabaseAdmin();

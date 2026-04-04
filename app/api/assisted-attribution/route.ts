@@ -8,6 +8,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { buildAssistedAttribution } from "@/app/lib/assistedAttribution";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingAnalyticsReadGateFromAccess } from "@/app/lib/auth/requireBillingAccess";
 
 const DEFAULT_DAYS = 30;
 const ALLOWED_DAYS = [7, 30, 90];
@@ -53,6 +54,9 @@ export async function GET(req: Request) {
     }
     const access = await requireProjectAccessOrInternal(req, projectId);
     if (!access.allowed) return NextResponse.json(access.body, { status: access.status });
+
+    const billing = await billingAnalyticsReadGateFromAccess(access);
+    if (!billing.ok) return billing.response;
 
     const admin = supabaseAdmin();
     const { conversions, channels, diagnostics } = await buildAssistedAttribution(admin, {

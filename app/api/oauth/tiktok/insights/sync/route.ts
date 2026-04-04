@@ -7,12 +7,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { getTikTokAccessTokenForApi } from "@/app/lib/tiktokAdsAuth";
-import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import {
+  requireProjectAccessOrInternal,
+  isInternalSyncRequest,
+} from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingHeavySyncGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
 import { withSyncLock } from "@/app/lib/syncLock";
 import { startSyncRun, finishSyncRunSuccess, finishSyncRunError } from "@/app/lib/syncRuns";
 import { runPostSyncInvariantChecks } from "@/app/lib/postSyncInvariantChecks";
 import { applyTiktokMarketingIntentFromAdsApi } from "@/app/lib/campaignMarketingIntent";
 import { upsertDailyMetricsAccountCompat, upsertDailyMetricsCampaignCompat } from "@/app/lib/dailyMetricsUpsert";
+import { tiktokMaxInclusiveReportDateUtcYmd } from "@/app/lib/tiktokReportDateBounds";
+import { datesInRange } from "@/app/lib/dashboardBackfill";
 
 function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
@@ -305,6 +311,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ success: false, error: "date_end must be YYYY-MM-DD" }, { status: 400 });
   }
 
+  if (!isInternalSyncRequest(req)) {
+    const billingPre = await billingHeavySyncGateBeforeProject(req);
+    if (!billingPre.ok) return billingPre.response;
+  }
+
   const access = await requireProjectAccessOrInternal(req, projectId, { allowInternalBypass: true });
   if (!access.allowed) return NextResponse.json(access.body, { status: access.status });
 
@@ -351,13 +362,11 @@ export async function GET(req: Request) {
 
   const now = new Date();
   const ymd = (d: Date) => d.toISOString().slice(0, 10);
-  const yesterdayUtc = new Date(now);
-  yesterdayUtc.setUTCDate(yesterdayUtc.getUTCDate() - 1);
   const defaultStart = new Date(now);
   defaultStart.setDate(1);
   const since = dateStartParam ?? ymd(defaultStart);
   const requestedUntil = dateEndParam ?? ymd(now);
-  const yesterday = ymd(yesterdayUtc);
+  const yesterday = tiktokMaxInclusiveReportDateUtcYmd(now);
   const until = requestedUntil > yesterday ? yesterday : requestedUntil;
   const wasClamped = until !== requestedUntil;
   const requestedStart = since;
@@ -442,7 +451,7 @@ export async function GET(req: Request) {
         prev.clicks += getClicks(r);
         accountByDate.set(date, prev);
       }
-      const accountRows = Array.from(accountByDate.entries()).map(([date, m]) => ({
+      const accountRowsFromApi = Array.from(accountByDate.entries()).map(([date, m]) => ({
         project_id: projectId,
         ad_account_id: canonicalAdAccountId,
         campaign_id: null as string | null,
@@ -461,8 +470,41 @@ export async function GET(req: Request) {
         roas: 0,
       }));
 
-      if (accountRows.length > 0) {
-        const { error: insAccErr } = await upsertDailyMetricsAccountCompat(admin, accountRows);
+      /** Temporary coverage shim: TikTok often omits days with no delivery; upsert same (ad_account_id, date) replaces zeros when API later returns data. */
+      const zeroFillDates = datesInRange(since, until).filter((d) => !accountByDate.has(d));
+      const zeroFillRows = zeroFillDates.map((date) => ({
+        project_id: projectId,
+        ad_account_id: canonicalAdAccountId,
+        campaign_id: null as string | null,
+        date,
+        platform: "tiktok" as const,
+        spend: 0,
+        impressions: 0,
+        clicks: 0,
+        reach: 0,
+        cpm: 0,
+        cpc: 0,
+        ctr: 0,
+        leads: 0,
+        purchases: 0,
+        revenue: 0,
+        roas: 0,
+      }));
+      const accountRowsUpsert = [...accountRowsFromApi, ...zeroFillRows];
+
+      if (zeroFillRows.length > 0) {
+        console.log("[TIKTOK_SYNC_ACCOUNT_ZERO_FILL]", {
+          projectId,
+          ad_account_id_external: adAccountId,
+          since,
+          until,
+          days: zeroFillDates,
+          count: zeroFillRows.length,
+        });
+      }
+
+      if (accountRowsUpsert.length > 0) {
+        const { error: insAccErr } = await upsertDailyMetricsAccountCompat(admin, accountRowsUpsert);
         if (insAccErr) {
           const msg = insAccErr.message ?? String(insAccErr);
           await finishSyncRunError(admin, syncRunId, "tiktok_daily_metrics_insert_account", { message: msg, since, until });
@@ -654,16 +696,17 @@ export async function GET(req: Request) {
       }
 
       await finishSyncRunSuccess(admin, syncRunId, {
-        rowsWritten: accountRows.length + campaignRowsInserted,
-        rowsInserted: accountRows.length + campaignRowsInserted,
+        rowsWritten: accountRowsUpsert.length + campaignRowsInserted,
+        rowsInserted: accountRowsUpsert.length + campaignRowsInserted,
         campaignRowsInserted,
-        accountRowsInserted: accountRows.length,
+        accountRowsInserted: accountRowsUpsert.length,
         rowsDeleted: 0,
         meta: {
           since,
           until,
           ad_account_id_external: adAccountId,
           account_raw_rows: accountRawRows.length,
+          account_zero_fill_days: zeroFillDates,
           campaign_rows_inserted: campaignRowsInserted,
           marketing_intent: intentResult,
         },
@@ -679,8 +722,10 @@ export async function GET(req: Request) {
 
       return NextResponse.json({
         success: true,
-        saved: accountRows.length + campaignRowsInserted,
-        account_rows: accountRows.length,
+        saved: accountRowsUpsert.length + campaignRowsInserted,
+        account_rows: accountRowsUpsert.length,
+        account_rows_from_api: accountRowsFromApi.length,
+        account_zero_fill_days: zeroFillDates,
         campaign_rows: campaignRowsInserted,
         marketing_intent: intentResult,
         period: { since, until },

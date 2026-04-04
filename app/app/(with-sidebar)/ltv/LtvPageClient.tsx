@@ -9,6 +9,9 @@ import type { ProjectCurrency } from "@/app/lib/currency";
 import { fmtProjectCurrency } from "@/app/lib/currency";
 import { getSharedCached } from "@/app/lib/sharedDataCache";
 import { LTV_HELP_CROSS_BOARD_PARITY } from "./ltvHelpCopy";
+import { resolveLtvWidgetState } from "@/app/lib/billingWidgetState";
+import { useBillingBootstrap } from "../../components/BillingBootstrapProvider";
+import BillingWidgetPlaceholder from "../../components/BillingWidgetPlaceholder";
 
 const pillStyle = (active: boolean) => ({
   padding: "6px 16px",
@@ -515,6 +518,11 @@ const DEMO_KPI_BY_COHORT: Record<string, LtvKpi> = {
 export default function LtvPageClient() {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project_id")?.trim() ?? "";
+  const { resolvedUi, bootstrap } = useBillingBootstrap();
+  const ltvPack = useMemo(
+    () => resolveLtvWidgetState(resolvedUi, bootstrap?.plan_feature_matrix),
+    [resolvedUi, bootstrap?.plan_feature_matrix]
+  );
   const selectedSources = useMemo(
     () =>
       (searchParams.get("sources") ?? "")
@@ -622,6 +630,12 @@ export default function LtvPageClient() {
       setLoading(false);
       return;
     }
+    if (ltvPack.state === "BLOCKED") {
+      setData(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -637,7 +651,11 @@ export default function LtvPageClient() {
       const res = await fetch(`/api/ltv?${params.toString()}`, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok) {
-        setError(json?.error ?? "Ошибка загрузки");
+        if (json?.code === "BILLING_BLOCKED") {
+          setError("LTV недоступен при текущем статусе подписки (reason: BILLING_BLOCKED).");
+        } else {
+          setError(json?.error ?? "Ошибка загрузки");
+        }
         setData(null);
         return;
       }
@@ -676,7 +694,16 @@ export default function LtvPageClient() {
     } finally {
       setLoading(false);
     }
-  }, [projectId, dateRange.start, dateRange.end, cohortMonth, acquisitionSource, selectedSources, selectedAccountIds]);
+  }, [
+    projectId,
+    dateRange.start,
+    dateRange.end,
+    cohortMonth,
+    acquisitionSource,
+    selectedSources,
+    selectedAccountIds,
+    ltvPack.state,
+  ]);
 
   useEffect(() => {
     fetchLtv();
@@ -931,6 +958,17 @@ export default function LtvPageClient() {
     );
   }
 
+  if (ltvPack.state === "BLOCKED") {
+    return (
+      <div style={{ padding: 24, background: "#0a0a0a", minHeight: "100%" }}>
+        <h1 style={{ fontSize: 28, fontWeight: 900, margin: 0 }}>LTV / Retention</h1>
+        <div style={{ marginTop: 16 }}>
+          <BillingWidgetPlaceholder pack={ltvPack} minHeight={200} />
+        </div>
+      </div>
+    );
+  }
+
   if (loading && !data) {
     return (
       <div style={{ padding: 24 }}>
@@ -958,6 +996,11 @@ export default function LtvPageClient() {
           LTV / Retention
           {showDemoBadgeInHeader && <span style={demoBadgeStyle}>Demo Data</span>}
         </h1>
+        {ltvPack.state === "LIMITED" ? (
+          <div style={{ marginTop: 8 }}>
+            <BillingWidgetPlaceholder pack={ltvPack} minHeight={72} />
+          </div>
+        ) : null}
         <p
           style={{
             fontSize: 13,

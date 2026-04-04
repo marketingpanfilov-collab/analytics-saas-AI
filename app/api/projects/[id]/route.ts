@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccess } from "@/app/lib/auth/requireProjectAccess";
+import { billingHeavySyncGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
 import { canRenameProject } from "@/app/lib/auth/projectPermissions";
 
 const NAME_MAX_LENGTH = 256;
@@ -34,6 +35,9 @@ export async function PATCH(
   if (!user) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
+
+  const billingPre = await billingHeavySyncGateBeforeProject(req);
+  if (!billingPre.ok) return billingPre.response;
 
   const access = await requireProjectAccess(user.id, projectId);
   if (!access) {

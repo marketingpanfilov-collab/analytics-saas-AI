@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingAnalyticsReadGateFromAccess } from "@/app/lib/auth/requireBillingAccess";
 import { buildDashboardFreshnessPayload } from "@/app/lib/dashboardFreshness";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
 
@@ -19,6 +20,9 @@ export async function GET(req: Request) {
   if (!access.allowed) {
     return NextResponse.json(access.body, { status: access.status });
   }
+
+  const billing = await billingAnalyticsReadGateFromAccess(access);
+  if (!billing.ok) return billing.response;
 
   const admin = supabaseAdmin();
   let userId: string | null = null;

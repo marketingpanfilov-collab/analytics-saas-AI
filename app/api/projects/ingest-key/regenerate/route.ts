@@ -9,6 +9,7 @@ import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccess } from "@/app/lib/auth/requireProjectAccess";
+import { billingHeavySyncGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
 
 const EDIT_ROLES = ["owner", "admin", "project_admin"];
 
@@ -48,6 +49,9 @@ export async function POST(req: Request) {
       { status: 401 }
     );
   }
+
+  const billingPre = await billingHeavySyncGateBeforeProject(req);
+  if (!billingPre.ok) return billingPre.response;
 
   const access = await requireProjectAccess(user.id, projectId);
   if (!access) {

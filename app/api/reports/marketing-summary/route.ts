@@ -8,6 +8,7 @@ import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { getMarketingSummary } from "@/app/lib/marketingReport";
 import { parseDashboardRangeParams } from "@/app/lib/dashboardPayloads";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingAnalyticsReadGateFromAccess } from "@/app/lib/auth/requireBillingAccess";
 import { applyBackfillMetadata, type EnsureBackfillResult } from "@/app/lib/dashboardBackfill";
 
 export async function GET(req: Request) {
@@ -26,6 +27,9 @@ export async function GET(req: Request) {
     if (!access.allowed) {
       return NextResponse.json(access.body, { status: access.status });
     }
+
+    const billing = await billingAnalyticsReadGateFromAccess(access);
+    if (!billing.ok) return billing.response;
 
     const { searchParams } = new URL(req.url);
     const targetCacRaw = searchParams.get("target_cac");

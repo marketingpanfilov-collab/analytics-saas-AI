@@ -1,33 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { loadBillingCurrentPlan } from "@/app/lib/billingCurrentPlan";
+import { logBillingUiTransition } from "@/app/lib/logBillingUiTransition";
 
-type PlanId = "starter" | "growth" | "agency" | "unknown";
-type BillingPeriod = "monthly" | "yearly" | "unknown";
-
-function detectPlan(priceId: string | null): { plan: PlanId; billing: BillingPeriod } {
-  if (!priceId) return { plan: "unknown", billing: "unknown" };
-  const id = priceId.trim();
-  const m = {
-    starterMonthly: process.env.NEXT_PUBLIC_PADDLE_PRICE_STARTER,
-    starterYearly: process.env.NEXT_PUBLIC_PADDLE_PRICE_STARTER_YEARLY,
-    growthMonthly: process.env.NEXT_PUBLIC_PADDLE_PRICE_GROWTH,
-    growthYearly: process.env.NEXT_PUBLIC_PADDLE_PRICE_GROWTH_YEARLY,
-    agencyMonthly: process.env.NEXT_PUBLIC_PADDLE_PRICE_AGENCY,
-    agencyYearly: process.env.NEXT_PUBLIC_PADDLE_PRICE_AGENCY_YEARLY,
-  };
-  if (id === m.starterMonthly) return { plan: "starter", billing: "monthly" };
-  if (id === m.starterYearly) return { plan: "starter", billing: "yearly" };
-  if (id === m.growthMonthly) return { plan: "growth", billing: "monthly" };
-  if (id === m.growthYearly) return { plan: "growth", billing: "yearly" };
-  if (id === m.agencyMonthly) return { plan: "agency", billing: "monthly" };
-  if (id === m.agencyYearly) return { plan: "agency", billing: "yearly" };
-  return { plan: "unknown", billing: "unknown" };
-}
-
-const ACTIVE_STATUSES = new Set(["active", "trialing", "past_due"]);
-
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = await createServerSupabase();
   const {
     data: { user },
@@ -36,144 +14,49 @@ export async function GET() {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
 
+  const incoming = request.headers.get("x-request-id")?.trim();
+  const requestId = incoming && incoming.length > 0 ? incoming : randomUUID();
+
   const admin = supabaseAdmin();
   const email = (user.email ?? "").trim().toLowerCase() || null;
+  const payload = await loadBillingCurrentPlan(admin, user.id, email, { requestId });
 
-  // 0) Entitlements layer (admin overrides), higher priority than provider snapshot.
-  const nowIso = new Date().toISOString();
-  const { data: entitlements } = await admin
-    .from("billing_entitlements")
-    .select("id, plan_override, status, starts_at, ends_at, source, reason, updated_at")
-    .eq("user_id", user.id)
-    .eq("status", "active")
-    .order("updated_at", { ascending: false })
-    .limit(10);
-  const activeEntitlement = (entitlements ?? []).find((e) => {
-    const startsAt = e.starts_at ? Date.parse(String(e.starts_at)) : 0;
-    const endsAt = e.ends_at ? Date.parse(String(e.ends_at)) : null;
-    const nowTs = Date.parse(nowIso);
-    if (Number.isFinite(startsAt) && nowTs < startsAt) return false;
-    if (endsAt != null && Number.isFinite(endsAt) && nowTs > endsAt) return false;
-    return true;
-  });
-  if (activeEntitlement && activeEntitlement.plan_override) {
-    const plan = String(activeEntitlement.plan_override).toLowerCase();
-    const normalizedPlan: PlanId =
-      plan === "starter" || plan === "growth" || plan === "agency" ? (plan as PlanId) : "unknown";
-    return NextResponse.json({
-      success: true,
-      subscription: {
-        provider: "entitlement",
-        plan: normalizedPlan,
-        billing_period: "unknown",
-        status: "active",
-        provider_subscription_id: null,
-        current_period_start: activeEntitlement.starts_at ?? null,
-        current_period_end: activeEntitlement.ends_at ?? null,
-        canceled_at: null,
-        currency_code: null,
-        last_event_type: "entitlement.active",
-        last_event_at: activeEntitlement.updated_at ?? null,
-      },
-    });
+  if (!payload.success) {
+    return NextResponse.json(
+      { success: false, error: payload.error, request_id: requestId },
+      { status: 500, headers: { "x-request-id": requestId } }
+    );
   }
 
-  const customerIds = new Set<string>();
-
-  const { data: byUser } = await admin
-    .from("billing_customer_map")
-    .select("provider_customer_id")
-    .eq("provider", "paddle")
-    .eq("user_id", user.id)
-    .order("updated_at", { ascending: false })
-    .limit(5);
-  for (const r of byUser ?? []) {
-    if (r.provider_customer_id) customerIds.add(String(r.provider_customer_id));
-  }
-
-  if (customerIds.size === 0 && email) {
-    const { data: byEmail } = await admin
-      .from("billing_customer_map")
-      .select("provider_customer_id")
-      .eq("provider", "paddle")
-      .eq("email", email)
-      .order("updated_at", { ascending: false })
-      .limit(5);
-    for (const r of byEmail ?? []) {
-      if (r.provider_customer_id) customerIds.add(String(r.provider_customer_id));
-    }
-  }
-
-  if (customerIds.size === 0) {
-    return NextResponse.json({ success: true, subscription: null });
-  }
-
-  const ids = Array.from(customerIds);
-  const { data: subs, error: subsErr } = await admin
-    .from("billing_subscriptions")
-    .select(
-      "provider_subscription_id, provider_customer_id, provider_price_id, status, currency_code, current_period_start, current_period_end, canceled_at, last_event_type, last_event_at, updated_at"
-    )
-    .eq("provider", "paddle")
-    .in("provider_customer_id", ids)
-    .order("updated_at", { ascending: false })
-    .limit(20);
-
-  if (subsErr) {
-    return NextResponse.json({ success: false, error: subsErr.message }, { status: 500 });
-  }
-
-  const list = (subs ?? []) as Array<{
-    provider_subscription_id: string;
-    provider_customer_id: string | null;
-    provider_price_id: string | null;
-    status: string | null;
-    currency_code: string | null;
-    current_period_start: string | null;
-    current_period_end: string | null;
-    canceled_at: string | null;
-    last_event_type: string | null;
-    last_event_at: string | null;
-    updated_at: string | null;
-  }>;
-
-  if (!list.length) {
-    return NextResponse.json({ success: true, subscription: null });
-  }
-
-  const activeFirst = [...list].sort((a, b) => {
-    const aActive = ACTIVE_STATUSES.has(String(a.status ?? "").toLowerCase()) ? 1 : 0;
-    const bActive = ACTIVE_STATUSES.has(String(b.status ?? "").toLowerCase()) ? 1 : 0;
-    if (aActive !== bActive) return bActive - aActive;
-    const aTs = Date.parse(String(a.current_period_end ?? a.updated_at ?? "")) || 0;
-    const bTs = Date.parse(String(b.current_period_end ?? b.updated_at ?? "")) || 0;
-    return bTs - aTs;
+  await logBillingUiTransition(admin, {
+    userId: user.id,
+    orgId: payload.primary_org_id,
+    nextScreen: payload.resolved_ui_state.screen,
+    nextReason: payload.resolved_ui_state.reason,
+    requestId,
+    source: "bootstrap",
   });
 
-  const top = activeFirst[0]!;
-  const topStatus = String(top.status ?? "unknown").toLowerCase();
-  const topPeriodEndTs = Date.parse(String(top.current_period_end ?? ""));
-  const isExpiredByDate =
-    Number.isFinite(topPeriodEndTs) && topStatus !== "canceled" && topStatus !== "inactive"
-      ? Date.now() > topPeriodEndTs
-      : false;
-  const planMeta = detectPlan(top.provider_price_id ?? null);
+  const { success: _s, ...rest } = payload;
+  const body = {
+    success: true as const,
+    request_id: rest.request_id,
+    client_safe_mode: false as const,
+    primary_org_id: rest.primary_org_id,
+    subscription: rest.subscription,
+    access_state: rest.access_state,
+    effective_plan: rest.effective_plan,
+    requires_post_checkout_onboarding: rest.requires_post_checkout_onboarding,
+    post_checkout_onboarding_step: rest.post_checkout_onboarding_step,
+    company_profile_completed: rest.company_profile_completed,
+    onboarding_state: rest.onboarding_state,
+    has_any_accessible_project: rest.has_any_accessible_project,
+    has_org_membership: rest.has_org_membership,
+    onboarding_progress: rest.onboarding_progress,
+    plan_feature_matrix: rest.plan_feature_matrix,
+    feature_flags: rest.feature_flags,
+    resolved_ui_state: rest.resolved_ui_state,
+  };
 
-  return NextResponse.json({
-    success: true,
-    subscription: {
-      provider: "paddle",
-      plan: planMeta.plan,
-      billing_period: planMeta.billing,
-      status: isExpiredByDate ? "expired" : topStatus,
-      provider_subscription_id: top.provider_subscription_id,
-      current_period_start: top.current_period_start,
-      current_period_end: top.current_period_end,
-      canceled_at: top.canceled_at,
-      currency_code: top.currency_code,
-      last_event_type: top.last_event_type,
-      last_event_at: top.last_event_at,
-    },
-  });
+  return NextResponse.json(body, { headers: { "x-request-id": requestId } });
 }
-

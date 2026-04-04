@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { buildKpiPayload, parseDashboardRangeParams } from "@/app/lib/dashboardPayloads";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingAnalyticsReadGateFromAccess } from "@/app/lib/auth/requireBillingAccess";
 
 export async function GET(req: Request) {
   const params = parseDashboardRangeParams(new URL(req.url).searchParams);
@@ -15,6 +16,9 @@ export async function GET(req: Request) {
     console.log("[KPI_ACCESS_DENIED]", { projectId, status: access.status });
     return NextResponse.json(access.body, { status: access.status });
   }
+
+  const billing = await billingAnalyticsReadGateFromAccess(access);
+  if (!billing.ok) return billing.response;
 
   const admin = supabaseAdmin();
 

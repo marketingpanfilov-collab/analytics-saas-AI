@@ -9,6 +9,7 @@ import {
   DASHBOARD_CACHE_TTL,
 } from "@/app/lib/dashboardCache";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingAnalyticsReadGateFromAccess } from "@/app/lib/auth/requireBillingAccess";
 
 function toISODate(s: string | null) {
   if (!s) return null;
@@ -50,6 +51,9 @@ export async function GET(req: Request) {
     console.log("[METRICS_ACCESS_DENIED]", { projectId, status: access.status });
     return NextResponse.json(access.body, { status: access.status });
   }
+
+  const billing = await billingAnalyticsReadGateFromAccess(access);
+  if (!billing.ok) return billing.response;
 
   const range = start && end ? { start, end } : defaultDateRange();
   const admin = supabaseAdmin();

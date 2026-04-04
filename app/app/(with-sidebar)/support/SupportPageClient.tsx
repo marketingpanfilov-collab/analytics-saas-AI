@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
+import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
+import { ActionId } from "@/app/lib/billingUiContract";
 
 type Ticket = {
   id: string;
@@ -21,6 +24,11 @@ type TicketMessage = {
 };
 
 export default function SupportPageClient() {
+  const { resolvedUi } = useBillingBootstrap();
+  const canSupport = useMemo(
+    () => billingActionAllowed(resolvedUi, ActionId.support),
+    [resolvedUi]
+  );
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [subject, setSubject] = useState("");
@@ -90,6 +98,7 @@ export default function SupportPageClient() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!canSupport) return;
     if (!subject.trim() || !message.trim()) return;
     setSubmitting(true);
     setError(null);
@@ -121,6 +130,7 @@ export default function SupportPageClient() {
 
   async function submitReply(e: React.FormEvent) {
     e.preventDefault();
+    if (!canSupport) return;
     if (!activeTicketId || !reply.trim()) return;
     setReplyBusy(true);
     setError(null);
@@ -187,7 +197,7 @@ export default function SupportPageClient() {
         {error ? <div className="text-sm text-red-300">{error}</div> : null}
         <button
           type="submit"
-          disabled={submitting}
+          disabled={!canSupport || submitting}
           className="inline-flex h-10 items-center rounded-lg border border-emerald-400/35 bg-emerald-500/[0.18] px-4 text-sm font-semibold text-white transition hover:bg-emerald-500/[0.26] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {submitting ? "Отправка..." : "Создать тикет"}
@@ -244,7 +254,7 @@ export default function SupportPageClient() {
             />
             <button
               type="submit"
-              disabled={replyBusy}
+              disabled={!canSupport || replyBusy}
               className="inline-flex h-9 items-center rounded-lg border border-white/15 bg-white/[0.05] px-3 text-sm font-semibold text-white/90 disabled:opacity-60"
             >
               {replyBusy ? "Отправка..." : "Отправить"}

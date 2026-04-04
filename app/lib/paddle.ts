@@ -2,7 +2,19 @@ import { initializePaddle, type Paddle, type PaddleEventData } from "@paddle/pad
 
 let paddlePromise: Promise<Paddle | undefined> | null = null;
 let eventHandler: ((event: PaddleEventData) => void) | null = null;
+const extraEventListeners = new Set<(event: PaddleEventData) => void>();
 let initializedPwCustomerId: string | null = null;
+
+function dispatchPaddleEvent(event: PaddleEventData) {
+  eventHandler?.(event);
+  for (const fn of extraEventListeners) {
+    try {
+      fn(event);
+    } catch {
+      /* ignore listener errors */
+    }
+  }
+}
 
 type GetPaddleOptions = {
   /** Paddle customer id (ctm_...) for Retain on authenticated pages */
@@ -31,7 +43,7 @@ export async function getPaddle(options?: GetPaddleOptions) {
       token: process.env.NEXT_PUBLIC_PADDLE_CLIENT_TOKEN!,
       ...(initializedPwCustomerId ? { pwCustomer: { id: initializedPwCustomerId } } : {}),
       eventCallback: (event) => {
-        eventHandler?.(event as PaddleEventData);
+        dispatchPaddleEvent(event as PaddleEventData);
       },
     });
   }
@@ -42,4 +54,12 @@ export async function getPaddle(options?: GetPaddleOptions) {
 
 export function setPaddleEventHandler(handler: ((event: PaddleEventData) => void) | null) {
   eventHandler = handler;
+}
+
+/** Runs after the primary handler (e.g. login signup checkout). */
+export function addPaddleEventListener(handler: (event: PaddleEventData) => void): () => void {
+  extraEventListeners.add(handler);
+  return () => {
+    extraEventListeners.delete(handler);
+  };
 }

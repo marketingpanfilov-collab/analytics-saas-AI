@@ -2,6 +2,9 @@
 
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
+import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
+import { ActionId } from "@/app/lib/billingUiContract";
 import { getCompanySizeSelectOptions } from "@/app/lib/companySize";
 import { getCompanySphereGroupedSelect } from "@/app/lib/companySphere";
 import SettingsAccessSection from "./SettingsAccessSection";
@@ -72,6 +75,7 @@ function SettingsPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const projectId = searchParams.get("project_id")?.trim() ?? "";
+  const { resolvedUi } = useBillingBootstrap();
 
   const sectionFromUrl = searchParams.get("section");
   const activeSection: SectionId = isSectionId(sectionFromUrl) ? sectionFromUrl : "general";
@@ -289,6 +293,7 @@ function SettingsPageContent() {
 
   const handleSaveProfile = useCallback(async () => {
     if (!projectId || !canEditOrg) return;
+    if (!billingActionAllowed(resolvedUi, ActionId.navigate_settings)) return;
     const snapshot = JSON.stringify({
       owner_full_name: ownerFullName,
       name: companyName,
@@ -352,10 +357,12 @@ function SettingsPageContent() {
     companySphere,
     companySize,
     profileInitial,
+    resolvedUi,
   ]);
 
   const handleSave = useCallback(async () => {
     if (!projectId) return;
+    if (!billingActionAllowed(resolvedUi, ActionId.sync_refresh)) return;
     if (currency === initialCurrency) return;
     setSaving(true);
     setError(null);
@@ -372,6 +379,10 @@ function SettingsPageContent() {
         return;
       }
       if (currency === "KZT") {
+        if (!billingActionAllowed(resolvedUi, ActionId.sync_refresh)) {
+          setError("Обновление курса недоступно при текущем статусе подписки");
+          return;
+        }
         const rateRes = await fetch("/api/system/update-rates", { method: "POST" });
         const rateJson = await rateRes.json().catch(() => null);
         if (!rateRes.ok || !rateJson?.success) {
@@ -389,11 +400,15 @@ function SettingsPageContent() {
     } finally {
       setSaving(false);
     }
-  }, [projectId, currency, initialCurrency]);
+  }, [projectId, currency, initialCurrency, resolvedUi]);
 
   const handleApiAccessSubmit = useCallback(
     async (e: FormEvent) => {
       e.preventDefault();
+      if (!billingActionAllowed(resolvedUi, ActionId.support)) {
+        setApiAccessError("Отправка заявки недоступна при текущем статусе подписки.");
+        return;
+      }
       setApiAccessError(null);
       setApiAccessSuccess(false);
       const desc = apiAccessDescription.trim();
@@ -438,7 +453,7 @@ function SettingsPageContent() {
         setApiAccessSubmitting(false);
       }
     },
-    [apiAccessName, apiAccessPhone, apiAccessCallVolume, apiAccessDescription, projectId, projectName]
+    [apiAccessName, apiAccessPhone, apiAccessCallVolume, apiAccessDescription, projectId, projectName, resolvedUi]
   );
 
   if (!projectId) {

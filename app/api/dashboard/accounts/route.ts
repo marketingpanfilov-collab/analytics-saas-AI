@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingAnalyticsReadGateFromAccess } from "@/app/lib/auth/requireBillingAccess";
 import { resolveEnabledAdAccountIdsForProject } from "@/app/lib/dashboardCanonical";
 
 /**
@@ -22,6 +23,9 @@ export async function GET(req: Request) {
     console.log("[ACCOUNTS_ACCESS_DENIED]", { projectId, status: access.status });
     return NextResponse.json(access.body, { status: access.status });
   }
+
+  const billing = await billingAnalyticsReadGateFromAccess(access);
+  if (!billing.ok) return billing.response;
 
   const admin = supabaseAdmin();
 

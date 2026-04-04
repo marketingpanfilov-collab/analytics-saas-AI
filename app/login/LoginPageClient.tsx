@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { isValidPricingPlanId, type PricingPlanId } from "../lib/auth/loginPurchaseUrl";
-import { getPaddle, setPaddleEventHandler } from "../lib/paddle";
+import { addPaddleEventListener, getPaddle } from "../lib/paddle";
 import { getPaddlePriceId, getPaddleProductId, type BillingPeriod } from "../lib/paddlePriceMap";
 import { supabase } from "../lib/supabaseClient";
 
@@ -107,7 +107,7 @@ export default function LoginPageClient() {
   }, [billing, showPlanModal]);
 
   useEffect(() => {
-    setPaddleEventHandler((event) => {
+    return addPaddleEventListener((event) => {
       const ctx = checkoutStateRef.current;
       if (!ctx) return;
 
@@ -128,8 +128,6 @@ export default function LoginPageClient() {
         }
       }
     });
-
-    return () => setPaddleEventHandler(null);
   }, []);
 
   const submitWithPlan = async (plan: PricingPlanId, period: BillingPeriod) => {
@@ -299,7 +297,7 @@ export default function LoginPageClient() {
   const signupBlocked = mode === "signup" && !acceptTerms;
 
   const inputClass =
-    "mt-2 w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-white/20 focus:outline-none";
+    "mt-2 w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white placeholder-zinc-500 focus:border-white/20 focus:outline-none";
 
   const handleBack = () => {
     if (typeof window !== "undefined" && window.history.length > 1) {

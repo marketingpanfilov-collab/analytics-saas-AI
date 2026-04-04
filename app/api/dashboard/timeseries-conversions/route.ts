@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { buildTimeseriesConversionsPayload, parseDashboardRangeParams } from "@/app/lib/dashboardPayloads";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingAnalyticsReadGateFromAccess } from "@/app/lib/auth/requireBillingAccess";
 
 /**
  * GET /api/dashboard/timeseries-conversions
@@ -20,6 +21,9 @@ export async function GET(req: Request) {
     console.log("[TIMESERIES_CONVERSIONS_ACCESS_DENIED]", { projectId, status: access.status });
     return NextResponse.json(access.body, { status: access.status });
   }
+
+  const billing = await billingAnalyticsReadGateFromAccess(access);
+  if (!billing.ok) return billing.response;
 
   const admin = supabaseAdmin();
 

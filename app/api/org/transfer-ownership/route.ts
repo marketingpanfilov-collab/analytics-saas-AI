@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccess } from "@/app/lib/auth/requireProjectAccess";
+import { billingAnalyticsReadGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
 import { canTransferOrganizationOwnership } from "@/app/lib/auth/projectPermissions";
 
 /**
@@ -30,6 +31,9 @@ export async function POST(req: Request) {
   if (!user) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
+
+  const billingPre = await billingAnalyticsReadGateBeforeProject(req);
+  if (!billingPre.ok) return billingPre.response;
 
   let orgId: string;
   if (organizationIdParam) {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { requireProjectAccess } from "@/app/lib/auth/requireProjectAccess";
+import { billingHeavySyncGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
 
 /** Roles that can edit monthly plan: org owner/admin or project-level project_admin */
 const ROLES_CAN_EDIT_PLAN = ["owner", "admin", "project_admin"];
@@ -188,6 +189,9 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
+
+  const billingPre = await billingHeavySyncGateBeforeProject(req);
+  if (!billingPre.ok) return billingPre.response;
 
   const access = await requireProjectAccess(user.id, projectId);
   if (!access) {
