@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { redirect } from "next/navigation";
 import { getCurrentUserContext } from "@/app/lib/auth/getCurrentUserContext";
+import { loadBillingCurrentPlan } from "@/app/lib/billingCurrentPlan";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { getPlanMaxProjectsForUser } from "@/app/lib/projectPlanLimit";
 import ProjectsListClient from "../../components/projects/ProjectsListClient";
@@ -15,6 +17,14 @@ export default async function ProjectsPage() {
     redirect("/login");
   }
 
+  const admin = supabaseAdmin();
+  const billingSnap = await loadBillingCurrentPlan(admin, context.user.id, context.user.email ?? null, {
+    requestId: randomUUID(),
+  });
+  if (billingSnap.success && billingSnap.requires_post_checkout_onboarding) {
+    redirect("/app/projects/onboarding");
+  }
+
   const canCreate =
     context.memberships.length > 0 &&
     ORG_ROLES_CAN_CREATE.includes(context.memberships[0]!.role);
@@ -25,7 +35,6 @@ export default async function ProjectsPage() {
 
   let planMaxProjects: number | null = null;
   if (context.organizationId) {
-    const admin = supabaseAdmin();
     planMaxProjects = await getPlanMaxProjectsForUser(
       admin,
       context.user.id,

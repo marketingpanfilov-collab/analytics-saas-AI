@@ -111,7 +111,7 @@ export default function ProjectsListClient({
   useEffect(() => {
     if (billingBootstrapLoading) return;
     if (showPostCheckoutModal) {
-      router.replace("/app/onboarding");
+      router.replace("/app/projects/onboarding");
     }
   }, [billingBootstrapLoading, showPostCheckoutModal, router]);
   const canSyncProjectMutations = useMemo(

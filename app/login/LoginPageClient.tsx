@@ -39,7 +39,7 @@ function buildEmailConfirmRedirectUrl(): string {
     typeof window !== "undefined"
       ? window.location.origin
       : (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
-  const next = encodeURIComponent("/app/projects");
+  const next = encodeURIComponent("/app/projects/onboarding");
   return `${origin.replace(/\/$/, "")}/auth/callback?next=${next}`;
 }
 

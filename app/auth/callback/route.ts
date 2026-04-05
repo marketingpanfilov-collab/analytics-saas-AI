@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { safeAppNextTarget } from "@/app/lib/auth/safeAppNextTarget";
 
-const DEFAULT_AFTER_CONFIRM = "/app/projects";
+const DEFAULT_AFTER_CONFIRM = "/app/projects/onboarding";
 
 /**
  * Email confirmation / OAuth PKCE: Supabase redirects here with ?code=...
