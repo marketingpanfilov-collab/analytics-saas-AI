@@ -19,6 +19,7 @@ import {
   BILLING_STABILIZATION_WINDOW_MS,
   blockingLevelRank,
   broadcastBillingBootstrapInvalidate,
+  logBillingBootstrapSnapshot,
   type BillingBootstrapApiOk,
   clearBillingRouteStorage,
   fingerprintResolvedUi,
@@ -130,6 +131,8 @@ function BillingBootstrapProviderInner({ children }: { children: ReactNode }) {
   const clientLogDedupRef = useRef<{ fp: string; ts: number }>({ fp: "", ts: 0 });
   const bootstrapInflightRef = useRef<Promise<BillingBootstrapReloadPack> | null>(null);
   const lastAuthUserIdRef = useRef<string | null>(null);
+  /** P1: не дёргать BroadcastChannel при быстром flip fingerprint (webhook vs UI). */
+  const bootstrapBroadcastThrottleRef = useRef(0);
 
   useEffect(() => {
     clientSafeModeRef.current = clientSafeMode;
@@ -248,12 +251,17 @@ function BillingBootstrapProviderInner({ children }: { children: ReactNode }) {
         ...result,
         feature_flags: normalizeBillingFeatureFlags(result.feature_flags),
       };
+      logBillingBootstrapSnapshot("bootstrap_ok", normalized);
       const fp = fingerprintResolvedUi(normalized.resolved_ui_state);
       if (
         prevSuccessBootstrapFpRef.current !== null &&
         prevSuccessBootstrapFpRef.current !== fp
       ) {
-        broadcastBillingBootstrapInvalidate();
+        const now = Date.now();
+        if (now - bootstrapBroadcastThrottleRef.current >= 500) {
+          bootstrapBroadcastThrottleRef.current = now;
+          broadcastBillingBootstrapInvalidate();
+        }
       }
       prevSuccessBootstrapFpRef.current = fp;
 

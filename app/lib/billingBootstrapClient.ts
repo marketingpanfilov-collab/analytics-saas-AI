@@ -149,7 +149,36 @@ export function blockingLevelRank(b: BlockingLevel): number {
 }
 
 export function shouldApplyResolvedImmediately(reason: ReasonCode): boolean {
-  return reason === ReasonCode.BILLING_REFUNDED;
+  return (
+    reason === ReasonCode.BILLING_REFUNDED ||
+    reason === ReasonCode.POST_CHECKOUT_REQUIRED
+  );
+}
+
+/** Dev / NEXT_PUBLIC_BILLING_DEBUG=1: один сжатый снимок для диагностики post-payment (план аудита §5). */
+export function logBillingBootstrapSnapshot(tag: string, payload: BillingBootstrapApiOk): void {
+  try {
+    const enabled =
+      (typeof process !== "undefined" && process.env.NODE_ENV === "development") ||
+      (typeof process !== "undefined" && process.env.NEXT_PUBLIC_BILLING_DEBUG === "1");
+    if (!enabled) return;
+    console.debug(`[billing_bootstrap_snapshot] ${tag}`, {
+      request_id: payload.request_id,
+      primary_org_id: payload.primary_org_id ?? null,
+      access_state: payload.access_state ?? null,
+      effective_plan: payload.effective_plan ?? null,
+      requires_post_checkout_onboarding: payload.requires_post_checkout_onboarding ?? null,
+      post_checkout_onboarding_step: payload.post_checkout_onboarding_step ?? null,
+      onboarding_state: payload.onboarding_state ?? null,
+      has_org_membership: payload.has_org_membership ?? null,
+      resolved_screen: payload.resolved_ui_state.screen,
+      resolved_reason: payload.resolved_ui_state.reason,
+      subscription_status: payload.subscription?.status ?? null,
+      subscription_plan: payload.subscription?.plan ?? null,
+    });
+  } catch {
+    /* ignore */
+  }
 }
 
 export function makeSafeFallbackResolvedUi(requestId: string): ResolvedUiStateV1 {

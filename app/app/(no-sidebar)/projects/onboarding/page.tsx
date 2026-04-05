@@ -15,6 +15,8 @@ export default function ProjectsOnboardingPage() {
   useEffect(() => {
     if (loading) return;
     if (!bootstrap) return;
+    // Не уходим на /projects, пока серверный флаг пост-чекаута true — иначе гонка со стабилизацией displayedResolved.
+    if (bootstrap.requires_post_checkout_onboarding === true) return;
     if (!showPostCheckoutModal) {
       router.replace("/app/projects");
     }
