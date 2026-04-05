@@ -21,10 +21,29 @@ import {
   broadcastBillingBootstrapInvalidate,
   clearBillingRouteStorage,
   isBillingBlocking,
+  isBootstrapResponseValid,
   resolvePostPaymentRedirect,
   storeOriginRoute,
   validateBillingReturnPath,
+  writeLastKnownBootstrap,
+  type BillingBootstrapApiOk,
 } from "@/app/lib/billingBootstrapClient";
+import {
+  newCheckoutAttemptId,
+  persistCheckoutAttemptForSession,
+  readCheckoutAttemptIdForTracing,
+} from "@/app/lib/billingCheckoutAttempt";
+import { emitBillingFunnelEvent } from "@/app/lib/billingFunnelAnalytics";
+import {
+  BILLING_SOFT_PAYMENT_DETAIL,
+  BILLING_SOFT_PAYMENT_HEADLINE,
+  markPaymentWebhookGrace,
+} from "@/app/lib/billingPaymentWebhookGrace";
+import {
+  postBillingReconcileLatestCheckout,
+  type ReconcileLatestCheckoutJson,
+} from "@/app/lib/billingReconcileClient";
+import { waitUntilPostPaymentUnblocked } from "@/app/lib/billingPostPaymentPoll";
 import {
   billingPayloadFromResolved,
   emitBillingCjmEvent,
@@ -34,7 +53,6 @@ import { BILLING_CHECKOUT_MISSING_ORG_MESSAGE } from "@/app/lib/billing/billingC
 import { openPaddleSubscriptionCheckout } from "@/app/lib/paddleCheckoutClient";
 import type { BillingPeriod } from "@/app/lib/paddlePriceMap";
 import { supabase } from "@/app/lib/supabaseClient";
-import type { BillingBootstrapApiOk } from "@/app/lib/billingBootstrapClient";
 import type { ResolvedUiStateV1 } from "@/app/lib/billingUiContract";
 import {
   parseBootstrapBillingPeriod,
@@ -50,10 +68,6 @@ import {
 import { getPlanFeatureMatrix, type PlanFeatureMatrix } from "@/app/lib/planConfig";
 import { useBillingBootstrap } from "./BillingBootstrapProvider";
 
-const POST_PAYMENT_POLL_MS = 2500;
-/** Не более ~60 с автоопроса; дальше — баннер с «Обновить статус». */
-const POST_PAYMENT_MAX_ATTEMPTS = 24;
-const POST_PAYMENT_TIMEOUT_MS = 60_000;
 /** Сервер может ответить 202, пока другой инстанс выполняет apply с тем же idempotency_key. */
 const APPLY_IN_PROGRESS_MAX_RETRIES = 24;
 const APPLY_IN_PROGRESS_DELAY_MS = 500;
@@ -180,6 +194,8 @@ export default function BillingInlinePricing({
   const [paymentIncomplete, setPaymentIncomplete] = useState(false);
   const [postPaymentPolling, setPostPaymentPolling] = useState(false);
   const [postPaymentStuck, setPostPaymentStuck] = useState(false);
+  const [postPaymentReconcileBusy, setPostPaymentReconcileBusy] = useState(false);
+  const [postPaymentReconcileHint, setPostPaymentReconcileHint] = useState<string | null>(null);
   const postPaymentStartedRef = useRef(false);
   const postPaymentGenRef = useRef(0);
   const applyUpgradeInFlightRef = useRef(false);
@@ -417,37 +433,50 @@ export default function BillingInlinePricing({
   const runPostPaymentPollingLoop = useCallback(
     (generation: number) => {
       void (async () => {
-        const startedAt = Date.now();
-        for (let attempt = 1; ; attempt++) {
-          if (postPaymentGenRef.current !== generation) return;
-          const pack = await reloadBootstrap();
-          if (postPaymentGenRef.current !== generation) return;
-          const fresh = pack.resolved;
-          if (pack.bootstrap?.subscription) {
-            reconcileOptimisticWithBootstrapSnapshot(pack.bootstrap.subscription);
-          }
-          const blocking = fresh ? isBillingBlocking(fresh, billingBlockingOpts) : true;
-          billingPollDebug("tick", { attempt, blocking });
-          if (fresh && !blocking) {
-            billingPollDebug("stop", { attempt, stop: "unlock" });
-            await finishUnlockedNavigation(fresh);
-            return;
-          }
-          if (attempt >= POST_PAYMENT_MAX_ATTEMPTS) {
-            billingPollDebug("stop", { attempt, stop: "max_attempts" });
-            setPostPaymentStuck(true);
-            return;
-          }
-          if (Date.now() - startedAt >= POST_PAYMENT_TIMEOUT_MS) {
-            billingPollDebug("stop", { attempt, stop: "timeout" });
-            setPostPaymentStuck(true);
-            return;
-          }
-          await new Promise((r) => setTimeout(r, POST_PAYMENT_POLL_MS));
+        const pack = await waitUntilPostPaymentUnblocked({
+          reload: reloadBootstrap,
+          billingBlockingOptions: billingBlockingOpts,
+          isCancelled: () => postPaymentGenRef.current !== generation,
+          onTick: ({ attempt, blocking }) => billingPollDebug("tick", { attempt, blocking }),
+        });
+        if (postPaymentGenRef.current !== generation) return;
+        const fresh = pack.resolved;
+        if (pack.bootstrap?.subscription) {
+          reconcileOptimisticWithBootstrapSnapshot(pack.bootstrap.subscription);
         }
+        const blocking = fresh ? isBillingBlocking(fresh, billingBlockingOpts) : true;
+        if (fresh && !blocking) {
+          billingPollDebug("stop", { stop: "unlock" });
+          emitBillingFunnelEvent("billing_access_unblocked", {
+            checkout_attempt_id: readCheckoutAttemptIdForTracing(),
+            organization_id: pack.bootstrap?.primary_org_id ?? null,
+            user_id: sessionUserId,
+            plan: pack.bootstrap?.subscription?.plan ?? pack.bootstrap?.plan_feature_matrix?.plan ?? null,
+            billing_period: pack.bootstrap?.subscription?.billing_period ?? null,
+            source: "in_app",
+          });
+          await finishUnlockedNavigation(fresh);
+          return;
+        }
+        billingPollDebug("stop", { stop: blocking ? "still_blocking" : "no_resolved" });
+        emitBillingFunnelEvent("billing_checkout_stuck_timeout", {
+          checkout_attempt_id: readCheckoutAttemptIdForTracing(),
+          organization_id: bootstrap?.primary_org_id ?? null,
+          user_id: sessionUserId,
+          plan: bootstrap?.subscription?.plan ?? bootstrap?.plan_feature_matrix?.plan ?? null,
+          billing_period: bootstrap?.subscription?.billing_period ?? null,
+          source: "in_app",
+        });
+        setPostPaymentStuck(true);
       })();
     },
-    [billingBlockingOpts, finishUnlockedNavigation, reloadBootstrap, reconcileOptimisticWithBootstrapSnapshot]
+    [
+      billingBlockingOpts,
+      finishUnlockedNavigation,
+      reloadBootstrap,
+      reconcileOptimisticWithBootstrapSnapshot,
+      sessionUserId,
+    ]
   );
 
   const onManualRefreshStatus = useCallback(async () => {
@@ -517,6 +546,7 @@ export default function BillingInlinePricing({
       postPaymentStartedRef.current = false;
       setPostPaymentPolling(false);
       setPostPaymentStuck(false);
+      setPostPaymentReconcileHint(null);
       setCheckoutError(null);
       setPaymentIncomplete(false);
       const email = sessionEmail.trim();
@@ -600,6 +630,8 @@ export default function BillingInlinePricing({
       setPreparingCheckout(true);
       try {
         storeOriginRoute(currentAppPath || pathname);
+        const checkoutAttemptId = newCheckoutAttemptId();
+        persistCheckoutAttemptForSession(checkoutAttemptId);
         const r = await openPaddleSubscriptionCheckout({
           plan,
           billing,
@@ -608,6 +640,7 @@ export default function BillingInlinePricing({
           pwCustomerId,
           primaryOrgId: bootstrap?.primary_org_id ?? null,
           projectId,
+          checkoutAttemptId,
           onCompleted: () => {
             if (postPaymentStartedRef.current) return;
             postPaymentStartedRef.current = true;
@@ -616,7 +649,17 @@ export default function BillingInlinePricing({
             setPaymentIncomplete(false);
             setPostPaymentPolling(true);
             setPostPaymentStuck(false);
+            setPostPaymentReconcileHint(null);
+            markPaymentWebhookGrace({ checkoutAttemptId, source: "in_app" });
             broadcastBillingBootstrapInvalidate();
+            emitBillingFunnelEvent("billing_checkout_completed_client", {
+              checkout_attempt_id: checkoutAttemptId,
+              organization_id: bootstrap?.primary_org_id ?? null,
+              user_id: sessionUserId,
+              plan,
+              billing_period: billing,
+              source: "in_app",
+            });
             emitBillingCjmEvent(
               "checkout_success",
               billingPayloadFromResolved(resolvedUi, {
@@ -648,6 +691,14 @@ export default function BillingInlinePricing({
           setCheckoutError(r.error);
           setCheckoutBusy(false);
         } else {
+          emitBillingFunnelEvent("billing_checkout_opened", {
+            checkout_attempt_id: checkoutAttemptId,
+            organization_id: bootstrap?.primary_org_id ?? null,
+            user_id: sessionUserId,
+            plan,
+            billing_period: billing,
+            source: "in_app",
+          });
           emitBillingCjmEvent(
             "checkout_opened",
             billingPayloadFromResolved(resolvedUi, {
@@ -2157,20 +2208,74 @@ export default function BillingInlinePricing({
           }}
         >
           <p style={{ margin: 0, fontSize: 13, color: "rgba(220,255,235,0.98)", fontWeight: 600 }}>
-            {postPaymentStuck ? "Статус подписки ещё обновляется" : "Обновляем подписку…"}
+            {postPaymentStuck ? BILLING_SOFT_PAYMENT_HEADLINE : `${BILLING_SOFT_PAYMENT_HEADLINE}…`}
           </p>
           <p style={{ margin: "8px 0 0", fontSize: 12, color: "rgba(255,255,255,0.65)", lineHeight: 1.45 }}>
-            {postPaymentStuck
-              ? "Мы обрабатываем обновление подписки. Нажмите «Обновить статус» или обратитесь в поддержку, если доступ не восстановился."
-              : "Обычно это 5–10 секунд. Обновление может занять до минуты. Автоопрос не дольше 60 секунд, затем можно обновить вручную."}
+            {postPaymentStuck ? BILLING_SOFT_PAYMENT_DETAIL : `${BILLING_SOFT_PAYMENT_DETAIL} Автоопрос — до 60 секунд.`}
           </p>
-          {postPaymentStuck ? (
+          <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 8 }}>
+            <button
+              type="button"
+              disabled={postPaymentReconcileBusy}
+              onClick={() => {
+                void (async () => {
+                  setPostPaymentReconcileBusy(true);
+                  setPostPaymentReconcileHint(null);
+                  try {
+                    const { accessReady, json } = await postBillingReconcileLatestCheckout({
+                      checkoutAttemptId: readCheckoutAttemptIdForTracing(),
+                    });
+                    const recJson = json && isBootstrapResponseValid(json) ? (json as ReconcileLatestCheckoutJson) : null;
+                    if (recJson) {
+                      writeLastKnownBootstrap(recJson);
+                    }
+                    await reloadBootstrap();
+                    if (accessReady) {
+                      const fresh = recJson?.resolved_ui_state ?? null;
+                      if (fresh && !isBillingBlocking(fresh, billingBlockingOpts)) {
+                        emitBillingFunnelEvent("billing_access_unblocked", {
+                          checkout_attempt_id: readCheckoutAttemptIdForTracing(),
+                          organization_id: recJson?.primary_org_id ?? null,
+                          user_id: sessionUserId,
+                          plan: recJson?.subscription?.plan ?? recJson?.plan_feature_matrix?.plan ?? null,
+                          billing_period: recJson?.subscription?.billing_period ?? null,
+                          source: "in_app",
+                          via: "reconcile",
+                        });
+                        await finishUnlockedNavigation(fresh);
+                      }
+                    } else {
+                      const r = recJson?.reconcile;
+                      setPostPaymentReconcileHint(
+                        r && !r.has_billing_subscription_row
+                          ? "В базе пока нет записи подписки — webhook может ещё обрабатываться."
+                          : "Доступ ещё не обновился. Попробуйте снова через минуту или напишите в поддержку."
+                      );
+                    }
+                  } finally {
+                    setPostPaymentReconcileBusy(false);
+                  }
+                })();
+              }}
+              style={{
+                padding: "8px 14px",
+                borderRadius: 10,
+                border: "1px solid rgba(52,211,129,0.55)",
+                background: "rgba(52,211,129,0.2)",
+                color: "rgba(220,255,235,0.98)",
+                fontWeight: 700,
+                fontSize: 12,
+                cursor: postPaymentReconcileBusy ? "wait" : "pointer",
+                opacity: postPaymentReconcileBusy ? 0.65 : 1,
+              }}
+            >
+              Проверить оплату
+            </button>
             <button
               type="button"
               disabled={manualRefreshBusy}
               onClick={() => void onManualRefreshStatus()}
               style={{
-                marginTop: 10,
                 padding: "8px 14px",
                 borderRadius: 10,
                 border: "1px solid rgba(52,211,129,0.45)",
@@ -2184,6 +2289,11 @@ export default function BillingInlinePricing({
             >
               Обновить статус
             </button>
+          </div>
+          {postPaymentReconcileHint ? (
+            <p style={{ margin: "10px 0 0", fontSize: 11, color: "rgba(255,220,200,0.92)", lineHeight: 1.45 }}>
+              {postPaymentReconcileHint}
+            </p>
           ) : null}
         </div>
       ) : null}

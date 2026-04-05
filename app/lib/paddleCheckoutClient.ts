@@ -18,6 +18,8 @@ export type OpenPaddleSubscriptionCheckoutArgs = {
   pwCustomerId?: string | null;
   primaryOrgId?: string | null;
   projectId?: string | null;
+  /** Correlate checkout → webhook → support (Paddle custom_data) */
+  checkoutAttemptId?: string | null;
   onCompleted?: () => void;
   onAborted?: () => void;
 };
@@ -116,6 +118,7 @@ export async function openPaddleSubscriptionCheckout(
     }, CHECKOUT_WAIT_MS);
   }
 
+  const attemptId = args.checkoutAttemptId?.trim() ?? "";
   paddle.Checkout.open({
     items: [{ priceId, quantity: 1 }],
     customer: { email },
@@ -127,6 +130,7 @@ export async function openPaddleSubscriptionCheckout(
       app_email: email.toLowerCase(),
       app_organization_id: orgId,
       primary_org_id: orgId,
+      ...(attemptId ? { checkout_attempt_id: attemptId } : {}),
       ...(args.projectId ? { project_id: args.projectId } : {}),
     },
   });

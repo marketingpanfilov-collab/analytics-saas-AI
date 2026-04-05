@@ -417,6 +417,8 @@ export function routeAllowedByResolved(path: string, resolved: ResolvedUiStateV1
 }
 
 function pickSafeAppFallback(resolvedUi: ResolvedUiStateV1): string {
+  // POST_CHECKOUT uses empty allowed_actions; still land on projects so onboarding modal mounts under app shell.
+  if (resolvedUi.screen === ScreenId.POST_CHECKOUT_MODAL) return "/app/projects";
   const projectsPath = "/app/projects";
   if (routeAllowedByResolved(projectsPath, resolvedUi)) return projectsPath;
   if (routeAllowedByResolved("/app", resolvedUi)) return "/app";

@@ -40,12 +40,9 @@ import {
 } from "@/app/lib/billingBootstrapClient";
 import type { PlanFeatureMatrix } from "@/app/lib/planConfig";
 import { supabase } from "@/app/lib/supabaseClient";
+import type { BillingBootstrapReloadPack } from "@/app/lib/billingPostPaymentPoll";
 
-/** Результат `reloadBootstrap`: свежий resolved + snapshot bootstrap (для polling без гонки с React state). */
-export type BillingBootstrapReloadPack = {
-  resolved: ResolvedUiStateV1 | null;
-  bootstrap: BillingBootstrapApiOk | null;
-};
+export type { BillingBootstrapReloadPack };
 
 export type BillingBootstrapContextValue = {
   /** Stabilized shell state from server; do not branch shell on other bootstrap fields (P0-CON-03). */

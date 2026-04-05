@@ -4,6 +4,31 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { isValidPricingPlanId, parsePricingPlanId, type PricingPlanId } from "../lib/auth/loginPurchaseUrl";
+import {
+  broadcastBillingBootstrapInvalidate,
+  clearBillingRouteStorage,
+  isBillingBlocking,
+  isBootstrapResponseValid,
+  validateBillingReturnPath,
+  writeLastKnownBootstrap,
+} from "../lib/billingBootstrapClient";
+import {
+  clearCheckoutAttemptSession,
+  newCheckoutAttemptId,
+  persistCheckoutAttemptForSession,
+} from "../lib/billingCheckoutAttempt";
+import { emitBillingFunnelEvent } from "../lib/billingFunnelAnalytics";
+import {
+  BILLING_SOFT_PAYMENT_DETAIL,
+  BILLING_SOFT_PAYMENT_HEADLINE,
+  clearPaymentWebhookGrace,
+  markPaymentWebhookGrace,
+} from "../lib/billingPaymentWebhookGrace";
+import {
+  postBillingReconcileLatestCheckout,
+  type ReconcileLatestCheckoutJson,
+} from "../lib/billingReconcileClient";
+import { waitUntilPostPaymentUnblocked, fetchBillingBootstrapPack } from "../lib/billingPostPaymentPoll";
 import { addPaddleEventListener, getPaddle } from "../lib/paddle";
 import { getPaddlePriceId, getPaddleProductId, type BillingPeriod } from "../lib/paddlePriceMap";
 import { supabase } from "../lib/supabaseClient";
@@ -48,6 +73,9 @@ export default function LoginPageClient() {
 
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string>("");
+  const [loginPaymentRecovery, setLoginPaymentRecovery] = useState(false);
+  const [loginReconcileBusy, setLoginReconcileBusy] = useState(false);
+  const [loginReconcileHint, setLoginReconcileHint] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<PricingPlanId | null>(() => parsePricingPlanId(planParam));
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [modalBilling, setModalBilling] = useState<BillingPeriod>(billing);
@@ -59,6 +87,13 @@ export default function LoginPageClient() {
   }>(null);
   const checkoutTimeoutRef = useRef<number | null>(null);
   const continueAfterPlanSelectRef = useRef(false);
+  const lastSignupCheckoutRef = useRef<{
+    checkoutAttemptId: string;
+    organizationId: string;
+    userId: string;
+    plan: PricingPlanId;
+    billing: BillingPeriod;
+  } | null>(null);
 
   const PLAN_LABELS: Record<PricingPlanId, string> = {
     starter: "Starter",
@@ -189,7 +224,7 @@ export default function LoginPageClient() {
         return;
       }
 
-      // signup
+      // signup — org must exist before Paddle (org-first webhook + customer map).
       const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
@@ -200,6 +235,39 @@ export default function LoginPageClient() {
         setLoading(false);
         return;
       }
+
+      let session = data.session;
+      if (!session) {
+        const { data: sessWrap } = await supabase.auth.getSession();
+        session = sessWrap.session;
+      }
+      const userId = session?.user?.id ?? data.user?.id ?? null;
+      if (!userId || !session) {
+        setMsg(
+          "Аккаунт создан. Подтвердите email по ссылке из письма, затем войдите и завершите оплату из приложения или с этой страницы."
+        );
+        setLoading(false);
+        return;
+      }
+
+      const provRes = await fetch("/api/billing/provision-checkout-organization", {
+        method: "POST",
+        credentials: "include",
+      });
+      const provBody = (await provRes.json().catch(() => null)) as {
+        success?: boolean;
+        organization_id?: string;
+        error?: string;
+      } | null;
+      if (!provRes.ok || !provBody?.success || !provBody.organization_id) {
+        setMsg(
+          provBody?.error ??
+            "Не удалось подготовить организацию для оплаты. Войдите и оформите подписку из приложения."
+        );
+        setLoading(false);
+        return;
+      }
+      const organizationId = String(provBody.organization_id).trim();
 
       const priceId = getPaddlePriceId(effectivePlan, effectiveBilling);
       if (!priceId) {
@@ -217,14 +285,68 @@ export default function LoginPageClient() {
         return;
       }
 
+      const checkoutAttemptId = newCheckoutAttemptId();
+      persistCheckoutAttemptForSession(checkoutAttemptId);
+      lastSignupCheckoutRef.current = {
+        checkoutAttemptId,
+        organizationId,
+        userId,
+        plan: effectivePlan,
+        billing: effectiveBilling,
+      };
+
       const ctx = {
         paid: false,
         onPaid: () => {
-          setMsg(
-            "✅ Вы успешно зарегистрировались. Вам выслали письмо на email для подтверждения. Подтвердите письмо в почте и затем войдите."
-          );
-          setMode("login");
-          setLoading(false);
+          void (async () => {
+            setLoginPaymentRecovery(false);
+            setLoginReconcileHint(null);
+            setMsg(`${BILLING_SOFT_PAYMENT_HEADLINE}. Обычно до 30 секунд, иногда до минуты.`);
+            markPaymentWebhookGrace({ checkoutAttemptId, source: "login" });
+            emitBillingFunnelEvent("billing_checkout_completed_client", {
+              checkout_attempt_id: checkoutAttemptId,
+              organization_id: organizationId,
+              user_id: userId,
+              plan: effectivePlan,
+              billing_period: effectiveBilling,
+              source: "login",
+            });
+            broadcastBillingBootstrapInvalidate();
+            const pack = await waitUntilPostPaymentUnblocked({
+              reload: () => fetchBillingBootstrapPack(),
+            });
+            if (pack.bootstrap) writeLastKnownBootstrap(pack.bootstrap);
+            const target = validateBillingReturnPath(nextPath) ?? "/app/projects";
+            const stillBlocking = pack.resolved ? isBillingBlocking(pack.resolved) : true;
+            if (stillBlocking) {
+              emitBillingFunnelEvent("billing_checkout_stuck_timeout", {
+                checkout_attempt_id: checkoutAttemptId,
+                organization_id: organizationId,
+                user_id: userId,
+                plan: effectivePlan,
+                billing_period: effectiveBilling,
+                source: "login",
+              });
+              setLoginPaymentRecovery(true);
+              setMsg(`${BILLING_SOFT_PAYMENT_HEADLINE}. ${BILLING_SOFT_PAYMENT_DETAIL}`);
+            } else {
+              emitBillingFunnelEvent("billing_access_unblocked", {
+                checkout_attempt_id: checkoutAttemptId,
+                organization_id: organizationId,
+                user_id: userId,
+                plan: effectivePlan,
+                billing_period: effectiveBilling,
+                source: "login",
+              });
+              setMsg("");
+              setLoginPaymentRecovery(false);
+              clearBillingRouteStorage();
+              clearPaymentWebhookGrace();
+              clearCheckoutAttemptSession();
+            }
+            router.replace(target);
+            setLoading(false);
+          })();
         },
         onNotPaid: () => {
           setMsg("Регистрация возможна только после оплаты. Если вы отменили оплату — завершите её в Paddle и повторите попытку.");
@@ -243,7 +365,7 @@ export default function LoginPageClient() {
           checkoutStateRef.current = null;
           current.onNotPaid();
         }
-      }, 20000);
+      }, 25000);
 
       paddle.Checkout.open({
         items: [{ priceId, quantity: 1 }],
@@ -252,9 +374,20 @@ export default function LoginPageClient() {
           ...(productId ? { paddle_product_id: productId } : {}),
           plan: effectivePlan,
           billing_period: effectiveBilling,
-          app_user_id: data?.user?.id ?? null,
+          app_user_id: userId,
           app_email: email.trim().toLowerCase(),
+          app_organization_id: organizationId,
+          primary_org_id: organizationId,
+          checkout_attempt_id: checkoutAttemptId,
         },
+      });
+      emitBillingFunnelEvent("billing_checkout_opened", {
+        checkout_attempt_id: checkoutAttemptId,
+        organization_id: organizationId,
+        user_id: userId,
+        plan: effectivePlan,
+        billing_period: effectiveBilling,
+        source: "login",
       });
     } catch (e) {
       console.error("[Login signup + Paddle] error", e);
@@ -483,7 +616,69 @@ export default function LoginPageClient() {
               )}
             </div>
 
-            {msg &&
+            {loginPaymentRecovery ? (
+              <div className="rounded-xl border border-indigo-500/35 bg-indigo-500/10 px-4 py-3">
+                <p className="text-sm leading-relaxed text-indigo-100/95">{msg}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={loginReconcileBusy}
+                    onClick={() => {
+                      void (async () => {
+                        const snap = lastSignupCheckoutRef.current;
+                        if (!snap) return;
+                        setLoginReconcileBusy(true);
+                        setLoginReconcileHint(null);
+                        try {
+                          const { accessReady, json } = await postBillingReconcileLatestCheckout({
+                            checkoutAttemptId: snap.checkoutAttemptId,
+                          });
+                          const recJson =
+                            json && isBootstrapResponseValid(json) ? (json as ReconcileLatestCheckoutJson) : null;
+                          if (recJson) {
+                            writeLastKnownBootstrap(recJson);
+                          }
+                          if (accessReady) {
+                            setLoginPaymentRecovery(false);
+                            clearBillingRouteStorage();
+                            clearPaymentWebhookGrace();
+                            clearCheckoutAttemptSession();
+                            router.replace(validateBillingReturnPath(nextPath) ?? "/app/projects");
+                          } else {
+                            const r = recJson?.reconcile;
+                            setLoginReconcileHint(
+                              r && !r.has_billing_subscription_row
+                                ? "В базе пока нет записи подписки — webhook может ещё обрабатываться."
+                                : "Доступ ещё не обновился. Подождите или откройте приложение и нажмите «Обновить статус»."
+                            );
+                          }
+                        } finally {
+                          setLoginReconcileBusy(false);
+                        }
+                      })();
+                    }}
+                    className="cursor-pointer rounded-lg border border-emerald-400/45 bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-500/25 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    Проверить оплату
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      router.replace(validateBillingReturnPath(nextPath) ?? "/app/projects")
+                    }
+                    className="cursor-pointer rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 hover:bg-white/10"
+                  >
+                    Открыть приложение
+                  </button>
+                </div>
+                {loginReconcileHint ? (
+                  <p className="mt-2 text-xs text-amber-200/95">{loginReconcileHint}</p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {!loginPaymentRecovery &&
+            msg &&
             !(
               mode === "login" &&
               msg.startsWith("Регистрация возможна только после оплаты")
@@ -492,7 +687,9 @@ export default function LoginPageClient() {
                 className={
                   msg.startsWith("✅")
                     ? "rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200"
-                    : "rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
+                    : msg.startsWith(BILLING_SOFT_PAYMENT_HEADLINE) || msg.includes("Подключаем")
+                      ? "rounded-xl border border-indigo-500/35 bg-indigo-500/10 px-4 py-3 text-sm text-indigo-100/95"
+                      : "rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
                 }
               >
                 {msg}

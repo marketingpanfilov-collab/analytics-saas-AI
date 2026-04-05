@@ -137,6 +137,18 @@ export async function POST(req: Request) {
   const appOrgIdRaw =
     (customData.app_organization_id as string | undefined) ?? (customData.primary_org_id as string | undefined) ?? null;
 
+  const checkoutAttemptRaw = customData.checkout_attempt_id;
+  const checkoutAttemptId =
+    typeof checkoutAttemptRaw === "string" && checkoutAttemptRaw.trim() ? checkoutAttemptRaw.trim() : null;
+  if (checkoutAttemptId) {
+    billingLog("info", "webhook", "WEBHOOK_CHECKOUT_ATTEMPT", {
+      event_id: eventId,
+      event_type: eventType,
+      checkout_attempt_id: checkoutAttemptId,
+      customer_id: d.customer_id ? String(d.customer_id) : null,
+    });
+  }
+
   const customerId = d.customer_id ? String(d.customer_id) : null;
 
   const subscriptionIdForLog =
@@ -148,6 +160,19 @@ export async function POST(req: Request) {
   const payloadOrgTrim = appOrgIdRaw != null ? String(appOrgIdRaw).trim() : "";
   const hadPayloadOrgKey = appOrgIdRaw != null && String(appOrgIdRaw).trim() !== "";
   const payloadUuidValid = /^[0-9a-f-]{36}$/i.test(payloadOrgTrim);
+
+  const funnelPlan = typeof customData.plan === "string" ? customData.plan : null;
+  const funnelBillingPeriod = typeof customData.billing_period === "string" ? customData.billing_period : null;
+  billingLog("info", "webhook", "BILLING_FUNNEL_WEBHOOK_RECEIVED", {
+    funnel_event: "billing_webhook_received",
+    event_id: eventId,
+    event_type: eventType,
+    checkout_attempt_id: checkoutAttemptId,
+    organization_id: payloadUuidValid ? payloadOrgTrim : null,
+    user_id: appUserIdRaw && /^[0-9a-f-]{36}$/i.test(appUserIdRaw) ? appUserIdRaw : null,
+    plan: funnelPlan,
+    billing_period: funnelBillingPeriod,
+  });
 
   if (hadPayloadOrgKey && !payloadUuidValid) {
     billingLog("warn", "webhook", "WEBHOOK_ORG_PAYLOAD_INVALID_UUID", {
@@ -359,6 +384,20 @@ export async function POST(req: Request) {
   }
 
   const billingSnapshotApplied = mapUpdated || subscriptionUpdated;
+
+  if (billingSnapshotApplied) {
+    billingLog("info", "webhook", "BILLING_FUNNEL_WEBHOOK_APPLIED", {
+      funnel_event: "billing_webhook_applied",
+      event_id: eventId,
+      event_type: eventType,
+      checkout_attempt_id: checkoutAttemptId,
+      organization_id: organizationId,
+      map_updated: mapUpdated,
+      subscription_updated: subscriptionUpdated,
+      plan: funnelPlan,
+      billing_period: funnelBillingPeriod,
+    });
+  }
 
   return NextResponse.json({
     success: true,

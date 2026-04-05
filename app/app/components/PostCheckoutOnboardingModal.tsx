@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/app/lib/supabaseClient";
 import { broadcastBillingBootstrapInvalidate } from "@/app/lib/billingBootstrapClient";
+import { emitBillingFunnelEvent } from "@/app/lib/billingFunnelAnalytics";
 import { getCompanySizeSelectOptions } from "@/app/lib/companySize";
 import { getCompanySphereGroupedSelect } from "@/app/lib/companySphere";
 import { useBillingBootstrap } from "./BillingBootstrapProvider";
@@ -55,7 +56,9 @@ export default function PostCheckoutOnboardingModal() {
   const router = useRouter();
   const { showPostCheckoutModal, bootstrap, loading: bootstrapLoading, reloadBootstrap } =
     useBillingBootstrap();
-  const [gate, setGate] = useState<"loading" | "skip" | "modal">("loading");
+  const suppressBootstrapSyncRef = useRef(false);
+  const postCheckoutStartedEmittedRef = useRef(false);
+  const [gate, setGate] = useState<"loading" | "skip" | "modal" | "success">("loading");
   const [step, setStep] = useState(1);
   const [accountEmail, setAccountEmail] = useState("");
   const [planName, setPlanName] = useState("");
@@ -82,6 +85,9 @@ export default function PostCheckoutOnboardingModal() {
     } catch {
       setAccountEmail("");
     }
+    if (suppressBootstrapSyncRef.current) {
+      return;
+    }
     if (bootstrapLoading) {
       setGate("loading");
       return;
@@ -107,6 +113,23 @@ export default function PostCheckoutOnboardingModal() {
   useEffect(() => {
     void syncFromBootstrap();
   }, [syncFromBootstrap]);
+
+  useEffect(() => {
+    if (gate !== "modal" || !showPostCheckoutModal || postCheckoutStartedEmittedRef.current) return;
+    postCheckoutStartedEmittedRef.current = true;
+    const matrixPlan = bootstrap?.plan_feature_matrix?.plan;
+    const plan =
+      matrixPlan && matrixPlan !== "unknown" ? String(matrixPlan) : (bootstrap?.subscription?.plan ?? null);
+    void supabase.auth.getUser().then(({ data: u }) => {
+      emitBillingFunnelEvent("billing_post_checkout_onboarding_started", {
+        user_id: u.user?.id ?? null,
+        organization_id: bootstrap?.primary_org_id ?? null,
+        plan,
+        billing_period: bootstrap?.subscription?.billing_period ?? null,
+        source: "in_app",
+      });
+    });
+  }, [gate, showPostCheckoutModal, bootstrap?.primary_org_id, bootstrap?.plan_feature_matrix?.plan, bootstrap?.subscription?.plan, bootstrap?.subscription?.billing_period]);
 
   useEffect(() => {
     if (gate !== "modal") return;
@@ -174,15 +197,33 @@ export default function PostCheckoutOnboardingModal() {
     setErr(null);
     try {
       await postJson({ action: "complete" });
-      setGate("skip");
+      const { data: u } = await supabase.auth.getUser();
+      const matrixPlan = bootstrap?.plan_feature_matrix?.plan;
+      const plan =
+        matrixPlan && matrixPlan !== "unknown" ? String(matrixPlan) : (bootstrap?.subscription?.plan ?? null);
+      emitBillingFunnelEvent("billing_post_checkout_onboarding_completed", {
+        user_id: u.user?.id ?? null,
+        organization_id: bootstrap?.primary_org_id ?? null,
+        plan,
+        billing_period: bootstrap?.subscription?.billing_period ?? null,
+        source: "in_app",
+      });
+      suppressBootstrapSyncRef.current = true;
+      setGate("success");
       broadcastBillingBootstrapInvalidate();
       reloadBootstrap();
-      router.refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
+  };
+
+  const exitSuccessToProduct = (path: string) => {
+    suppressBootstrapSyncRef.current = false;
+    setGate("skip");
+    void router.refresh();
+    router.push(path);
   };
 
   const step2Valid =
@@ -192,6 +233,81 @@ export default function PostCheckoutOnboardingModal() {
     companySize.trim().length > 0;
 
   if (gate === "skip" || gate === "loading") return null;
+
+  if (gate === "success") {
+    return (
+      <div
+        style={overlayStyle}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="post-checkout-success-title"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div style={panelStyle} onMouseDown={(e) => e.stopPropagation()}>
+          <div
+            style={{
+              width: 52,
+              height: 52,
+              borderRadius: "50%",
+              background: "rgba(52,211,153,0.2)",
+              border: "1px solid rgba(52,211,153,0.45)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "0 auto 16px",
+              fontSize: 26,
+            }}
+            aria-hidden
+          >
+            ✓
+          </div>
+          <h2 id="post-checkout-success-title" style={{ fontSize: 22, fontWeight: 800, margin: "0 0 10px", textAlign: "center" }}>
+            Готово
+          </h2>
+          <p style={{ fontSize: 14, color: "rgba(255,255,255,0.78)", lineHeight: 1.55, margin: "0 0 8px", textAlign: "center" }}>
+            Подписка подключена. Организация готова к работе.
+          </p>
+          <p style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", lineHeight: 1.45, margin: "0 0 22px", textAlign: "center" }}>
+            Можно переходить к проектам или дашборду.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <button
+              type="button"
+              onClick={() => exitSuccessToProduct("/app/projects")}
+              style={{
+                padding: "12px 18px",
+                borderRadius: 12,
+                border: "none",
+                background: "linear-gradient(135deg, rgba(99,102,241,0.85), rgba(52,211,153,0.5))",
+                color: "white",
+                fontWeight: 700,
+                fontSize: 14,
+                cursor: "pointer",
+              }}
+            >
+              Открыть проекты
+            </button>
+            <button
+              type="button"
+              onClick={() => exitSuccessToProduct("/app")}
+              style={{
+                padding: "12px 18px",
+                borderRadius: 12,
+                border: "1px solid rgba(255,255,255,0.22)",
+                background: "rgba(255,255,255,0.06)",
+                color: "white",
+                fontWeight: 600,
+                fontSize: 14,
+                cursor: "pointer",
+              }}
+            >
+              Перейти в дашборд
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

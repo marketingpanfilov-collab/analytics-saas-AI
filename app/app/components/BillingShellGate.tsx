@@ -9,7 +9,9 @@ import { settingsProjectAccessMembersUrl, withProjectIdParam } from "@/app/lib/a
 import {
   billingActionAllowed,
   clearBillingRouteStorage,
+  isBootstrapResponseValid,
   normalizeBillingFeatureFlags,
+  writeLastKnownBootstrap,
 } from "@/app/lib/billingBootstrapClient";
 import { billingPayloadFromResolved, emitBillingCjmEvent } from "@/app/lib/billingCjmAnalytics";
 import { suggestUpgradePlanId } from "@/app/lib/billingPlanDisplay";
@@ -19,6 +21,17 @@ import {
   type OverLimitDetailRow,
 } from "@/app/lib/billingOverLimitDetails";
 import { isOverLimitRemedialPathname } from "@/app/lib/overLimitRemedialRoutes";
+import { clearCheckoutAttemptSession } from "@/app/lib/billingCheckoutAttempt";
+import {
+  BILLING_SOFT_PAYMENT_DETAIL,
+  BILLING_SOFT_PAYMENT_HEADLINE,
+  clearPaymentWebhookGrace,
+  peekPaymentWebhookGrace,
+} from "@/app/lib/billingPaymentWebhookGrace";
+import {
+  postBillingReconcileLatestCheckout,
+  type ReconcileLatestCheckoutJson,
+} from "@/app/lib/billingReconcileClient";
 import { useBillingBootstrap } from "./BillingBootstrapProvider";
 import { BillingInlinePricingSuspended } from "./BillingInlinePricing";
 import { OverLimitRemedialRouteBanner } from "./OverLimitRemedialRouteBanner";
@@ -119,6 +132,8 @@ function BillingShellGateInner({
   const pathname = usePathname() ?? "";
   /** Навигация из футера шелла: «Позже» / «Поддержка» — показываем «Подождите…» до смены маршрута. */
   const [shellFooterNavPending, setShellFooterNavPending] = useState<"later" | "support" | null>(null);
+  const [graceReconcileBusy, setGraceReconcileBusy] = useState(false);
+  const [graceReconcileHint, setGraceReconcileHint] = useState<string | null>(null);
   const {
     resolvedUi,
     bootstrap,
@@ -148,6 +163,13 @@ function BillingShellGateInner({
 
   useEffect(() => {
     if (!resolvedUi || resolvedUi.screen !== ScreenId.PAYWALL) return;
+    if (
+      resolvedUi.reason === ReasonCode.BILLING_NO_SUBSCRIPTION &&
+      bootstrap?.access_state === "no_subscription" &&
+      peekPaymentWebhookGrace().active
+    ) {
+      return;
+    }
     emitBillingCjmEvent(
       "paywall_shown",
       billingPayloadFromResolved(resolvedUi, {
@@ -161,10 +183,20 @@ function BillingShellGateInner({
     );
   }, [
     resolvedUi?.screen,
+    resolvedUi?.reason,
     resolvedUi?.request_id,
+    bootstrap?.access_state,
     bootstrap?.plan_feature_matrix?.plan,
     bootstrap?.subscription?.plan,
   ]);
+
+  useEffect(() => {
+    if (!bootstrap) return;
+    if (bootstrap.access_state !== "no_subscription") {
+      clearPaymentWebhookGrace();
+      clearCheckoutAttemptSession();
+    }
+  }, [bootstrap?.access_state]);
 
   useEffect(() => {
     setShellFooterNavPending(null);
@@ -207,6 +239,142 @@ function BillingShellGateInner({
     bootstrap?.has_org_membership === true || bootstrap?.has_any_accessible_project === true;
   if (onProjectsListRoute && resolvedUi.screen === ScreenId.PAYWALL && bootstrapSharedAccess) {
     return <>{children}</>;
+  }
+
+  const gracePeek = peekPaymentWebhookGrace();
+  const paymentWebhookGraceActive =
+    resolvedUi.screen === ScreenId.PAYWALL &&
+    resolvedUi.reason === ReasonCode.BILLING_NO_SUBSCRIPTION &&
+    bootstrap?.access_state === "no_subscription" &&
+    gracePeek.active;
+
+  if (paymentWebhookGraceActive) {
+    return (
+      <>
+        <div
+          role="status"
+          style={{
+            padding: "12px 18px",
+            background: "rgba(52,99,230,0.2)",
+            borderBottom: "1px solid rgba(120,160,255,0.35)",
+            color: "rgba(230,240,255,0.96)",
+            fontSize: 13,
+            lineHeight: 1.5,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "stretch",
+            gap: 10,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 12,
+            }}
+          >
+            <span style={{ textAlign: "center", flex: "1 1 260px" }}>
+              <strong style={{ display: "block", marginBottom: 4 }}>{BILLING_SOFT_PAYMENT_HEADLINE}</strong>
+              {BILLING_SOFT_PAYMENT_DETAIL}
+            </span>
+            <button
+              type="button"
+              disabled={graceReconcileBusy}
+              onClick={() => {
+                void (async () => {
+                  setGraceReconcileBusy(true);
+                  setGraceReconcileHint(null);
+                  try {
+                    const { accessReady, json } = await postBillingReconcileLatestCheckout({
+                      checkoutAttemptId: gracePeek.checkoutAttemptId,
+                    });
+                    const recJson =
+                      json && isBootstrapResponseValid(json) ? (json as ReconcileLatestCheckoutJson) : null;
+                    if (recJson) {
+                      writeLastKnownBootstrap(recJson);
+                    }
+                    await reloadBootstrap();
+                    if (!accessReady) {
+                      const r = recJson?.reconcile;
+                      setGraceReconcileHint(
+                        r && !r.has_billing_subscription_row
+                          ? "В базе пока нет записи подписки — webhook может ещё обрабатываться. Попробуйте через минуту."
+                          : "Доступ ещё не обновился. Подождите немного или напишите в поддержку."
+                      );
+                    }
+                  } finally {
+                    setGraceReconcileBusy(false);
+                  }
+                })();
+              }}
+              style={{
+                padding: "8px 14px",
+                borderRadius: 10,
+                border: "1px solid rgba(52,211,153,0.5)",
+                background: "rgba(52,211,153,0.15)",
+                color: "rgba(220,255,235,0.98)",
+                fontWeight: 700,
+                fontSize: 12,
+                cursor: graceReconcileBusy ? "wait" : "pointer",
+                flexShrink: 0,
+                opacity: graceReconcileBusy ? 0.7 : 1,
+              }}
+            >
+              Проверить оплату
+            </button>
+            <button
+              type="button"
+              onClick={() => void reloadBootstrap()}
+              style={{
+                padding: "8px 14px",
+                borderRadius: 10,
+                border: "1px solid rgba(160,200,255,0.45)",
+                background: "rgba(255,255,255,0.1)",
+                color: "white",
+                fontWeight: 700,
+                fontSize: 12,
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >
+              Обновить статус
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push(withProjectIdParam("/app/support", projectId))}
+              style={{
+                padding: "8px 14px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.2)",
+                background: "rgba(255,255,255,0.06)",
+                color: "white",
+                fontWeight: 700,
+                fontSize: 12,
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >
+              Поддержка
+            </button>
+          </div>
+          {graceReconcileHint ? (
+            <div
+              style={{
+                fontSize: 12,
+                color: "rgba(255,220,200,0.92)",
+                textAlign: "center",
+                lineHeight: 1.45,
+              }}
+            >
+              {graceReconcileHint}
+            </div>
+          ) : null}
+        </div>
+        {children}
+      </>
+    );
   }
 
   const overLimitGraceActive =
@@ -366,6 +534,8 @@ function BillingShellGateInner({
     if (!billingActionAllowed(resolvedUi, ActionId.sign_out)) return;
     await supabase.auth.signOut();
     clearBillingRouteStorage();
+    clearPaymentWebhookGrace();
+    clearCheckoutAttemptSession();
     router.replace("/login");
   };
 
