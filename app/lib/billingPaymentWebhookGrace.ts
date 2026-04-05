@@ -139,6 +139,26 @@ export function peekPaymentWebhookGrace(): {
   };
 }
 
+/**
+ * Снять grace, если bootstrap уже показывает оплаченный тариф / живую подписку,
+ * даже при временном рассинхроне access_state (например до фикса статусов Paddle).
+ */
+export function bootstrapPayloadIndicatesPaidForGraceClear(payload: {
+  access_state?: string;
+  effective_plan?: string | null;
+  subscription?: { plan?: string; status?: string } | null;
+} | null | undefined): boolean {
+  if (!payload) return false;
+  if (payload.access_state && payload.access_state !== "no_subscription") return true;
+  const ep = String(payload.effective_plan ?? "").toLowerCase();
+  if (ep === "starter" || ep === "growth" || ep === "scale") return true;
+  const sp = String(payload.subscription?.plan ?? "").toLowerCase();
+  if (sp === "starter" || sp === "growth" || sp === "scale" || sp === "agency") return true;
+  const st = String(payload.subscription?.status ?? "").toLowerCase();
+  if (st === "active" || st === "trialing" || st === "past_due" || st === "completed") return true;
+  return false;
+}
+
 export function clearPaymentWebhookGrace(): void {
   if (!isBrowser()) return;
   try {

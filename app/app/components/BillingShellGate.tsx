@@ -25,6 +25,7 @@ import { clearCheckoutAttemptSession } from "@/app/lib/billingCheckoutAttempt";
 import {
   BILLING_SOFT_PAYMENT_DETAIL,
   BILLING_SOFT_PAYMENT_HEADLINE,
+  bootstrapPayloadIndicatesPaidForGraceClear,
   clearPaymentWebhookGrace,
   peekPaymentWebhookGrace,
 } from "@/app/lib/billingPaymentWebhookGrace";
@@ -192,11 +193,21 @@ function BillingShellGateInner({
 
   useEffect(() => {
     if (!bootstrap) return;
-    if (bootstrap.access_state !== "no_subscription") {
+    if (
+      bootstrap.access_state !== "no_subscription" ||
+      bootstrapPayloadIndicatesPaidForGraceClear(bootstrap)
+    ) {
       clearPaymentWebhookGrace();
+    }
+    if (bootstrap.access_state !== "no_subscription") {
       clearCheckoutAttemptSession();
     }
-  }, [bootstrap?.access_state]);
+  }, [
+    bootstrap?.access_state,
+    bootstrap?.effective_plan,
+    bootstrap?.subscription?.plan,
+    bootstrap?.subscription?.status,
+  ]);
 
   useEffect(() => {
     setShellFooterNavPending(null);
@@ -246,7 +257,8 @@ function BillingShellGateInner({
     resolvedUi.screen === ScreenId.PAYWALL &&
     resolvedUi.reason === ReasonCode.BILLING_NO_SUBSCRIPTION &&
     bootstrap?.access_state === "no_subscription" &&
-    gracePeek.active;
+    gracePeek.active &&
+    !bootstrapPayloadIndicatesPaidForGraceClear(bootstrap);
 
   if (paymentWebhookGraceActive) {
     return (
