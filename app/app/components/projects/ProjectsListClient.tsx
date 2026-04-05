@@ -106,7 +106,14 @@ export default function ProjectsListClient({
   planMaxProjects = null,
 }: Props) {
   const router = useRouter();
-  const { resolvedUi } = useBillingBootstrap();
+  const { resolvedUi, showPostCheckoutModal, loading: billingBootstrapLoading } = useBillingBootstrap();
+
+  useEffect(() => {
+    if (billingBootstrapLoading) return;
+    if (showPostCheckoutModal) {
+      router.replace("/app/onboarding");
+    }
+  }, [billingBootstrapLoading, showPostCheckoutModal, router]);
   const canSyncProjectMutations = useMemo(
     () => billingActionAllowed(resolvedUi, ActionId.sync_refresh),
     [resolvedUi]

@@ -554,11 +554,37 @@ export default function BillingInlinePricing({
         setCheckoutError("Не удалось определить email сессии.");
         return;
       }
-      const orgForCheckout = (bootstrap?.primary_org_id ?? "").trim();
-      if (!/^[0-9a-f-]{36}$/i.test(orgForCheckout)) {
-        setCheckoutError(
-          `${BILLING_CHECKOUT_MISSING_ORG_MESSAGE} Создайте проект (организация создаётся вместе с ним) или откройте проект из списка.`
-        );
+      let primaryOrgId = (bootstrap?.primary_org_id ?? "").trim();
+      if (!/^[0-9a-f-]{36}$/i.test(primaryOrgId)) {
+        const provRes = await fetch("/api/billing/provision-checkout-organization", {
+          method: "POST",
+          credentials: "include",
+        });
+        const provBody = (await provRes.json().catch(() => null)) as {
+          success?: boolean;
+          organization_id?: string;
+          error?: string;
+        } | null;
+        if (!provRes.ok || !provBody?.success || !provBody.organization_id) {
+          setPreparingCheckout(false);
+          setCheckoutBusy(false);
+          setCheckoutError(
+            provBody?.error ??
+              `${BILLING_CHECKOUT_MISSING_ORG_MESSAGE} Попробуйте обновить страницу.`
+          );
+          return;
+        }
+        primaryOrgId = String(provBody.organization_id).trim();
+        const pack = await reloadBootstrap();
+        const refreshed = (pack.bootstrap?.primary_org_id ?? "").trim();
+        if (/^[0-9a-f-]{36}$/i.test(refreshed)) {
+          primaryOrgId = refreshed;
+        }
+      }
+      if (!/^[0-9a-f-]{36}$/i.test(primaryOrgId)) {
+        setPreparingCheckout(false);
+        setCheckoutBusy(false);
+        setCheckoutError(`${BILLING_CHECKOUT_MISSING_ORG_MESSAGE} Попробуйте обновить страницу.`);
         return;
       }
       if (paddleSrc && canUpgradeTo(paddleSrc, plan, billing)) {
@@ -638,7 +664,7 @@ export default function BillingInlinePricing({
           email,
           userId: sessionUserId,
           pwCustomerId,
-          primaryOrgId: bootstrap?.primary_org_id ?? null,
+          primaryOrgId,
           projectId,
           checkoutAttemptId,
           onCompleted: () => {
@@ -654,7 +680,7 @@ export default function BillingInlinePricing({
             broadcastBillingBootstrapInvalidate();
             emitBillingFunnelEvent("billing_checkout_completed_client", {
               checkout_attempt_id: checkoutAttemptId,
-              organization_id: bootstrap?.primary_org_id ?? null,
+              organization_id: primaryOrgId,
               user_id: sessionUserId,
               plan,
               billing_period: billing,
@@ -693,7 +719,7 @@ export default function BillingInlinePricing({
         } else {
           emitBillingFunnelEvent("billing_checkout_opened", {
             checkout_attempt_id: checkoutAttemptId,
-            organization_id: bootstrap?.primary_org_id ?? null,
+            organization_id: primaryOrgId,
             user_id: sessionUserId,
             plan,
             billing_period: billing,
@@ -723,6 +749,7 @@ export default function BillingInlinePricing({
       pwCustomerId,
       resolvedUi,
       bootstrap?.primary_org_id,
+      reloadBootstrap,
       projectId,
       currentAppPath,
       pathname,

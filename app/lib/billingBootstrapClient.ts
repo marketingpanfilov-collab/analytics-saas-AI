@@ -390,6 +390,9 @@ export function broadcastBillingBootstrapInvalidate(): void {
 
 export function routeAllowedByResolved(path: string, resolved: ResolvedUiStateV1): boolean {
   if (resolved.allowed_actions.includes(ActionId.wildcard)) return true;
+  if (path === "/app/onboarding" || path.startsWith("/app/onboarding/")) {
+    if (resolved.screen === ScreenId.POST_CHECKOUT_MODAL) return true;
+  }
   if (path.startsWith("/app/settings")) {
     return resolved.allowed_actions.includes(ActionId.navigate_settings);
   }
@@ -417,8 +420,7 @@ export function routeAllowedByResolved(path: string, resolved: ResolvedUiStateV1
 }
 
 function pickSafeAppFallback(resolvedUi: ResolvedUiStateV1): string {
-  // POST_CHECKOUT uses empty allowed_actions; still land on projects so onboarding modal mounts under app shell.
-  if (resolvedUi.screen === ScreenId.POST_CHECKOUT_MODAL) return "/app/projects";
+  if (resolvedUi.screen === ScreenId.POST_CHECKOUT_MODAL) return "/app/onboarding";
   const projectsPath = "/app/projects";
   if (routeAllowedByResolved(projectsPath, resolvedUi)) return projectsPath;
   if (routeAllowedByResolved("/app", resolvedUi)) return "/app";
@@ -431,7 +433,7 @@ export type ResolvePostPaymentRedirectOptions = {
 };
 
 /**
- * After unlock (`!isBillingBlocking(resolvedUi)`). Picks intended → origin → /app/projects → /app.
+ * After unlock (`!isBillingBlocking(resolvedUi)`). Picks intended → origin → /app/onboarding (post-checkout) или /app/projects → /app.
  */
 export function resolvePostPaymentRedirect(
   resolvedUi: ResolvedUiStateV1,

@@ -5,6 +5,7 @@ import DevAbortRejectionSuppressor from "../components/DevAbortRejectionSuppress
 import { BillingBootstrapProvider } from "../components/BillingBootstrapProvider";
 import { BillingPricingModalProvider } from "../components/BillingPricingModalProvider";
 import { BillingShellGate } from "../components/BillingShellGate";
+import PostCheckoutOnboardingModal from "../components/PostCheckoutOnboardingModal";
 import Topbar from "../components/Topbar";
 import { supabase } from "../../lib/supabaseClient";
 
@@ -50,6 +51,7 @@ export default function NoSidebarLayout({ children }: { children: React.ReactNod
           }}
         >
           <DevAbortRejectionSuppressor />
+          <PostCheckoutOnboardingModal />
           <div style={{ height: 64 }}>
             <Suspense fallback={<TopbarFallback />}>
               <Topbar email={email} />

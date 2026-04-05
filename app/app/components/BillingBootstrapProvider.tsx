@@ -6,11 +6,9 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type ReactNode,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -46,25 +44,6 @@ import type { BillingBootstrapReloadPack } from "@/app/lib/billingPostPaymentPol
 
 export type { BillingBootstrapReloadPack };
 
-const WORKSPACE_BOOTSTRAP_TIMEOUT_MS = 18_000;
-const WORKSPACE_BOOTSTRAP_TIMEOUT_ERR = "WORKSPACE_BOOTSTRAP_TIMEOUT";
-
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const id = setTimeout(() => reject(new Error(WORKSPACE_BOOTSTRAP_TIMEOUT_ERR)), ms);
-    promise.then(
-      (v) => {
-        clearTimeout(id);
-        resolve(v);
-      },
-      (e) => {
-        clearTimeout(id);
-        reject(e);
-      }
-    );
-  });
-}
-
 export type BillingBootstrapContextValue = {
   /** Stabilized shell state from server; do not branch shell on other bootstrap fields (P0-CON-03). */
   resolvedUi: ResolvedUiStateV1 | null;
@@ -83,9 +62,6 @@ export type BillingBootstrapContextValue = {
    */
   relaxOverLimitForPendingWebhook: boolean;
   setRelaxOverLimitForPendingWebhook: (v: boolean) => void;
-  /** Пока идёт авто-провижининг org+project (шелл с контекстом не смонтирован). */
-  workspaceProvisioning: boolean;
-  workspaceProvisionFailed: boolean;
 };
 
 const BillingBootstrapContext = createContext<BillingBootstrapContextValue | null>(null);
@@ -102,8 +78,6 @@ const BILLING_BOOTSTRAP_SUSPENSE_FALLBACK: BillingBootstrapContextValue = {
   setOverLimitApplyGraceUntilMs: () => {},
   relaxOverLimitForPendingWebhook: false,
   setRelaxOverLimitForPendingWebhook: () => {},
-  workspaceProvisioning: false,
-  workspaceProvisionFailed: false,
 };
 
 export function useBillingBootstrap(): BillingBootstrapContextValue {
@@ -112,94 +86,6 @@ export function useBillingBootstrap(): BillingBootstrapContextValue {
     throw new Error("useBillingBootstrap must be used within BillingBootstrapProvider");
   }
   return ctx;
-}
-
-const workspaceShellBtn: CSSProperties = {
-  padding: "10px 18px",
-  borderRadius: 10,
-  border: "1px solid rgba(255,255,255,0.22)",
-  background: "rgba(255,255,255,0.08)",
-  color: "white",
-  fontWeight: 600,
-  cursor: "pointer",
-  fontSize: 14,
-};
-
-function WorkspaceBootstrapShell({
-  mode,
-  onRetry,
-  onSignOut,
-}: {
-  mode: "provisioning" | "error" | "timeout";
-  onRetry: () => void;
-  onSignOut: () => void;
-}) {
-  const failTitle =
-    mode === "timeout"
-      ? "Не удалось подготовить рабочее пространство. Попробуйте обновить страницу."
-      : "Не удалось создать рабочее пространство. Попробуйте обновить страницу.";
-
-  return (
-    <div
-      style={{
-        minHeight: "100vh",
-        width: "100%",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 20,
-        padding: 24,
-        boxSizing: "border-box",
-        background: "#0b0b10",
-        color: "rgba(245,245,250,0.92)",
-        fontSize: 15,
-        lineHeight: 1.5,
-        textAlign: "center",
-      }}
-    >
-      {mode === "provisioning" ? (
-        <>
-          <div
-            aria-hidden
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: "50%",
-              border: "3px solid rgba(255,255,255,0.12)",
-              borderTopColor: "rgba(120,160,255,0.85)",
-              animation: "billing-ws-spin 0.85s linear infinite",
-            }}
-          />
-          <style>{`@keyframes billing-ws-spin { to { transform: rotate(360deg); } }`}</style>
-          <div style={{ fontWeight: 600 }}>Создаем рабочее пространство...</div>
-        </>
-      ) : (
-        <>
-          <div style={{ fontWeight: 600, maxWidth: 440 }}>{failTitle}</div>
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 10,
-              justifyContent: "center",
-              marginTop: 4,
-            }}
-          >
-            <button type="button" onClick={onRetry} style={workspaceShellBtn}>
-              Повторить
-            </button>
-            <button type="button" onClick={() => window.location.reload()} style={workspaceShellBtn}>
-              Обновить страницу
-            </button>
-            <button type="button" onClick={onSignOut} style={workspaceShellBtn}>
-              Выйти
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  );
 }
 
 async function fetchBootstrapOnce(
@@ -229,13 +115,6 @@ function BillingBootstrapProviderInner({ children }: { children: ReactNode }) {
   const [clientSafeMode, setClientSafeMode] = useState(false);
   const [overLimitApplyGraceUntilMs, setOverLimitApplyGraceUntilMs] = useState<number | null>(null);
   const [relaxOverLimitForPendingWebhook, setRelaxOverLimitForPendingWebhook] = useState(false);
-  const [workspaceBlock, setWorkspaceBlock] = useState<"none" | "provisioning" | "error" | "timeout">(
-    "none"
-  );
-  const [workspaceRetryNonce, setWorkspaceRetryNonce] = useState(0);
-  const workspaceSettledRef = useRef(false);
-  const workspaceInFlightRef = useRef(false);
-
   const prevFetchFpRef = useRef<string | null>(null);
   const consecutiveSuccessOutOfSafeRef = useRef(0);
   const clientSafeModeRef = useRef(false);
@@ -494,112 +373,6 @@ function BillingBootstrapProviderInner({ children }: { children: ReactNode }) {
     return p;
   }, [runBootstrap]);
 
-  const handleWorkspaceRetry = useCallback(() => {
-    workspaceSettledRef.current = false;
-    workspaceInFlightRef.current = false;
-    setWorkspaceBlock("none");
-    setWorkspaceRetryNonce((n) => n + 1);
-  }, []);
-
-  const handleWorkspaceSignOut = useCallback(() => {
-    void supabase.auth.signOut().then(() => {
-      window.location.href = "/login";
-    });
-  }, []);
-
-  useLayoutEffect(() => {
-    if (loading || clientSafeMode || !bootstrap) return;
-    if (workspaceSettledRef.current || workspaceInFlightRef.current) return;
-
-    const path = pathname ?? "";
-    if (path.startsWith("/app/transfer/")) {
-      workspaceSettledRef.current = true;
-      return;
-    }
-
-    const shell = bootstrap.resolved_ui_state?.screen;
-    if (shell === ScreenId.INVITE_LOADING || shell === ScreenId.INVITE_FALLBACK) {
-      workspaceSettledRef.current = true;
-      return;
-    }
-
-    const needsOrg = !bootstrap.primary_org_id || bootstrap.has_org_membership !== true;
-    const needsProject = bootstrap.has_any_accessible_project !== true;
-    if (!needsOrg && !needsProject) {
-      workspaceSettledRef.current = true;
-      return;
-    }
-
-    workspaceInFlightRef.current = true;
-    setWorkspaceBlock("provisioning");
-
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        await withTimeout(
-          (async () => {
-            if (needsOrg) {
-              const r = await fetch("/api/billing/provision-checkout-organization", {
-                method: "POST",
-                credentials: "include",
-              });
-              const j = (await r.json().catch(() => null)) as {
-                success?: boolean;
-                organization_id?: string;
-              } | null;
-              if (!r.ok || !j?.success || !j.organization_id) {
-                throw new Error("provision_org");
-              }
-            }
-
-            let b2: BillingBootstrapApiOk = bootstrap;
-            if (needsOrg) {
-              const pack = await reloadBootstrap();
-              if (!pack.bootstrap) throw new Error("bootstrap_after_org");
-              b2 = pack.bootstrap;
-            }
-
-            if (b2.has_any_accessible_project !== true) {
-              const pr = await fetch("/api/projects", {
-                method: "POST",
-                credentials: "include",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ workspace_bootstrap: true, name: "Мой проект" }),
-              });
-              const pj = (await pr.json().catch(() => null)) as { success?: boolean } | null;
-              if (!pr.ok || pj?.success !== true) {
-                throw new Error("provision_project");
-              }
-            }
-
-            await reloadBootstrap();
-          })(),
-          WORKSPACE_BOOTSTRAP_TIMEOUT_MS
-        );
-
-        if (cancelled) return;
-        workspaceSettledRef.current = true;
-        setWorkspaceBlock("none");
-      } catch (e) {
-        if (cancelled) return;
-        workspaceSettledRef.current = true;
-        const timedOut = e instanceof Error && e.message === WORKSPACE_BOOTSTRAP_TIMEOUT_ERR;
-        setWorkspaceBlock(timedOut ? "timeout" : "error");
-      } finally {
-        workspaceInFlightRef.current = false;
-        if (cancelled) {
-          setWorkspaceBlock("none");
-          void reloadBootstrap();
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [loading, clientSafeMode, bootstrap, pathname, reloadBootstrap, workspaceRetryNonce]);
-
   useEffect(() => {
     if (!displayedResolved || loading) return;
     const fp = fingerprintResolvedUi(displayedResolved);
@@ -643,8 +416,6 @@ function BillingBootstrapProviderInner({ children }: { children: ReactNode }) {
       setOverLimitApplyGraceUntilMs,
       relaxOverLimitForPendingWebhook,
       setRelaxOverLimitForPendingWebhook,
-      workspaceProvisioning: workspaceBlock === "provisioning",
-      workspaceProvisionFailed: workspaceBlock === "error" || workspaceBlock === "timeout",
     }),
     [
       displayedResolved,
@@ -654,19 +425,8 @@ function BillingBootstrapProviderInner({ children }: { children: ReactNode }) {
       reloadBootstrap,
       overLimitApplyGraceUntilMs,
       relaxOverLimitForPendingWebhook,
-      workspaceBlock,
     ]
   );
-
-  if (workspaceBlock === "provisioning" || workspaceBlock === "error" || workspaceBlock === "timeout") {
-    return (
-      <WorkspaceBootstrapShell
-        mode={workspaceBlock}
-        onRetry={handleWorkspaceRetry}
-        onSignOut={handleWorkspaceSignOut}
-      />
-    );
-  }
 
   return <BillingBootstrapContext.Provider value={value}>{children}</BillingBootstrapContext.Provider>;
 }

@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { getCurrentUserContext } from "@/app/lib/auth/getCurrentUserContext";
 import { billingHeavySyncGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
@@ -58,106 +57,12 @@ export async function GET() {
 /**
  * POST /api/projects — создать проект в организации пользователя (owner/admin).
  * Проверка лимита тарифа обязательна; обход только через прямой доступ к БД.
- *
- * `workspace_bootstrap: true` — первый проект без активной подписки (org-first onboarding);
- * разрешено только если в организации ещё нет активных проектов.
  */
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => null);
-  const workspaceBootstrap = body?.workspace_bootstrap === true;
-
-  if (workspaceBootstrap) {
-    const supabase = await createServerSupabase();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
-    const nameRaw = typeof body?.name === "string" ? body.name.trim() : "";
-    const name = nameRaw || "Мой проект";
-    if (name.length > NAME_MAX_LENGTH) {
-      return NextResponse.json(
-        { success: false, error: `Название не длиннее ${NAME_MAX_LENGTH} символов` },
-        { status: 400 }
-      );
-    }
-
-    const admin = supabaseAdmin();
-    const { data: memRows, error: memErr } = await admin
-      .from("organization_members")
-      .select("organization_id, role")
-      .eq("user_id", user.id)
-      .limit(1);
-    if (memErr) {
-      return NextResponse.json({ success: false, error: memErr.message }, { status: 500 });
-    }
-    const mem = memRows?.[0];
-    if (!mem?.organization_id) {
-      return NextResponse.json({ success: false, error: "Нет доступа к организации" }, { status: 403 });
-    }
-    if (!ORG_ROLES_CAN_CREATE_PROJECT.includes(String(mem.role ?? ""))) {
-      return NextResponse.json(
-        { success: false, error: "Недостаточно прав для создания проекта" },
-        { status: 403 }
-      );
-    }
-
-    const orgId = String(mem.organization_id);
-    const currentCount = await countActiveProjectsForOrganization(admin, orgId);
-    if (currentCount > 0) {
-      return NextResponse.json({ success: true, already_exists: true, message: "Project already present" });
-    }
-
-    const maxProjects = await getPlanMaxProjectsForUser(admin, user.id, user.email ?? null, orgId);
-    if (isAtProjectPlanLimit(maxProjects, currentCount)) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: PROJECT_PLAN_LIMIT_USER_MESSAGE,
-          code: "PROJECT_PLAN_LIMIT",
-        },
-        { status: 403 }
-      );
-    }
-
-    const { data: proj, error: insErr } = await admin
-      .from("projects")
-      .insert({
-        organization_id: orgId,
-        owner_id: user.id,
-        name,
-      })
-      .select("id")
-      .single();
-
-    if (insErr || !proj?.id) {
-      return NextResponse.json(
-        { success: false, error: insErr?.message ?? "Не удалось создать проект" },
-        { status: 500 }
-      );
-    }
-
-    const { error: pmErr } = await admin.from("project_members").insert({
-      project_id: proj.id,
-      user_id: user.id,
-      role: "project_admin",
-    });
-
-    if (pmErr) {
-      await admin.from("projects").delete().eq("id", proj.id);
-      return NextResponse.json(
-        { success: false, error: pmErr.message ?? "Ошибка добавления в проект" },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({ success: true, project_id: proj.id, workspace_bootstrap: true });
-  }
-
   const billingPre = await billingHeavySyncGateBeforeProject(req);
   if (!billingPre.ok) return billingPre.response;
 
+  const body = await req.json().catch(() => null);
   const { userId, email } = billingPre;
   const name = typeof body?.name === "string" ? body.name.trim() : "";
   if (!name) {
