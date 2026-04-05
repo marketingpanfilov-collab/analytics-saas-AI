@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/app/lib/supabaseClient";
-import {
-  broadcastBillingBootstrapInvalidate,
-  type BillingBootstrapApiOk,
-} from "@/app/lib/billingBootstrapClient";
+import { broadcastBillingBootstrapInvalidate } from "@/app/lib/billingBootstrapClient";
 import { emitBillingFunnelEvent } from "@/app/lib/billingFunnelAnalytics";
 import { getCompanySizeSelectOptions } from "@/app/lib/companySize";
 import { getCompanySphereGroupedSelect } from "@/app/lib/companySphere";
+import {
+  resolveBootstrapPlanAnalyticsSlug,
+  resolveBootstrapPlanDisplayLabel,
+} from "@/app/lib/billingBootstrapPlanLabel";
 import { useBillingBootstrap } from "./BillingBootstrapProvider";
 
 const overlayStyle: CSSProperties = {
@@ -46,35 +47,6 @@ const inputBase: CSSProperties = {
   fontSize: 14,
   boxSizing: "border-box",
 };
-
-function planLabel(plan: string | null | undefined): string {
-  const p = String(plan ?? "").toLowerCase();
-  if (p === "starter") return "Starter";
-  if (p === "growth") return "Growth";
-  if (p === "scale" || p === "agency") return "Scale";
-  return p || "—";
-}
-
-function resolvePlanDisplayName(b: BillingBootstrapApiOk | null): string {
-  if (!b) return "—";
-  const ep = b.effective_plan;
-  if (ep && ep !== "unknown") return planLabel(String(ep));
-  const sp = b.subscription?.plan;
-  if (sp) return planLabel(sp);
-  const matrix = b.plan_feature_matrix?.plan;
-  if (matrix && matrix !== "unknown") return planLabel(String(matrix));
-  return "—";
-}
-
-function resolvePlanForAnalytics(b: BillingBootstrapApiOk | null): string | null {
-  if (!b) return null;
-  const ep = b.effective_plan;
-  if (ep && ep !== "unknown") return String(ep);
-  if (b.subscription?.plan) return String(b.subscription.plan);
-  const matrix = b.plan_feature_matrix?.plan;
-  if (matrix && matrix !== "unknown") return String(matrix);
-  return null;
-}
 
 export default function PostCheckoutOnboardingModal() {
   const router = useRouter();
@@ -122,6 +94,12 @@ export default function PostCheckoutOnboardingModal() {
       setGate("loading");
       return;
     }
+    // Сервер уже снял post-checkout, а showPostCheckoutModal может оставаться true ~450ms (stabilization окна shell).
+    if (bootstrap?.requires_post_checkout_onboarding === false) {
+      postCheckoutFlowActiveRef.current = false;
+      setGate("skip");
+      return;
+    }
     if (!showPostCheckoutModal) {
       postCheckoutFlowActiveRef.current = false;
       setGate("skip");
@@ -138,7 +116,7 @@ export default function PostCheckoutOnboardingModal() {
       )
     );
     setStep((prev) => Math.min(3, Math.max(prev, s)));
-    setPlanName(resolvePlanDisplayName(bootstrap ?? null));
+    setPlanName(resolveBootstrapPlanDisplayLabel(bootstrap ?? null));
   }, [bootstrap, bootstrapLoading, showPostCheckoutModal]);
 
   useEffect(() => {
@@ -148,7 +126,7 @@ export default function PostCheckoutOnboardingModal() {
   useEffect(() => {
     if (gate !== "modal" || !showPostCheckoutModal || postCheckoutStartedEmittedRef.current) return;
     postCheckoutStartedEmittedRef.current = true;
-    const plan = resolvePlanForAnalytics(bootstrap ?? null);
+    const plan = resolveBootstrapPlanAnalyticsSlug(bootstrap ?? null);
     void supabase.auth.getUser().then(({ data: u }) => {
       emitBillingFunnelEvent("billing_post_checkout_onboarding_started", {
         user_id: u.user?.id ?? null,
@@ -241,7 +219,7 @@ export default function PostCheckoutOnboardingModal() {
       const pack = await reloadBootstrap();
       const fresh = pack.bootstrap;
       const { data: u } = await supabase.auth.getUser();
-      const plan = resolvePlanForAnalytics(fresh ?? bootstrap);
+      const plan = resolveBootstrapPlanAnalyticsSlug(fresh ?? bootstrap);
       emitBillingFunnelEvent("billing_post_checkout_onboarding_completed", {
         user_id: u.user?.id ?? null,
         organization_id: fresh?.primary_org_id ?? bootstrap?.primary_org_id ?? null,
@@ -249,7 +227,7 @@ export default function PostCheckoutOnboardingModal() {
         billing_period: fresh?.subscription?.billing_period ?? bootstrap?.subscription?.billing_period ?? null,
         source: "in_app",
       });
-      setPlanName(resolvePlanDisplayName(fresh ?? bootstrap));
+      setPlanName(resolveBootstrapPlanDisplayLabel(fresh ?? bootstrap));
       setGate("success");
       broadcastBillingBootstrapInvalidate();
       void reloadBootstrap();
@@ -263,7 +241,10 @@ export default function PostCheckoutOnboardingModal() {
   const exitSuccessToProduct = async (path: string) => {
     suppressBootstrapSyncRef.current = false;
     setGate("skip");
-    await reloadBootstrap();
+    let pack = await reloadBootstrap();
+    if (pack.bootstrap?.requires_post_checkout_onboarding === true) {
+      pack = await reloadBootstrap();
+    }
     void router.refresh();
     router.replace(path);
   };

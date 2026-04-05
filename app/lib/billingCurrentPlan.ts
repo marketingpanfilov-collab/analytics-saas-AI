@@ -3,7 +3,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { detectPlanFromPriceId } from "@/app/lib/billingPlanPriceDetect";
+import { detectPlanFromPaddleSnapshot } from "@/app/lib/billingPlanPriceDetect";
 import type { BillingPlanId } from "@/app/lib/billingPlanPriceDetect";
 import {
   getAccessibleProjectIds,
@@ -118,6 +118,7 @@ type SubRow = {
   provider_subscription_id: string;
   provider_customer_id: string | null;
   provider_price_id: string | null;
+  provider_product_id: string | null;
   status: string | null;
   currency_code: string | null;
   current_period_start: string | null;
@@ -545,7 +546,7 @@ export async function loadBillingCurrentPlan(
   const { data: subs, error: subsErr } = await admin
     .from("billing_subscriptions")
     .select(
-      "provider_subscription_id, provider_customer_id, provider_price_id, status, currency_code, current_period_start, current_period_end, canceled_at, last_event_type, last_event_at, updated_at, grace_until"
+      "provider_subscription_id, provider_customer_id, provider_price_id, provider_product_id, status, currency_code, current_period_start, current_period_end, canceled_at, last_event_type, last_event_at, updated_at, grace_until"
     )
     .eq("provider", "paddle")
     .in("provider_customer_id", customerIds)
@@ -601,7 +602,10 @@ export async function loadBillingCurrentPlan(
       ? Date.now() > topPeriodEndTs
       : false;
   const displayStatus = isExpiredByDate ? "expired" : topStatusRaw;
-  const planMeta = detectPlanFromPriceId(top.provider_price_id ?? null);
+  const planMeta = detectPlanFromPaddleSnapshot(
+    top.provider_price_id ?? null,
+    top.provider_product_id ?? null
+  );
 
   const subscription: CurrentPlanSubscription = {
     provider: "paddle",

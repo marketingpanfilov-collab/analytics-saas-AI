@@ -2,7 +2,7 @@
  * Organization-first billing resolution (entitlements → Paddle customer map → subscriptions).
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { detectPlanFromPriceId, type BillingPlanId } from "@/app/lib/billingPlanPriceDetect";
+import { detectPlanFromPaddleSnapshot, type BillingPlanId } from "@/app/lib/billingPlanPriceDetect";
 
 const ACTIVE_STATUSES = new Set(["active", "trialing", "past_due"]);
 
@@ -104,6 +104,7 @@ export async function collectPaddleCustomerIdsForBillingContext(
 
 type SubPickRow = {
   provider_price_id: string | null;
+  provider_product_id: string | null;
   status: string | null;
   current_period_end: string | null;
   updated_at: string | null;
@@ -131,7 +132,7 @@ export async function resolveBillingPlanFromPaddleCustomerIds(
 
   const { data: subs, error: subsErr } = await admin
     .from("billing_subscriptions")
-    .select("provider_price_id, status, current_period_end, updated_at")
+    .select("provider_price_id, provider_product_id, status, current_period_end, updated_at")
     .eq("provider", "paddle")
     .in("provider_customer_id", customerIds)
     .order("updated_at", { ascending: false })
@@ -151,7 +152,10 @@ export async function resolveBillingPlanFromPaddleCustomerIds(
       : false;
   if (isExpiredByDate) return "unknown";
 
-  return detectPlanFromPriceId(top.provider_price_id ?? null).plan;
+  return detectPlanFromPaddleSnapshot(
+    top.provider_price_id ?? null,
+    top.provider_product_id ?? null
+  ).plan;
 }
 
 /** Effective tariff for an organization: org entitlement → org Paddle customers. */

@@ -24,3 +24,42 @@ export function detectPlanFromPriceId(priceId: string | null): {
   if (id === m.agencyYearly) return { plan: "scale", billing: "yearly" };
   return { plan: "unknown", billing: "unknown" };
 }
+
+/**
+ * Webhook иногда кладёт в snapshot только `product_id` (или price id из другого окружения не совпадает с env).
+ * Сначала price id, затем product id — те же env, что в `paddlePriceMap` (NEXT_PUBLIC_PADDLE_PRODUCT_*).
+ */
+export function detectPlanFromPaddleSnapshot(
+  priceId: string | null,
+  productId: string | null
+): {
+  plan: BillingPlanId;
+  billing: "monthly" | "yearly" | "unknown";
+} {
+  const fromPrice = detectPlanFromPriceId(priceId);
+  if (fromPrice.plan !== "unknown") return fromPrice;
+  const pid = (productId ?? "").trim();
+  if (!pid) return fromPrice;
+  const pairs: { plan: BillingPlanId; monthly?: string; yearly?: string }[] = [
+    {
+      plan: "starter",
+      monthly: process.env.NEXT_PUBLIC_PADDLE_PRODUCT_STARTER,
+      yearly: process.env.NEXT_PUBLIC_PADDLE_PRODUCT_STARTER_YEARLY,
+    },
+    {
+      plan: "growth",
+      monthly: process.env.NEXT_PUBLIC_PADDLE_PRODUCT_GROWTH,
+      yearly: process.env.NEXT_PUBLIC_PADDLE_PRODUCT_GROWTH_YEARLY,
+    },
+    {
+      plan: "scale",
+      monthly: process.env.NEXT_PUBLIC_PADDLE_PRODUCT_AGENCY,
+      yearly: process.env.NEXT_PUBLIC_PADDLE_PRODUCT_AGENCY_YEARLY,
+    },
+  ];
+  for (const row of pairs) {
+    if (pid === (row.monthly ?? "").trim()) return { plan: row.plan, billing: "monthly" };
+    if (pid === (row.yearly ?? "").trim()) return { plan: row.plan, billing: "yearly" };
+  }
+  return fromPrice;
+}

@@ -7,6 +7,12 @@ import { supabase } from "../../lib/supabaseClient";
 import { billingActionAllowed, clearBillingRouteStorage } from "@/app/lib/billingBootstrapClient";
 import { billingPayloadFromResolved, emitBillingCjmEvent } from "@/app/lib/billingCjmAnalytics";
 import { ActionId } from "@/app/lib/billingUiContract";
+import {
+  BOOTSTRAP_PLAN_DISPLAY_FALLBACK,
+  resolveBootstrapPlanAnalyticsSlug,
+  resolveBootstrapPlanTier,
+  subscriptionStatusLooksPaid,
+} from "@/app/lib/billingBootstrapPlanLabel";
 import { suggestUpgradePlanId } from "@/app/lib/billingPlanDisplay";
 import { useBillingBootstrap } from "./BillingBootstrapProvider";
 import { BillingInlinePricingSuspended } from "./BillingInlinePricing";
@@ -115,9 +121,6 @@ export default function Topbar({ email }: { email?: string }) {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project_id")?.trim() ?? null;
 
-  const [currentPlan, setCurrentPlan] = useState<CurrentPlan>("unknown");
-  const [currentPlanStatus, setCurrentPlanStatus] = useState<string>("unknown");
-  const [currentPlanUntil, setCurrentPlanUntil] = useState<string | null>(null);
   const { bootstrap, resolvedUi, loading: billingUiLoading } = useBillingBootstrap();
   const matrix = bootstrap?.plan_feature_matrix;
   const isMaxPlan =
@@ -126,38 +129,78 @@ export default function Topbar({ email }: { email?: string }) {
     matrix.max_seats == null &&
     matrix.max_ad_accounts == null;
 
-  const planTheme =
-    currentPlan === "starter"
-      ? {
-          label: "Starter",
-          dot: "rgba(200,200,210,0.95)",
-          border: "rgba(255,255,255,0.16)",
-          bg: "rgba(255,255,255,0.06)",
-          dotGlow: "rgba(255,255,255,0.18)",
-        }
-      : currentPlan === "growth"
-        ? {
-            label: "Growth",
-            dot: "rgba(52,211,153,0.95)",
-            border: "rgba(52,211,153,0.35)",
-            bg: "rgba(16,185,129,0.14)",
-            dotGlow: "rgba(16,185,129,0.25)",
-          }
-        : currentPlan === "scale"
-          ? {
-            label: "Scale",
-            dot: "rgba(52,211,153,0.95)",
-            border: "rgba(52,211,153,0.35)",
-            bg: "rgba(16,185,129,0.14)",
-            dotGlow: "rgba(16,185,129,0.25)",
-          }
-          : {
-              label: "No plan",
-              dot: "rgba(148,163,184,0.95)",
-              border: "rgba(148,163,184,0.28)",
-              bg: "rgba(148,163,184,0.14)",
-              dotGlow: "rgba(148,163,184,0.2)",
-            };
+  const { currentPlan, currentPlanStatus, currentPlanUntil, neutralPaidPlan } = useMemo(() => {
+    const sub = bootstrap?.subscription;
+    const tier = resolveBootstrapPlanTier(bootstrap ?? null);
+    if (tier) {
+      return {
+        currentPlan: tier as CurrentPlan,
+        currentPlanStatus: sub ? String(sub.status ?? "unknown").toLowerCase() : "unknown",
+        currentPlanUntil: sub?.current_period_end ?? null,
+        neutralPaidPlan: false,
+      };
+    }
+    if (!sub) {
+      return {
+        currentPlan: "unknown" as CurrentPlan,
+        currentPlanStatus: "unknown",
+        currentPlanUntil: null as string | null,
+        neutralPaidPlan: false,
+      };
+    }
+    return {
+      currentPlan: "unknown" as CurrentPlan,
+      currentPlanStatus: String(sub.status ?? "unknown").toLowerCase(),
+      currentPlanUntil: sub.current_period_end ?? null,
+      neutralPaidPlan: subscriptionStatusLooksPaid(sub.status),
+    };
+  }, [bootstrap]);
+
+  const planTheme = useMemo(() => {
+    if (currentPlan === "starter") {
+      return {
+        label: "Starter",
+        dot: "rgba(200,200,210,0.95)",
+        border: "rgba(255,255,255,0.16)",
+        bg: "rgba(255,255,255,0.06)",
+        dotGlow: "rgba(255,255,255,0.18)",
+      };
+    }
+    if (currentPlan === "growth") {
+      return {
+        label: "Growth",
+        dot: "rgba(52,211,153,0.95)",
+        border: "rgba(52,211,153,0.35)",
+        bg: "rgba(16,185,129,0.14)",
+        dotGlow: "rgba(16,185,129,0.25)",
+      };
+    }
+    if (currentPlan === "scale") {
+      return {
+        label: "Scale",
+        dot: "rgba(52,211,153,0.95)",
+        border: "rgba(52,211,153,0.35)",
+        bg: "rgba(16,185,129,0.14)",
+        dotGlow: "rgba(16,185,129,0.25)",
+      };
+    }
+    if (neutralPaidPlan) {
+      return {
+        label: BOOTSTRAP_PLAN_DISPLAY_FALLBACK,
+        dot: "rgba(148,163,184,0.95)",
+        border: "rgba(148,163,184,0.28)",
+        bg: "rgba(148,163,184,0.14)",
+        dotGlow: "rgba(148,163,184,0.2)",
+      };
+    }
+    return {
+      label: "No plan",
+      dot: "rgba(148,163,184,0.95)",
+      border: "rgba(148,163,184,0.28)",
+      bg: "rgba(148,163,184,0.14)",
+      dotGlow: "rgba(148,163,184,0.2)",
+    };
+  }, [currentPlan, neutralPaidPlan]);
 
   type DataQualityPayload = {
     has_data: boolean;
@@ -293,34 +336,6 @@ export default function Topbar({ email }: { email?: string }) {
     }
     loadDataQuality();
   }, [projectId]);
-
-  useEffect(() => {
-    const m = bootstrap?.plan_feature_matrix;
-    const sub = bootstrap?.subscription;
-    if (m?.plan === "starter" || m?.plan === "growth" || m?.plan === "scale") {
-      setCurrentPlan(m.plan as CurrentPlan);
-    } else if (sub) {
-      const planRaw = String(sub.plan ?? "").toLowerCase();
-      const normalized = planRaw === "agency" ? "scale" : planRaw;
-      setCurrentPlan(
-        normalized === "starter" || normalized === "growth" || normalized === "scale"
-          ? (normalized as CurrentPlan)
-          : "unknown"
-      );
-    } else {
-      setCurrentPlan("unknown");
-      setCurrentPlanStatus("unknown");
-      setCurrentPlanUntil(null);
-      return;
-    }
-    if (!sub) {
-      setCurrentPlanStatus("unknown");
-      setCurrentPlanUntil(null);
-      return;
-    }
-    setCurrentPlanStatus(String(sub.status ?? "unknown").toLowerCase());
-    setCurrentPlanUntil(sub.current_period_end ?? null);
-  }, [bootstrap]);
 
   // ✅ Закрытие попапа по клику вне
   useEffect(() => {
@@ -679,8 +694,8 @@ export default function Topbar({ email }: { email?: string }) {
                     "upgrade_clicked",
                     billingPayloadFromResolved(resolvedUi ?? null, {
                       plan:
+                        resolveBootstrapPlanAnalyticsSlug(bootstrap ?? null) ??
                         (matrix?.plan as string | undefined) ??
-                        bootstrap?.subscription?.plan ??
                         "unknown",
                       userId: null,
                       source_action: "topbar_upgrade",
