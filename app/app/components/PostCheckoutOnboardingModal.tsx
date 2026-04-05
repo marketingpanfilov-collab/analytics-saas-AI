@@ -57,13 +57,23 @@ function planLabel(plan: string | null | undefined): string {
 
 function resolvePlanDisplayName(b: BillingBootstrapApiOk | null): string {
   if (!b) return "—";
-  const matrix = b.plan_feature_matrix?.plan;
-  if (matrix && matrix !== "unknown") return planLabel(String(matrix));
   const ep = b.effective_plan;
   if (ep && ep !== "unknown") return planLabel(String(ep));
   const sp = b.subscription?.plan;
   if (sp) return planLabel(sp);
+  const matrix = b.plan_feature_matrix?.plan;
+  if (matrix && matrix !== "unknown") return planLabel(String(matrix));
   return "—";
+}
+
+function resolvePlanForAnalytics(b: BillingBootstrapApiOk | null): string | null {
+  if (!b) return null;
+  const ep = b.effective_plan;
+  if (ep && ep !== "unknown") return String(ep);
+  if (b.subscription?.plan) return String(b.subscription.plan);
+  const matrix = b.plan_feature_matrix?.plan;
+  if (matrix && matrix !== "unknown") return String(matrix);
+  return null;
 }
 
 export default function PostCheckoutOnboardingModal() {
@@ -74,6 +84,7 @@ export default function PostCheckoutOnboardingModal() {
   const postCheckoutStartedEmittedRef = useRef(false);
   /** Уже показывали модалку пост-чекаута: не прятать её при reloadBootstrap (bootstrapLoading). */
   const postCheckoutFlowActiveRef = useRef(false);
+  const postCheckoutCompleteSubmittedRef = useRef(false);
   const [gate, setGate] = useState<"loading" | "skip" | "modal" | "success">("loading");
   const [step, setStep] = useState(1);
   const [accountEmail, setAccountEmail] = useState("");
@@ -137,9 +148,7 @@ export default function PostCheckoutOnboardingModal() {
   useEffect(() => {
     if (gate !== "modal" || !showPostCheckoutModal || postCheckoutStartedEmittedRef.current) return;
     postCheckoutStartedEmittedRef.current = true;
-    const matrixPlan = bootstrap?.plan_feature_matrix?.plan;
-    const plan =
-      matrixPlan && matrixPlan !== "unknown" ? String(matrixPlan) : (bootstrap?.subscription?.plan ?? null);
+    const plan = resolvePlanForAnalytics(bootstrap ?? null);
     void supabase.auth.getUser().then(({ data: u }) => {
       emitBillingFunnelEvent("billing_post_checkout_onboarding_started", {
         user_id: u.user?.id ?? null,
@@ -149,7 +158,15 @@ export default function PostCheckoutOnboardingModal() {
         source: "in_app",
       });
     });
-  }, [gate, showPostCheckoutModal, bootstrap?.primary_org_id, bootstrap?.plan_feature_matrix?.plan, bootstrap?.subscription?.plan, bootstrap?.subscription?.billing_period]);
+  }, [
+    gate,
+    showPostCheckoutModal,
+    bootstrap?.primary_org_id,
+    bootstrap?.effective_plan,
+    bootstrap?.plan_feature_matrix?.plan,
+    bootstrap?.subscription?.plan,
+    bootstrap?.subscription?.billing_period,
+  ]);
 
   useEffect(() => {
     if (gate !== "modal") return;
@@ -213,25 +230,29 @@ export default function PostCheckoutOnboardingModal() {
   };
 
   const onComplete = async () => {
+    if (postCheckoutCompleteSubmittedRef.current) return;
     setSaving(true);
     setErr(null);
     try {
       await postJson({ action: "complete" });
+      postCheckoutCompleteSubmittedRef.current = true;
+      suppressBootstrapSyncRef.current = true;
+      postCheckoutFlowActiveRef.current = false;
+      const pack = await reloadBootstrap();
+      const fresh = pack.bootstrap;
       const { data: u } = await supabase.auth.getUser();
-      const matrixPlan = bootstrap?.plan_feature_matrix?.plan;
-      const plan =
-        matrixPlan && matrixPlan !== "unknown" ? String(matrixPlan) : (bootstrap?.subscription?.plan ?? null);
+      const plan = resolvePlanForAnalytics(fresh ?? bootstrap);
       emitBillingFunnelEvent("billing_post_checkout_onboarding_completed", {
         user_id: u.user?.id ?? null,
-        organization_id: bootstrap?.primary_org_id ?? null,
+        organization_id: fresh?.primary_org_id ?? bootstrap?.primary_org_id ?? null,
         plan,
-        billing_period: bootstrap?.subscription?.billing_period ?? null,
+        billing_period: fresh?.subscription?.billing_period ?? bootstrap?.subscription?.billing_period ?? null,
         source: "in_app",
       });
-      suppressBootstrapSyncRef.current = true;
+      setPlanName(resolvePlanDisplayName(fresh ?? bootstrap));
       setGate("success");
       broadcastBillingBootstrapInvalidate();
-      reloadBootstrap();
+      void reloadBootstrap();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -239,11 +260,12 @@ export default function PostCheckoutOnboardingModal() {
     }
   };
 
-  const exitSuccessToProduct = (path: string) => {
+  const exitSuccessToProduct = async (path: string) => {
     suppressBootstrapSyncRef.current = false;
     setGate("skip");
+    await reloadBootstrap();
     void router.refresh();
-    router.push(path);
+    router.replace(path);
   };
 
   const step2Valid =
@@ -293,7 +315,7 @@ export default function PostCheckoutOnboardingModal() {
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <button
               type="button"
-              onClick={() => exitSuccessToProduct("/app/projects")}
+              onClick={() => void exitSuccessToProduct("/app/projects")}
               style={{
                 padding: "12px 18px",
                 borderRadius: 12,
@@ -309,7 +331,7 @@ export default function PostCheckoutOnboardingModal() {
             </button>
             <button
               type="button"
-              onClick={() => exitSuccessToProduct("/app")}
+              onClick={() => void exitSuccessToProduct("/app")}
               style={{
                 padding: "12px 18px",
                 borderRadius: 12,

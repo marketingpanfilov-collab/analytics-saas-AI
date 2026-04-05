@@ -83,6 +83,18 @@ export async function POST(req: Request) {
       ? body.project_id.trim()
       : null;
 
+  // Повторный complete после успеха: иначе loadBillingCurrentPlan даёт requires_post_checkout=false → 403 «not active».
+  if (action === "complete") {
+    const { data: pcEarly } = await admin
+      .from("user_post_checkout_onboarding")
+      .select("completed_at")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (pcEarly?.completed_at) {
+      return NextResponse.json({ success: true, completed: true, already_completed: true });
+    }
+  }
+
   if (action === "advance_step" || action === "save_company" || action === "complete") {
     const snap = await loadBillingCurrentPlan(admin, user.id, email, {
       requestId: `pco-${randomUUID()}`,

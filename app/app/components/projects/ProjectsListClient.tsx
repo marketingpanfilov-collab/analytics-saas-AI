@@ -106,14 +106,15 @@ export default function ProjectsListClient({
   planMaxProjects = null,
 }: Props) {
   const router = useRouter();
-  const { resolvedUi, showPostCheckoutModal, loading: billingBootstrapLoading } = useBillingBootstrap();
+  const { resolvedUi, showPostCheckoutModal, loading: billingBootstrapLoading, bootstrap } =
+    useBillingBootstrap();
 
   useEffect(() => {
     if (billingBootstrapLoading) return;
-    if (showPostCheckoutModal) {
+    if (bootstrap?.requires_post_checkout_onboarding === true && showPostCheckoutModal) {
       router.replace("/app/projects/onboarding");
     }
-  }, [billingBootstrapLoading, showPostCheckoutModal, router]);
+  }, [billingBootstrapLoading, showPostCheckoutModal, bootstrap?.requires_post_checkout_onboarding, router]);
   const canSyncProjectMutations = useMemo(
     () => billingActionAllowed(resolvedUi, ActionId.sync_refresh),
     [resolvedUi]

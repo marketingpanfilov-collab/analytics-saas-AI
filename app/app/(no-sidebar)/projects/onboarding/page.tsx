@@ -10,17 +10,15 @@ import { useBillingBootstrap } from "../../../components/BillingBootstrapProvide
  */
 export default function ProjectsOnboardingPage() {
   const router = useRouter();
-  const { bootstrap, loading, showPostCheckoutModal } = useBillingBootstrap();
+  const { bootstrap, loading } = useBillingBootstrap();
 
   useEffect(() => {
     if (loading) return;
     if (!bootstrap) return;
-    // Не уходим на /projects, пока серверный флаг пост-чекаута true — иначе гонка со стабилизацией displayedResolved.
+    // Источник истины — серверный флаг, не showPostCheckoutModal (он может отставать от bootstrap).
     if (bootstrap.requires_post_checkout_onboarding === true) return;
-    if (!showPostCheckoutModal) {
-      router.replace("/app/projects");
-    }
-  }, [loading, bootstrap, showPostCheckoutModal, router]);
+    router.replace("/app/projects");
+  }, [loading, bootstrap, router]);
 
   return (
     <div
