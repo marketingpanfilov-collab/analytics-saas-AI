@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/app/lib/supabaseClient";
-import { broadcastBillingBootstrapInvalidate } from "@/app/lib/billingBootstrapClient";
+import {
+  broadcastBillingBootstrapInvalidate,
+  type BillingBootstrapApiOk,
+} from "@/app/lib/billingBootstrapClient";
 import { emitBillingFunnelEvent } from "@/app/lib/billingFunnelAnalytics";
 import { getCompanySizeSelectOptions } from "@/app/lib/companySize";
 import { getCompanySphereGroupedSelect } from "@/app/lib/companySphere";
@@ -52,12 +55,25 @@ function planLabel(plan: string | null | undefined): string {
   return p || "—";
 }
 
+function resolvePlanDisplayName(b: BillingBootstrapApiOk | null): string {
+  if (!b) return "—";
+  const matrix = b.plan_feature_matrix?.plan;
+  if (matrix && matrix !== "unknown") return planLabel(String(matrix));
+  const ep = b.effective_plan;
+  if (ep && ep !== "unknown") return planLabel(String(ep));
+  const sp = b.subscription?.plan;
+  if (sp) return planLabel(sp);
+  return "—";
+}
+
 export default function PostCheckoutOnboardingModal() {
   const router = useRouter();
   const { showPostCheckoutModal, bootstrap, loading: bootstrapLoading, reloadBootstrap } =
     useBillingBootstrap();
   const suppressBootstrapSyncRef = useRef(false);
   const postCheckoutStartedEmittedRef = useRef(false);
+  /** Уже показывали модалку пост-чекаута: не прятать её при reloadBootstrap (bootstrapLoading). */
+  const postCheckoutFlowActiveRef = useRef(false);
   const [gate, setGate] = useState<"loading" | "skip" | "modal" | "success">("loading");
   const [step, setStep] = useState(1);
   const [accountEmail, setAccountEmail] = useState("");
@@ -89,13 +105,18 @@ export default function PostCheckoutOnboardingModal() {
       return;
     }
     if (bootstrapLoading) {
+      if (showPostCheckoutModal && postCheckoutFlowActiveRef.current) {
+        return;
+      }
       setGate("loading");
       return;
     }
     if (!showPostCheckoutModal) {
+      postCheckoutFlowActiveRef.current = false;
       setGate("skip");
       return;
     }
+    postCheckoutFlowActiveRef.current = true;
     setGate("modal");
     const fromProgress = bootstrap?.onboarding_progress?.step;
     const s = Math.min(
@@ -105,9 +126,8 @@ export default function PostCheckoutOnboardingModal() {
         typeof fromProgress === "number" ? fromProgress : Number(bootstrap?.post_checkout_onboarding_step) || 1
       )
     );
-    setStep(s);
-    const matrixPlan = bootstrap?.plan_feature_matrix?.plan;
-    setPlanName(planLabel(matrixPlan && matrixPlan !== "unknown" ? matrixPlan : null));
+    setStep((prev) => Math.min(3, Math.max(prev, s)));
+    setPlanName(resolvePlanDisplayName(bootstrap ?? null));
   }, [bootstrap, bootstrapLoading, showPostCheckoutModal]);
 
   useEffect(() => {
@@ -163,7 +183,7 @@ export default function PostCheckoutOnboardingModal() {
     try {
       await postJson({ action: "advance_step", step: next });
       setStep(next);
-      reloadBootstrap();
+      await reloadBootstrap();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -184,7 +204,7 @@ export default function PostCheckoutOnboardingModal() {
         company_size: companySize,
       });
       setStep(3);
-      reloadBootstrap();
+      await reloadBootstrap();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {

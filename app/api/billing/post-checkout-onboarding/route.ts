@@ -11,6 +11,49 @@ import {
 } from "@/app/lib/billingCurrentPlan";
 
 /**
+ * Организация для шага компании: сначала membership, иначе org из Paddle map (оплата до лишней org).
+ * Иначе save_company создавал бы вторую org без подписки и ломал requires_post_checkout / биллинг.
+ */
+async function resolveOwnerOrgForPostCheckoutSave(
+  admin: ReturnType<typeof supabaseAdmin>,
+  userId: string,
+  emailNorm: string | null
+): Promise<string | null> {
+  const primary = await getPrimaryOwnerOrgId(admin, userId);
+  if (primary) return primary;
+  if (!emailNorm) return null;
+  const { data: mapRow } = await admin
+    .from("billing_customer_map")
+    .select("organization_id")
+    .eq("provider", "paddle")
+    .eq("email", emailNorm)
+    .not("organization_id", "is", null)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const orgId = mapRow?.organization_id ? String(mapRow.organization_id) : null;
+  if (!orgId) return null;
+  const { data: mem } = await admin
+    .from("organization_members")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("organization_id", orgId)
+    .maybeSingle();
+  if (!mem) {
+    const { error } = await admin.from("organization_members").insert({
+      organization_id: orgId,
+      user_id: userId,
+      role: "owner",
+    });
+    if (error && (error as { code?: string }).code !== "23505") {
+      console.error("[post-checkout-onboarding] link owner to billing org failed", error.message);
+      return null;
+    }
+  }
+  return orgId;
+}
+
+/**
  * POST /api/billing/post-checkout-onboarding
  * Idempotent completion + same company fields as Settings → Company (organizations + CRM).
  */
@@ -97,7 +140,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "Название компании обязательно" }, { status: 400 });
     }
 
-    let orgId = await getPrimaryOwnerOrgId(admin, user.id);
+    let orgId = await resolveOwnerOrgForPostCheckoutSave(admin, user.id, email);
     if (!orgId) {
       const slug = `org-${user.id.replace(/-/g, "").slice(0, 12)}-${Math.random().toString(36).slice(2, 10)}`;
       const { data: orgIns, error: oErr } = await admin
