@@ -14,12 +14,12 @@ function todayYmd(): string {
 }
 
 function isUserActiveEntitlement(row: {
-  user_id: string | null;
+  organization_id?: string | null;
   starts_at?: string | null;
   ends_at?: string | null;
   status?: string | null;
 }): boolean {
-  if (!row.user_id) return false;
+  if (!row.organization_id) return false;
   if (row.status && row.status !== "active") return false;
   const nowTs = Date.now();
   const startsTs = row.starts_at ? Date.parse(String(row.starts_at)) : null;
@@ -73,19 +73,33 @@ async function getPaidUserIds(admin: ReturnType<typeof supabaseAdmin>): Promise<
 
   const paid = new Set<string>();
 
-  // 1) Admin entitlements (status=active + time window checks)
+  // 1) Admin entitlements (status=active + time window checks) — organization scope only
   const { data: entRows } = await admin
     .from("billing_entitlements")
-    .select("user_id, starts_at, ends_at, status")
+    .select("organization_id, starts_at, ends_at, status")
     .eq("status", "active")
     .limit(5000);
 
+  const orgIdsFromEntitlements = new Set<string>();
   for (const row of entRows ?? []) {
+    const r = row as { organization_id?: string | null };
     if (!isUserActiveEntitlement(row as any)) continue;
-    paid.add(String((row as any).user_id));
+    if (r.organization_id) orgIdsFromEntitlements.add(String(r.organization_id));
   }
 
-  // 2) Provider subscriptions snapshot (Paddle -> billing_customer_map -> user_id)
+  if (orgIdsFromEntitlements.size > 0) {
+    const oidList = Array.from(orgIdsFromEntitlements).slice(0, 500);
+    const { data: memRows } = await admin
+      .from("organization_members")
+      .select("user_id, organization_id")
+      .in("organization_id", oidList);
+    for (const m of memRows ?? []) {
+      const uid = (m as { user_id?: string }).user_id;
+      if (uid) paid.add(String(uid));
+    }
+  }
+
+  // 2) Provider subscriptions snapshot (Paddle -> billing_customer_map -> organization members)
   const { data: subsRows } = await admin
     .from("billing_subscriptions")
     .select("provider_customer_id, status, current_period_end")
@@ -103,14 +117,25 @@ async function getPaidUserIds(admin: ReturnType<typeof supabaseAdmin>): Promise<
     const customerIds = Array.from(activeCustomerIds).slice(0, 5000);
     const { data: maps } = await admin
       .from("billing_customer_map")
-      .select("provider_customer_id, user_id")
+      .select("provider_customer_id, organization_id")
       .eq("provider", "paddle")
       .in("provider_customer_id", customerIds);
 
+    const orgIdsFromMaps = new Set<string>();
     for (const m of maps ?? []) {
-      const userId = (m as any).user_id;
-      if (!userId) continue;
-      paid.add(String(userId));
+      const row = m as { organization_id?: string | null };
+      if (row.organization_id) orgIdsFromMaps.add(String(row.organization_id));
+    }
+    if (orgIdsFromMaps.size > 0) {
+      const oids = Array.from(orgIdsFromMaps).slice(0, 500);
+      const { data: memRows } = await admin
+        .from("organization_members")
+        .select("user_id")
+        .in("organization_id", oids);
+      for (const m of memRows ?? []) {
+        const uid = (m as { user_id?: string }).user_id;
+        if (uid) paid.add(String(uid));
+      }
     }
   }
 

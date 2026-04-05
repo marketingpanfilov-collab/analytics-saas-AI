@@ -1,6 +1,7 @@
-import { createServerSupabase } from "@/app/lib/supabaseServer";
+import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 
-const ORG_ROLES_ALL_PROJECTS = ["owner", "admin"];
+/** Роли, при которых видны все проекты организации (см. organization_members_role_check). */
+const ORG_ROLES_ALL_PROJECTS = ["owner", "admin", "agency"];
 
 export type ProjectAccessResult = {
   membership: { organization_id: string; role: string };
@@ -12,36 +13,59 @@ export type ProjectAccessResult = {
  * Server-only. Checks if user has access to the project.
  * Returns membership + project + role, or null if no access.
  * Does not perform redirects.
+ *
+ * Использует service role: под пользовательским JWT RLS часто скрывает строки `projects` /
+ * `organization_members`, из‑за чего invited user видел проект в списке (admin в getCurrentUserContext),
+ * но `requireProjectAccess` возвращал null и /app?project_id=… редиректил на /app/projects.
  */
 export async function requireProjectAccess(
   userId: string,
   projectId: string
 ): Promise<ProjectAccessResult | null> {
-  const supabase = await createServerSupabase();
+  const admin = supabaseAdmin();
 
-  const { data: mem } = await supabase
-    .from("organization_members")
-    .select("organization_id, role")
-    .eq("user_id", userId)
+  const { data: proj } = await admin
+    .from("projects")
+    .select("id, name, organization_id")
+    .eq("id", projectId)
     .maybeSingle();
 
-  // User may have no org membership but have access via project_members (e.g. invited to project only)
-  if (!mem) {
-    const { data: pm } = await supabase
+  if (!proj) return null;
+
+  const projectOrgId = proj.organization_id ? String(proj.organization_id) : null;
+
+  const { data: orgMemRows } = await admin
+    .from("organization_members")
+    .select("organization_id, role")
+    .eq("user_id", userId);
+
+  const memInProjectOrg =
+    projectOrgId != null
+      ? (orgMemRows ?? []).find((m) => String(m.organization_id) === projectOrgId)
+      : undefined;
+
+  if (memInProjectOrg) {
+    const orgRole = String(memInProjectOrg.role ?? "member");
+    if (ORG_ROLES_ALL_PROJECTS.includes(orgRole)) {
+      return {
+        membership: { organization_id: projectOrgId!, role: orgRole },
+        project: {
+          id: proj.id,
+          name: proj.name ?? null,
+          organization_id: proj.organization_id ?? null,
+        },
+        role: orgRole,
+      };
+    }
+    const { data: pm } = await admin
       .from("project_members")
       .select("role")
       .eq("project_id", projectId)
       .eq("user_id", userId)
       .maybeSingle();
     if (!pm) return null;
-    const { data: proj } = await supabase
-      .from("projects")
-      .select("id, name, organization_id")
-      .eq("id", projectId)
-      .maybeSingle();
-    if (!proj) return null;
     return {
-      membership: { organization_id: proj.organization_id ?? "", role: "member" },
+      membership: { organization_id: projectOrgId!, role: orgRole },
       project: {
         id: proj.id,
         name: proj.name ?? null,
@@ -51,51 +75,25 @@ export async function requireProjectAccess(
     };
   }
 
-  const orgRole = (mem.role ?? "member") as string;
-  let allowedIds: string[] = [];
-
-  if (ORG_ROLES_ALL_PROJECTS.includes(orgRole)) {
-    const { data: projs } = await supabase
-      .from("projects")
-      .select("id")
-      .eq("organization_id", mem.organization_id);
-    allowedIds = (projs ?? []).map((p: { id: string }) => p.id);
-  } else {
-    const { data: pms } = await supabase
-      .from("project_members")
-      .select("project_id")
-      .eq("user_id", userId);
-    allowedIds = (pms ?? []).map((r: { project_id: string }) => r.project_id);
-  }
-
-  if (!allowedIds.includes(projectId)) return null;
-
-  const { data: proj } = await supabase
-    .from("projects")
-    .select("id, name, organization_id")
-    .eq("id", projectId)
+  const { data: pmOnly } = await admin
+    .from("project_members")
+    .select("role")
+    .eq("project_id", projectId)
+    .eq("user_id", userId)
     .maybeSingle();
 
-  if (!proj) return null;
-
-  let role = orgRole;
-  if (!ORG_ROLES_ALL_PROJECTS.includes(orgRole)) {
-    const { data: pm } = await supabase
-      .from("project_members")
-      .select("role")
-      .eq("project_id", projectId)
-      .eq("user_id", userId)
-      .maybeSingle();
-    role = (pm?.role as string) ?? "member";
-  }
+  if (!pmOnly) return null;
 
   return {
-    membership: { organization_id: mem.organization_id, role: mem.role ?? "member" },
+    membership: {
+      organization_id: projectOrgId ?? "",
+      role: "member",
+    },
     project: {
       id: proj.id,
       name: proj.name ?? null,
       organization_id: proj.organization_id ?? null,
     },
-    role,
+    role: (pmOnly.role as string) ?? "member",
   };
 }

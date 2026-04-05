@@ -2,6 +2,14 @@ import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { billingHeavySyncGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
+import {
+  countBillableSeatsForOrganization,
+  getPlanMaxSeatsForUser,
+  isAtOrgSeatPlanLimit,
+  ORG_SEAT_PLAN_LIMIT_CODE,
+  ORG_SEAT_PLAN_LIMIT_USER_MESSAGE,
+  userHasBillableSeatInOrganization,
+} from "@/app/lib/orgSeatPlanLimit";
 
 const ORG_ROLES_ALLOWED = ["owner", "admin"];
 const ADDABLE_ROLES = ["admin", "agency", "member"];
@@ -42,6 +50,15 @@ export async function POST(req: Request) {
   }
 
   const admin = supabaseAdmin();
+  const organizationId = String(myMem.organization_id ?? "");
+  let maxSeats: number | null;
+  try {
+    maxSeats = await getPlanMaxSeatsForUser(admin, user.id, user.email ?? null, organizationId);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Seat limit check failed";
+    return NextResponse.json({ success: false, error: msg }, { status: 500 });
+  }
+
   let page = 1;
   const perPage = 100;
   let foundUserId: string | null = null;
@@ -63,6 +80,20 @@ export async function POST(req: Request) {
 
   if (!foundUserId) {
     return NextResponse.json({ success: false, error: "Пользователь не найден" }, { status: 404 });
+  }
+
+  try {
+    const seatCount = await countBillableSeatsForOrganization(admin, myMem.organization_id);
+    const alreadySeated = await userHasBillableSeatInOrganization(admin, myMem.organization_id, foundUserId);
+    if (!alreadySeated && isAtOrgSeatPlanLimit(maxSeats, seatCount)) {
+      return NextResponse.json(
+        { success: false, error: ORG_SEAT_PLAN_LIMIT_USER_MESSAGE, code: ORG_SEAT_PLAN_LIMIT_CODE },
+        { status: 403 }
+      );
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Seat limit check failed";
+    return NextResponse.json({ success: false, error: msg }, { status: 500 });
   }
 
   const { error: insertErr } = await admin

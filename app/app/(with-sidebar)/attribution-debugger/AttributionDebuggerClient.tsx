@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
+import PlanRestrictedOverlay from "../../components/PlanRestrictedOverlay";
 import { buildChainTimeline, formatDeltaShort, formatTimeToEvent } from "@/app/lib/attributionTimeline";
 import { ATTRIBUTION_STATE_LABELS } from "@/app/lib/trafficSourceDetection";
 
@@ -628,6 +629,11 @@ export default function AttributionDebuggerClient() {
   }
 
   return (
+    <PlanRestrictedOverlay
+      allowedPlans={["growth", "scale"]}
+      message="Полная аналитика доступна на тарифах Growth и Scale. Обновите тариф, чтобы открыть эти данные."
+      upgradeSource="plan_restricted_attribution_debugger"
+    >
     <div className="min-h-[60vh] bg-[#0b0b10] p-6" style={{ gridColumn: "2 / -1" }}>
       <header className="mb-6">
         <h1 className="text-2xl font-extrabold tracking-tight text-white">Проверка атрибуции</h1>
@@ -1628,5 +1634,6 @@ export default function AttributionDebuggerClient() {
         </>
       )}
     </div>
+    </PlanRestrictedOverlay>
   );
 }

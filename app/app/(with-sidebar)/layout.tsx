@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import DevAbortRejectionSuppressor from "../components/DevAbortRejectionSuppressor";
 import { BillingBootstrapProvider } from "../components/BillingBootstrapProvider";
 import { BillingPricingModalProvider } from "../components/BillingPricingModalProvider";
@@ -14,6 +14,7 @@ import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 import PaddleAppInit from "../components/PaddleAppInit";
 import PostCheckoutOnboardingModal from "../components/PostCheckoutOnboardingModal";
+import { AppMainPaneRefProvider } from "../components/AppMainPaneRefContext";
 import { BillingShellGate } from "../components/BillingShellGate";
 import { supabase } from "../../lib/supabaseClient";
 
@@ -45,6 +46,7 @@ function TopbarFallback() {
 
 export default function WithSidebarLayout({ children }: { children: React.ReactNode }) {
   const [email, setEmail] = useState<string>("");
+  const mainRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -64,6 +66,7 @@ export default function WithSidebarLayout({ children }: { children: React.ReactN
     <BillingBootstrapProvider>
       <BillingPricingModalProvider>
       <div
+        className="app-shell-grid"
         style={{
           minHeight: "100vh",
           background: "#0b0b10",
@@ -75,7 +78,7 @@ export default function WithSidebarLayout({ children }: { children: React.ReactN
         <PaddleAppInit />
         <PostCheckoutOnboardingModal />
         {/* LEFT: SIDEBAR — 260px to match Sidebar component width; wrapped in Suspense because Sidebar uses useSearchParams() */}
-        <div style={{ minHeight: "100vh", minWidth: 0 }}>
+        <div className="app-shell-sidebar" style={{ minHeight: "100vh", minWidth: 0 }}>
           <Suspense fallback={<SidebarFallback />}>
             <Sidebar />
           </Suspense>
@@ -83,26 +86,38 @@ export default function WithSidebarLayout({ children }: { children: React.ReactN
 
         {/* RIGHT: TOPBAR + CONTENT */}
         <div
+          className="app-shell-main-stack"
           style={{
             minHeight: "100vh",
             display: "grid",
             gridTemplateRows: "auto 64px 1fr",
           }}
         >
-          <div style={{ minWidth: 0 }}>
+          <div className="app-shell-banners" style={{ minWidth: 0 }}>
             <BillingClientSafeModeBanner />
             <BillingAccessStricterBanner />
             <PlanChangePendingBanner />
           </div>
-          <div style={{ height: 64 }}>
+          <div className="app-shell-topbar" style={{ height: 64 }}>
             <Suspense fallback={<TopbarFallback />}>
               <Topbar email={email} />
             </Suspense>
           </div>
 
-          <main style={{ minHeight: 0 }}>
-            <ReadOnlyPaywallBanner />
-            <BillingShellGate>{children}</BillingShellGate>
+          <main
+            ref={mainRef}
+            className="app-shell-main"
+            style={{
+              minHeight: 0,
+              position: "relative",
+              overflowX: "hidden",
+              overflowY: "auto",
+            }}
+          >
+            <AppMainPaneRefProvider mainRef={mainRef}>
+              <ReadOnlyPaywallBanner />
+              <BillingShellGate>{children}</BillingShellGate>
+            </AppMainPaneRefProvider>
           </main>
         </div>
       </div>

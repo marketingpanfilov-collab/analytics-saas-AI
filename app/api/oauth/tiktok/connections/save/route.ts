@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
 import { billingHeavySyncGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
 import { logCabinetState } from "@/app/lib/cabinetAuditLog";
+import { assertAdAccountSelectionWithinPlanLimit } from "@/app/lib/adAccountPlanLimit";
 
 function isUuid(v: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
@@ -69,6 +71,32 @@ export async function POST(req: Request) {
   }
 
   const list = (adRows ?? []) as { id: string; external_account_id: string }[];
+
+  const { data: projOrg } = await admin
+    .from("projects")
+    .select("organization_id")
+    .eq("id", projectId)
+    .maybeSingle();
+  const organizationId = projOrg?.organization_id ? String(projOrg.organization_id) : null;
+
+  if (organizationId && access.source === "user") {
+    const supabase = await createServerSupabase();
+    const {
+      data: { user: u },
+    } = await supabase.auth.getUser();
+    if (u) {
+      const lim = await assertAdAccountSelectionWithinPlanLimit({
+        admin,
+        organizationId,
+        userId: u.id,
+        userEmail: u.email ?? null,
+        integrationAccountRows: list,
+        selectedExternalIds: adAccountIds,
+      });
+      if (!lim.ok) return lim.response;
+    }
+  }
+
   const selectedSet = new Set(adAccountIds);
   const now = new Date().toISOString();
   const settingsRows = list.map((row) => ({

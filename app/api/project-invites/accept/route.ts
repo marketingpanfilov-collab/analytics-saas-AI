@@ -21,7 +21,7 @@ export async function POST(req: Request) {
   const admin = supabaseAdmin();
   const { data: invite, error: inviteErr } = await admin
     .from("project_invites")
-    .select("id, project_id, organization_id, role, status, expires_at")
+    .select("id, project_id, organization_id, role, status, expires_at, email, invite_type")
     .eq("token", token)
     .maybeSingle();
 
@@ -42,6 +42,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: "expired", reason: "expired" }, { status: 400 });
   }
 
+  const inviteType = String(invite.invite_type ?? "email");
+  if (inviteType === "email" && invite.email && String(invite.email).trim()) {
+    const expected = String(invite.email).trim().toLowerCase();
+    const actual = (user.email ?? "").trim().toLowerCase();
+    if (actual !== expected) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Войдите под адресом ${expected}, на который отправлено приглашение.`,
+          code: "INVITE_EMAIL_MISMATCH",
+        },
+        { status: 403 }
+      );
+    }
+  }
+
   const { data: existing } = await admin
     .from("project_members")
     .select("id")
@@ -55,6 +71,8 @@ export async function POST(req: Request) {
       .eq("id", invite.id);
     return NextResponse.json({ success: true, project_id: invite.project_id, already_member: true });
   }
+
+  // Seats — soft-limit (billing UI / over_limit_details), не hard-block для accept по продуктовому канону.
 
   const { error: insertMemErr } = await admin.from("project_members").insert({
     project_id: invite.project_id,

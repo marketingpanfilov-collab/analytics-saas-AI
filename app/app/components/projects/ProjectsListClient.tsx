@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useRef, useEffect, useState, useMemo } from "react";
+import { useRef, useEffect, useState, useMemo, type ReactNode } from "react";
 import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
 import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
 import { ActionId } from "@/app/lib/billingUiContract";
@@ -12,6 +12,8 @@ import {
   canRenameProject,
   canArchiveProject,
 } from "@/app/lib/auth/projectPermissions";
+import { PROJECT_PLAN_LIMIT_USER_MESSAGE } from "@/app/lib/projectPlanLimit";
+import PortalTooltip from "@/app/app/components/PortalTooltip";
 
 function roleLabel(role: string): string {
   if (role === "owner") return "Владелец";
@@ -29,8 +31,6 @@ function shortId(id: string): string {
 
 const NAME_MAX_LENGTH = 256;
 
-type OrgMember = { id: string; user_id: string; role: string; email: string | null };
-
 type Props = {
   projects: Project[];
   archivedProjects: Project[];
@@ -43,7 +43,52 @@ type Props = {
   canTransferOwnership?: boolean;
   organizationId?: string | null;
   organizationName?: string | null;
+  /** null = без лимита по тарифу (сервер: getPlanMaxProjectsForUser) */
+  planMaxProjects?: number | null;
 };
+
+function CreateProjectLinkControl({
+  canTryCreate,
+  billingAllows,
+  atPlanLimit,
+  linkClassName,
+  disabledClassName,
+  children,
+}: {
+  canTryCreate: boolean;
+  billingAllows: boolean;
+  atPlanLimit: boolean;
+  linkClassName: string;
+  disabledClassName: string;
+  children: ReactNode;
+}) {
+  if (!canTryCreate) return null;
+  // Лимит проектов — отдельно от биллинга: при resolvedUi === null create_project «запрещён»,
+  // но объяснение лимита должно показываться всегда (см. billingActionAllowed(null) → false).
+  if (atPlanLimit) {
+    return (
+      <PortalTooltip
+        content={PROJECT_PLAN_LIMIT_USER_MESSAGE}
+        ariaDisabled
+        className={`${disabledClassName} max-w-full select-none outline-none focus-visible:ring-2 focus-visible:ring-white/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b0b10]`}
+      >
+        {children}
+      </PortalTooltip>
+    );
+  }
+  if (billingAllows) {
+    return (
+      <Link href="/app/projects/new" className={linkClassName}>
+        {children}
+      </Link>
+    );
+  }
+  return (
+    <span className={disabledClassName} aria-disabled="true">
+      {children}
+    </span>
+  );
+}
 
 type TabKind = "active" | "archived";
 
@@ -58,6 +103,7 @@ export default function ProjectsListClient({
   canTransferOwnership = false,
   organizationId = null,
   organizationName = null,
+  planMaxProjects = null,
 }: Props) {
   const router = useRouter();
   const { resolvedUi } = useBillingBootstrap();
@@ -77,6 +123,10 @@ export default function ProjectsListClient({
     () => billingActionAllowed(resolvedUi, ActionId.create_project),
     [resolvedUi]
   );
+  const atProjectPlanLimit = useMemo(
+    () => planMaxProjects != null && projects.length >= planMaxProjects,
+    [planMaxProjects, projects.length]
+  );
   const menuAnchorRef = useRef<HTMLDivElement>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKind>("active");
@@ -92,15 +142,13 @@ export default function ProjectsListClient({
 
   const [transferModalOpen, setTransferModalOpen] = useState(false);
   const [transferStep, setTransferStep] = useState<1 | 2>(1);
-  const [transferMembers, setTransferMembers] = useState<OrgMember[]>([]);
-  const [transferSearchEmail, setTransferSearchEmail] = useState("");
-  const [transferSelectedMember, setTransferSelectedMember] = useState<OrgMember | null>(null);
+  const [transferRecipientEmail, setTransferRecipientEmail] = useState("");
   const [transferPassword, setTransferPassword] = useState("");
   const [transferConfirmChecked, setTransferConfirmChecked] = useState(false);
   const [transferLoading, setTransferLoading] = useState(false);
   const [transferError, setTransferError] = useState<string | null>(null);
   const [transferSuccess, setTransferSuccess] = useState(false);
-  const searchDropdownRef = useRef<HTMLDivElement>(null);
+  const [transferSentToEmail, setTransferSentToEmail] = useState<string | null>(null);
 
   /** Пока идёт переход в дашборд — «Открыть» показывает «Подождите…» до конца навигации или ошибки */
   const [openingProjectId, setOpeningProjectId] = useState<string | null>(null);
@@ -118,41 +166,6 @@ export default function ProjectsListClient({
     document.addEventListener("click", handle);
     return () => document.removeEventListener("click", handle);
   }, [menuOpenId]);
-
-  useEffect(() => {
-    if (!transferModalOpen) return;
-    let cancelled = false;
-    (async () => {
-      const res = await fetch("/api/org-members/list");
-      const json = await res.json();
-      if (cancelled) return;
-      if (json.success && Array.isArray(json.members)) {
-        setTransferMembers(
-          json.members.map((m: { id: string; user_id: string; role: string; email: string | null }) => ({
-            id: m.id,
-            user_id: m.user_id,
-            role: m.role,
-            email: m.email ?? null,
-          }))
-        );
-      } else {
-        setTransferMembers([]);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [transferModalOpen]);
-
-  useEffect(() => {
-    if (!transferModalOpen) return;
-    const handle = (e: MouseEvent) => {
-      if (searchDropdownRef.current?.contains(e.target as Node)) return;
-      setTransferSelectedMember(null);
-    };
-    document.addEventListener("click", handle);
-    return () => document.removeEventListener("click", handle);
-  }, [transferModalOpen]);
 
   const handleOpen = async (projectId: string) => {
     if (isArchivedTab) return;
@@ -191,12 +204,12 @@ export default function ProjectsListClient({
   const openTransferModal = () => {
     setTransferModalOpen(true);
     setTransferStep(1);
-    setTransferSearchEmail("");
-    setTransferSelectedMember(null);
+    setTransferRecipientEmail("");
     setTransferPassword("");
     setTransferConfirmChecked(false);
     setTransferError(null);
     setTransferSuccess(false);
+    setTransferSentToEmail(null);
   };
 
   const submitRename = async () => {
@@ -239,10 +252,6 @@ export default function ProjectsListClient({
 
   const submitArchive = async () => {
     if (!archiveProject || archiveLoading) return;
-    if (!canSyncProjectMutations) {
-      setArchiveError("Действие недоступно при текущем статусе подписки");
-      return;
-    }
     setArchiveError(null);
     setArchiveLoading(true);
     try {
@@ -264,9 +273,13 @@ export default function ProjectsListClient({
 
   const submitTransfer = async () => {
     if (transferStep === 1) {
-      if (!transferSelectedMember) return;
-      setTransferStep(2);
+      const em = transferRecipientEmail.trim().toLowerCase();
+      if (!em || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) {
+        setTransferError("Введите корректный email получателя");
+        return;
+      }
       setTransferError(null);
+      setTransferStep(2);
       return;
     }
     if (transferLoading) return;
@@ -279,7 +292,8 @@ export default function ProjectsListClient({
       setTransferError("Подтвердите, что понимаете последствия передачи");
       return;
     }
-    if (!transferSelectedMember || !organizationId) return;
+    const toEmail = transferRecipientEmail.trim().toLowerCase();
+    if (!toEmail || !organizationId) return;
     if (!canBillingManage) {
       setTransferError("Действие недоступно при текущем статусе подписки");
       return;
@@ -298,39 +312,33 @@ export default function ProjectsListClient({
         setTransferLoading(false);
         return;
       }
-      const transferRes = await fetch("/api/org/transfer-ownership", {
+      const transferRes = await fetch("/api/org/transfer-request/initiate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           organization_id: organizationId,
-          new_owner_user_id: transferSelectedMember.user_id,
+          to_email: toEmail,
           reauth_token: verifyJson.reauth_token,
         }),
       });
       const transferJson = await transferRes.json();
       if (!transferRes.ok) {
-        setTransferError(transferJson.error ?? "Ошибка передачи прав");
+        setTransferError(transferJson.error ?? "Не удалось отправить приглашение");
         setTransferLoading(false);
         return;
       }
+      setTransferSentToEmail(typeof transferJson.to_email === "string" ? transferJson.to_email : toEmail);
       setTransferSuccess(true);
       setTransferLoading(false);
       setTimeout(() => {
         setTransferModalOpen(false);
         router.refresh();
-      }, 1800);
+      }, 2800);
     } catch {
-      setTransferError("Не удалось выполнить передачу. Попробуйте ещё раз.");
+      setTransferError("Не удалось выполнить запрос. Попробуйте ещё раз.");
       setTransferLoading(false);
     }
   };
-
-  const candidatesForOwner = transferMembers.filter((m) => m.user_id !== currentUserId);
-  const searchLower = transferSearchEmail.trim().toLowerCase();
-  const searchMatches =
-    searchLower.length > 0
-      ? candidatesForOwner.filter((m) => (m.email ?? "").toLowerCase().includes(searchLower))
-      : [];
 
   const showEmpty = displayProjects.length === 0;
   const emptyForTab = isArchivedTab
@@ -375,19 +383,15 @@ export default function ProjectsListClient({
               Передать управление организацией
             </button>
           )}
-          {canCreate &&
-            (canCreateProjectAction ? (
-              <Link
-                href="/app/projects/new"
-                className="inline-flex h-10 items-center rounded-xl bg-white/10 px-5 text-sm font-medium text-white hover:bg-white/15"
-              >
-                Создать проект
-              </Link>
-            ) : (
-              <span className="inline-flex h-10 cursor-not-allowed items-center rounded-xl bg-white/5 px-5 text-sm font-medium text-white/40">
-                Создать проект
-              </span>
-            ))}
+          <CreateProjectLinkControl
+            canTryCreate={canCreate}
+            billingAllows={canCreateProjectAction}
+            atPlanLimit={atProjectPlanLimit}
+            linkClassName="inline-flex h-10 cursor-pointer items-center rounded-xl bg-white/10 px-5 text-sm font-medium text-white hover:bg-white/15"
+            disabledClassName="inline-flex h-10 cursor-not-allowed items-center rounded-xl bg-white/[0.05] px-5 text-sm font-medium text-white/35"
+          >
+            Создать проект
+          </CreateProjectLinkControl>
         </div>
       </header>
 
@@ -437,12 +441,17 @@ export default function ProjectsListClient({
                 : "Обратитесь к администратору организации для доступа к проекту."}
           </p>
           {canCreate && !isArchivedTab && (
-            <Link
-              href="/app/projects/new"
-              className="mt-6 inline-flex h-11 items-center rounded-xl bg-white/10 px-6 text-sm font-medium text-white hover:bg-white/15"
-            >
-              Создать первый проект
-            </Link>
+            <div className="mt-6">
+              <CreateProjectLinkControl
+                canTryCreate
+                billingAllows={canCreateProjectAction}
+                atPlanLimit={atProjectPlanLimit}
+                linkClassName="inline-flex h-11 cursor-pointer items-center rounded-xl bg-white/10 px-6 text-sm font-medium text-white hover:bg-white/15"
+                disabledClassName="inline-flex h-11 cursor-not-allowed items-center rounded-xl bg-white/[0.05] px-6 text-sm font-medium text-white/35"
+              >
+                Создать первый проект
+              </CreateProjectLinkControl>
+            </div>
           )}
         </div>
       ) : (
@@ -645,7 +654,7 @@ export default function ProjectsListClient({
               <button
                 type="button"
                 onClick={submitArchive}
-                disabled={!canSyncProjectMutations || archiveLoading}
+                disabled={archiveLoading}
                 aria-busy={archiveLoading}
                 className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -672,9 +681,13 @@ export default function ProjectsListClient({
             </h2>
 
             {transferSuccess ? (
-              <p className="mt-4 text-sm text-emerald-400">
-                Управление организацией передано. Страница обновится.
-              </p>
+              <div className="mt-4 space-y-2 text-sm text-emerald-400">
+                <p>Ссылка отправлена на {transferSentToEmail ?? transferRecipientEmail.trim()}.</p>
+                <p className="text-zinc-400">
+                  Получатель откроет письмо и нажмёт «Получить доступ». После подтверждения вы станете администратором
+                  организации и сохраните доступ к проектам.
+                </p>
+              </div>
             ) : (
               <>
                 {transferStep === 1 ? (
@@ -685,54 +698,28 @@ export default function ProjectsListClient({
                       Это действие влияет на всю организацию, а не только на один проект.
                     </div>
                     <p className="mt-2 text-xs text-amber-200/90">
-                      Это действие нельзя отменить автоматически.
+                      Мы отправим письмо на email получателя — аккаунт BoardIQ не обязан уже существовать.
                     </p>
-                    <div className="mt-4" ref={searchDropdownRef}>
-                      <label htmlFor="transfer-search" className="block text-sm font-medium text-zinc-400">
-                        Поиск по email
+                    <div className="mt-4">
+                      <label htmlFor="transfer-recipient-email" className="block text-sm font-medium text-zinc-400">
+                        Email нового владельца
                       </label>
                       <input
-                        id="transfer-search"
-                        type="text"
-                        value={transferSearchEmail}
+                        id="transfer-recipient-email"
+                        type="email"
+                        value={transferRecipientEmail}
                         onChange={(e) => {
-                          setTransferSearchEmail(e.target.value);
-                          setTransferSelectedMember(null);
+                          setTransferRecipientEmail(e.target.value);
                           if (transferError) setTransferError(null);
                         }}
-                        placeholder="Введите email участника"
+                        placeholder="name@company.com"
                         className="mt-2 w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-white/20 focus:outline-none"
                         autoComplete="off"
                       />
-                      {searchMatches.length > 0 && !transferSelectedMember && (
-                        <ul className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-white/10 bg-zinc-800 py-1">
-                          {searchMatches.slice(0, 8).map((m) => (
-                            <li key={m.id}>
-                              <button
-                                type="button"
-                                className="w-full px-4 py-2 text-left text-sm text-zinc-200 hover:bg-white/10"
-                                onClick={() => {
-                                  setTransferSelectedMember(m);
-                                  setTransferSearchEmail(m.email ?? "");
-                                  setTransferError(null);
-                                }}
-                              >
-                                {m.email ?? m.user_id} · {roleLabel(m.role)}
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
                     </div>
-                    {transferSelectedMember && (
-                      <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.04] p-3 text-sm">
-                        <p className="font-medium text-zinc-300">Новый владелец</p>
-                        <p className="mt-1 text-white">{transferSelectedMember.email ?? transferSelectedMember.user_id}</p>
-                        {organizationName && (
-                          <p className="mt-1 text-zinc-400">Организация: {organizationName}</p>
-                        )}
-                      </div>
-                    )}
+                    {organizationName ? (
+                      <p className="mt-3 text-sm text-zinc-400">Организация: {organizationName}</p>
+                    ) : null}
                   </>
                 ) : (
                   <div className="mt-4 space-y-4">
@@ -797,7 +784,7 @@ export default function ProjectsListClient({
                     disabled={
                       transferLoading ||
                       !canBillingManage ||
-                      (transferStep === 1 && !transferSelectedMember)
+                      (transferStep === 1 && !transferRecipientEmail.trim())
                     }
                     aria-busy={transferLoading}
                     className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
@@ -806,7 +793,7 @@ export default function ProjectsListClient({
                       ? "Подождите…"
                       : transferStep === 1
                         ? "Продолжить"
-                        : "Transfer ownership"}
+                        : "Отправить ссылку"}
                   </button>
                 </div>
               </>

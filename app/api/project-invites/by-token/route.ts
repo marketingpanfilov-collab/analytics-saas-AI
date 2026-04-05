@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { createServerSupabase } from "@/app/lib/supabaseServer";
+import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { authUserExistsByEmail } from "@/app/lib/authUserExistsByEmail";
 
 /**
  * GET /api/project-invites/by-token?token=...
- * Public: returns minimal invite info for accept page (project name, role, status, expires_at).
- * Does not require auth.
+ * Public: invite metadata + для email-приглашений — флаг, есть ли уже аккаунт Auth.
  */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -14,10 +14,10 @@ export async function GET(req: Request) {
     return NextResponse.json({ success: false, error: "token required" }, { status: 400 });
   }
 
-  const supabase = await createServerSupabase();
-  const { data: invite, error: inviteErr } = await supabase
+  const admin = supabaseAdmin();
+  const { data: invite, error: inviteErr } = await admin
     .from("project_invites")
-    .select("id, project_id, role, status, expires_at")
+    .select("id, project_id, role, status, expires_at, email, invite_type")
     .eq("token", token)
     .maybeSingle();
 
@@ -46,11 +46,20 @@ export async function GET(req: Request) {
     }, { status: 400 });
   }
 
-  const { data: proj } = await supabase
-    .from("projects")
-    .select("name")
-    .eq("id", invite.project_id)
-    .single();
+  const { data: proj } = await admin.from("projects").select("name").eq("id", invite.project_id).maybeSingle();
+
+  const inviteType = String(invite.invite_type ?? "email");
+  const inviteEmail =
+    inviteType === "email" && invite.email ? String(invite.email).trim().toLowerCase() : null;
+
+  let account_exists: boolean | null = null;
+  if (inviteEmail) {
+    try {
+      account_exists = await authUserExistsByEmail(admin, inviteEmail);
+    } catch {
+      account_exists = null;
+    }
+  }
 
   return NextResponse.json({
     success: true,
@@ -58,5 +67,8 @@ export async function GET(req: Request) {
     project_name: proj?.name ?? null,
     role: invite.role,
     expires_at: invite.expires_at,
+    invite_type: inviteType,
+    invite_email: inviteEmail,
+    account_exists,
   });
 }

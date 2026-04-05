@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useBillingBootstrap } from "./BillingBootstrapProvider";
+import { useBillingPricingModalRequest } from "./BillingPricingModalProvider";
 
 const BREAKDOWN_MAX = {
   click_capture_quality: 20,
@@ -123,6 +126,11 @@ function GaugeSvg({ value, size = 72 }: { value: number; size?: number }) {
 }
 
 export default function DataHealthMini({ projectId, initialData = null }: DataHealthMiniProps) {
+  const router = useRouter();
+  const { bootstrap } = useBillingBootstrap();
+  const { requestBillingPricingModal } = useBillingPricingModalRequest();
+  const isStarterPlan = bootstrap?.effective_plan === "starter";
+
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [data, setData] = useState<DataQualityPayload | null>(initialData ?? null);
   const [loading, setLoading] = useState(false);
@@ -178,12 +186,12 @@ export default function DataHealthMini({ projectId, initialData = null }: DataHe
     }
   }, [projectId]);
 
-  // When panel opens and we have projectId, fetch if no data yet
+  // When panel opens and we have projectId, fetch if no data yet (Starter — без запроса)
   useEffect(() => {
-    if (popoverOpen && projectId && !data && !loading) {
+    if (popoverOpen && projectId && !data && !loading && !isStarterPlan) {
       fetchData();
     }
-  }, [popoverOpen, projectId, data, loading, fetchData]);
+  }, [popoverOpen, projectId, data, loading, fetchData, isStarterPlan]);
 
   // Sync initialData into local state when it becomes available from parent
   useEffect(() => {
@@ -206,6 +214,11 @@ export default function DataHealthMini({ projectId, initialData = null }: DataHe
   const hasData = data?.has_data ?? false;
   const v = Math.max(0, Math.min(100, score));
   const status = getStatusFromScore(v);
+
+  const onStarterChangePlan = useCallback(() => {
+    const opened = requestBillingPricingModal("data_quality_starter", { force: true });
+    if (!opened) router.push("/app/settings");
+  }, [requestBillingPricingModal, router]);
 
   return (
     <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
@@ -248,8 +261,12 @@ export default function DataHealthMini({ projectId, initialData = null }: DataHe
           </span>
           <span style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.9)" }}>Качество данных</span>
         </div>
-        {hasData ? (
-          <span style={{ fontSize: 12, fontWeight: 700, color: status.color, marginTop: 1 }}>
+        {isStarterPlan ? (
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#3ddc97", marginTop: 1, marginLeft: 19 }}>
+            Нет доступа
+          </span>
+        ) : hasData ? (
+          <span style={{ fontSize: 12, fontWeight: 700, color: status.color, marginTop: 1, marginLeft: 19 }}>
             {Math.round(v)}% · {status.label}
           </span>
         ) : (
@@ -289,7 +306,22 @@ export default function DataHealthMini({ projectId, initialData = null }: DataHe
             }
           `}</style>
 
-          {loading ? (
+          {isStarterPlan ? (
+            <div style={{ padding: 20 }}>
+              <div style={{ fontWeight: 700, fontSize: 16, color: "white", marginBottom: 6 }}>Качество данных</div>
+              <p style={{ color: "rgba(255,255,255,0.65)", margin: 0, lineHeight: 1.45, fontSize: 13 }}>
+                На тарифе Starter этот показатель недоступен. На Growth и Scale отображаются оценка качества данных и
+                рекомендации по атрибуции.
+              </p>
+              <button
+                type="button"
+                onClick={onStarterChangePlan}
+                className="mt-3.5 w-full cursor-pointer rounded-[10px] bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/80"
+              >
+                Сменить тариф
+              </button>
+            </div>
+          ) : loading ? (
             <div style={{ padding: 24, textAlign: "center", color: "rgba(255,255,255,0.6)", fontSize: 13 }}>
               Загрузка…
             </div>

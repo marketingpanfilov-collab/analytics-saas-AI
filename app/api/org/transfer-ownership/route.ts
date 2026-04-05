@@ -4,11 +4,15 @@ import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccess } from "@/app/lib/auth/requireProjectAccess";
 import { billingAnalyticsReadGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
 import { canTransferOrganizationOwnership } from "@/app/lib/auth/projectPermissions";
+import { finalizeOrganizationOwnershipTransfer } from "@/app/lib/organizationTransferFinalize";
 
 /**
  * POST /api/org/transfer-ownership
  * Body: { project_id?: string, organization_id?: string, new_owner_user_id: string, reauth_token: string }
  * Either project_id or organization_id. Only org owner can transfer. Requires reauth_token.
+ *
+ * Prefer the email-first flow: POST /api/org/transfer-request/initiate + /app/transfer/accept (see organization_transfer_requests).
+ * After success the current user (former owner) loses all access to the org and its projects; the new user becomes owner.
  */
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
@@ -112,35 +116,17 @@ export async function POST(req: Request) {
 
   await admin.from("reauth_tokens").delete().eq("id", reauthToken);
 
-  const { error: demoteErr } = await admin
-    .from("organization_members")
-    .update({ role: "admin" })
-    .eq("organization_id", orgId)
-    .eq("user_id", user.id);
-
-  if (demoteErr) {
-    return NextResponse.json(
-      { success: false, error: demoteErr.message },
-      { status: 500 }
-    );
-  }
-
-  const { error: promoteErr } = await admin
-    .from("organization_members")
-    .update({ role: "owner" })
-    .eq("organization_id", orgId)
-    .eq("user_id", newOwnerUserId);
-
-  if (promoteErr) {
-    await admin
-      .from("organization_members")
-      .update({ role: "owner" })
-      .eq("organization_id", orgId)
-      .eq("user_id", user.id);
-    return NextResponse.json(
-      { success: false, error: promoteErr.message },
-      { status: 500 }
-    );
+  const fin = await finalizeOrganizationOwnershipTransfer(admin, {
+    organizationId: orgId,
+    fromUserId: user.id,
+    toUserId: newOwnerUserId,
+    notCurrentOwnerMessage:
+      "The organization owner has changed; this transfer is no longer valid. Please refresh and try again.",
+    organizationMembersDeleteFailedMessage:
+      "Could not finish the transfer: removing the former owner from the organization failed. Project access was already revoked — contact support.",
+  });
+  if (!fin.ok) {
+    return NextResponse.json({ success: false, error: fin.error }, { status: fin.status });
   }
 
   return NextResponse.json({ success: true });

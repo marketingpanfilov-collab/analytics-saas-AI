@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation";
 import WeeklyReportContent from "@/app/app/components/WeeklyReportContent";
 import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
+import PlanRestrictedOverlay from "@/app/app/components/PlanRestrictedOverlay";
 import { useBillingPricingModalRequest } from "@/app/app/components/BillingPricingModalProvider";
 import {
   billingActionAllowed,
@@ -33,21 +34,36 @@ type ShareStatus = {
   created_at?: string;
 };
 
+type WeeklyUsageState = {
+  used: number;
+  limit: number | null;
+  unlimited: boolean;
+  usage_month_utc: string;
+};
+
+const STARTER_WEEKLY_LIMIT_OVERLAY_COPY =
+  "Лимит отчетов для тарифа Starter исчерпан. Чтобы снять ограничение, оформите подписку Growth или Scale.";
+
 export default function WeeklyReportClient() {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project_id")?.trim() ?? null;
-  const { resolvedUi } = useBillingBootstrap();
+  const { resolvedUi, bootstrap, loading: bootstrapLoading, overLimitApplyGraceUntilMs, relaxOverLimitForPendingWebhook } =
+    useBillingBootstrap();
   const { requestBillingPricingModal } = useBillingPricingModalRequest();
   const canExportReport = useMemo(
     () => billingActionAllowed(resolvedUi, ActionId.export),
     [resolvedUi]
   );
+  const billingBlockingOpts = useMemo(
+    () => ({ overLimitApplyGraceUntilMs, relaxOverLimitForPendingWebhook }),
+    [overLimitApplyGraceUntilMs, relaxOverLimitForPendingWebhook]
+  );
   const exportWall = useMemo(
     () =>
       !canExportReport &&
-      isBillingBlocking(resolvedUi) &&
+      isBillingBlocking(resolvedUi, billingBlockingOpts) &&
       canOfferBillingInlinePricing(resolvedUi),
-    [canExportReport, resolvedUi]
+    [billingBlockingOpts, canExportReport, resolvedUi]
   );
   const today = new Date().toISOString().slice(0, 10);
   const monthStart = `${today.slice(0, 8)}01`;
@@ -58,7 +74,8 @@ export default function WeeklyReportClient() {
   const [projectMinDate, setProjectMinDate] = useState<string | null>(null);
 
   const [data, setData] = useState<WeeklyReportData | null>(null);
-  const [loading, setLoading] = useState(false);
+  /** Полноэкранный лоадер только до первого ответа API; при смене дат — скелетон только в блоке отчёта. */
+  const [reportLoading, setReportLoading] = useState(false);
   const [shareStatus, setShareStatus] = useState<ShareStatus | null>(null);
   const [shareLoading, setShareLoading] = useState(false);
   const [shareCreating, setShareCreating] = useState(false);
@@ -67,54 +84,111 @@ export default function WeeklyReportClient() {
   const [warningOpen, setWarningOpen] = useState(false);
   const [revokeConfirmOpen, setRevokeConfirmOpen] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  const [weeklyUsage, setWeeklyUsage] = useState<WeeklyUsageState | null>(null);
+  const [weeklyLimitHit, setWeeklyLimitHit] = useState(false);
   const shareCopyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previousRangeRef = useRef<{ from: string; to: string }>({ from: dateFrom, to: dateTo });
   /** Skip auto-revoke when dates were adjusted programmatically (e.g. clamp to project min date). */
   const ignoreNextRangeChangeForRevokeRef = useRef(false);
   const autoRevokingRef = useRef(false);
+  const reportFetchAbortRef = useRef<AbortController | null>(null);
 
-  const fetchReport = useCallback(async () => {
+  const fetchWeeklyUsage = useCallback(async () => {
     if (!projectId) return;
-    setLoading(true);
     try {
-      const qs = new URLSearchParams({
-        project_id: projectId,
-        start: dateFrom,
-        end: dateTo,
-      });
       const res = await fetch(
-        `/api/weekly-board-report?${qs.toString()}`,
+        `/api/weekly-board-report/usage?project_id=${encodeURIComponent(projectId)}`,
         { cache: "no-store" }
       );
       const json = await res.json();
       if (json?.success) {
-        setData({
-          has_sufficient_data: json.has_sufficient_data ?? false,
-          period: json.period ?? undefined,
-          currency: json.currency ?? "USD",
-          summary: json.summary ?? "",
-          kpis: json.kpis ?? {},
-          insights_ru: Array.isArray(json.insights_ru) ? json.insights_ru : [],
-          risks_ru: Array.isArray(json.risks_ru) ? json.risks_ru : [],
-          actions_ru: Array.isArray(json.actions_ru) ? json.actions_ru : [],
-          attribution_highlights: Array.isArray(json.attribution_highlights) ? json.attribution_highlights : [],
-          risks: Array.isArray(json.risks) ? json.risks : [],
-          priority_actions: Array.isArray(json.priority_actions) ? json.priority_actions : [],
+        setWeeklyUsage({
+          used: Number(json.used) || 0,
+          limit: json.limit == null ? null : Number(json.limit),
+          unlimited: Boolean(json.unlimited),
+          usage_month_utc: String(json.usage_month_utc ?? ""),
         });
-      } else {
-        setData(null);
       }
     } catch {
-      setData(null);
-    } finally {
-      setLoading(false);
+      /* ignore */
     }
-  }, [projectId, dateFrom, dateTo]);
+  }, [projectId]);
 
   useEffect(() => {
-    if (projectId) fetchReport();
-    else setData(null);
-  }, [projectId, fetchReport, dateFrom, dateTo]);
+    if (!projectId || bootstrapLoading) return;
+    void fetchWeeklyUsage();
+  }, [projectId, bootstrapLoading, fetchWeeklyUsage]);
+
+  const fetchReport = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!projectId) return;
+      setReportLoading(true);
+      try {
+        const qs = new URLSearchParams({
+          project_id: projectId,
+          start: dateFrom,
+          end: dateTo,
+        });
+        const res = await fetch(`/api/weekly-board-report?${qs.toString()}`, {
+          cache: "no-store",
+          signal,
+        });
+        const json = await res.json();
+        if (signal?.aborted) return;
+        if (res.status === 403 && json?.code === "WEEKLY_REPORT_LIMIT_REACHED") {
+          setWeeklyLimitHit(true);
+          setWeeklyUsage({
+            used: Number(json.used) ?? 0,
+            limit: Number(json.limit) ?? 10,
+            unlimited: false,
+            usage_month_utc: String(json.usage_month_utc ?? ""),
+          });
+          setData(null);
+          return;
+        }
+        if (json?.success) {
+          setWeeklyLimitHit(false);
+          setData({
+            has_sufficient_data: json.has_sufficient_data ?? false,
+            period: json.period ?? undefined,
+            currency: json.currency ?? "USD",
+            summary: json.summary ?? "",
+            kpis: json.kpis ?? {},
+            insights_ru: Array.isArray(json.insights_ru) ? json.insights_ru : [],
+            risks_ru: Array.isArray(json.risks_ru) ? json.risks_ru : [],
+            actions_ru: Array.isArray(json.actions_ru) ? json.actions_ru : [],
+            attribution_highlights: Array.isArray(json.attribution_highlights) ? json.attribution_highlights : [],
+            risks: Array.isArray(json.risks) ? json.risks : [],
+            priority_actions: Array.isArray(json.priority_actions) ? json.priority_actions : [],
+          });
+          void fetchWeeklyUsage();
+        } else {
+          setData(null);
+        }
+      } catch (e) {
+        if (signal?.aborted || (e instanceof DOMException && e.name === "AbortError")) return;
+        setData(null);
+      } finally {
+        if (!signal?.aborted) setReportLoading(false);
+      }
+    },
+    [projectId, dateFrom, dateTo, fetchWeeklyUsage]
+  );
+
+  useEffect(() => {
+    if (!projectId) {
+      setData(null);
+      setReportLoading(false);
+      return;
+    }
+    reportFetchAbortRef.current?.abort();
+    const ac = new AbortController();
+    reportFetchAbortRef.current = ac;
+    void fetchReport(ac.signal);
+    return () => {
+      ac.abort();
+    };
+  }, [projectId, dateFrom, dateTo, fetchReport]);
 
   useEffect(() => {
     if (!projectId) {
@@ -179,14 +253,41 @@ export default function WeeklyReportClient() {
         body: JSON.stringify({ project_id: projectId, start: dateFrom, end: dateTo }),
       });
       const json = await res.json();
+      if (res.status === 403 && json?.code === "WEEKLY_REPORT_LIMIT_REACHED") {
+        setWeeklyLimitHit(true);
+        setWeeklyUsage({
+          used: Number(json.used) ?? 0,
+          limit: Number(json.limit) ?? 10,
+          unlimited: false,
+          usage_month_utc: String(json.usage_month_utc ?? ""),
+        });
+        setShareNotice("Достигнут лимит отчётов на тарифе Starter. Обновите тариф, чтобы продолжить.");
+        return;
+      }
       if (json?.success && json.url) {
         setShareStatus({ active: true, url: json.url, token: json.token, created_at: json.created_at });
         setShareNotice(null);
+        const wu = json.weekly_usage as
+          | { used?: unknown; limit?: unknown; unlimited?: unknown; usage_month_utc?: unknown }
+          | undefined;
+        if (wu && typeof wu.used === "number") {
+          const lim = wu.limit == null ? null : Number(wu.limit);
+          setWeeklyUsage({
+            used: wu.used,
+            limit: Number.isFinite(lim as number) ? lim : null,
+            unlimited: Boolean(wu.unlimited),
+            usage_month_utc: String(wu.usage_month_utc ?? ""),
+          });
+          if (lim != null && Number.isFinite(lim) && wu.used >= lim) setWeeklyLimitHit(true);
+          else setWeeklyLimitHit(false);
+        } else {
+          void fetchWeeklyUsage();
+        }
       }
     } finally {
       setShareCreating(false);
     }
-  }, [projectId, dateFrom, dateTo, canExportReport]);
+  }, [projectId, dateFrom, dateTo, canExportReport, fetchWeeklyUsage]);
 
   const revokeShare = useCallback(async () => {
     const token = shareStatus?.token;
@@ -258,6 +359,54 @@ export default function WeeklyReportClient() {
     shareCopyResetRef.current = setTimeout(() => setShareCopied(false), 2800);
   }, [shareStatus?.url]);
 
+  const effectivePlan = bootstrap?.effective_plan ?? null;
+  const quotaExhausted = useMemo(
+    () =>
+      effectivePlan === "starter" &&
+      (weeklyLimitHit ||
+        (weeklyUsage != null &&
+          weeklyUsage.limit != null &&
+          weeklyUsage.used >= weeklyUsage.limit)),
+    [effectivePlan, weeklyLimitHit, weeklyUsage]
+  );
+
+  const usageCard = useMemo(() => {
+    if (bootstrapLoading) return null;
+    if (effectivePlan === "growth" || effectivePlan === "scale") {
+      return (
+        <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/65">
+          Без ограничений по количеству отчётов на тарифе {effectivePlan === "growth" ? "Growth" : "Scale"}.
+        </div>
+      );
+    }
+    if (effectivePlan !== "starter" || !weeklyUsage || weeklyUsage.limit == null) return null;
+    const lim = weeklyUsage.limit;
+    const used = weeklyUsage.used;
+    const remaining = Math.max(0, lim - used);
+    const ratio = lim > 0 ? Math.min(1, used / lim) : 0;
+    const near = used >= lim - 2 && used < lim;
+    return (
+      <div
+        className={
+          "rounded-xl border px-4 py-3 text-sm " +
+          (near ? "border-amber-500/35 bg-amber-500/10 text-amber-100" : "border-white/10 bg-white/[0.04] text-white/85")
+        }
+      >
+        <div className="font-medium text-white/95">
+          Использовано {used} из {lim} в этом месяце (UTC): открытая ссылка — одна на период и фильтры; каждая печать
+          или сохранение в PDF — отдельное списание (повторы тоже считаются). Осталось {remaining}{" "}
+          {remaining === 1 ? "использование" : remaining >= 2 && remaining <= 4 ? "использования" : "использований"}.
+        </div>
+        <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/10">
+          <div
+            className={near ? "h-full rounded-full bg-amber-400/80" : "h-full rounded-full bg-emerald-500/70"}
+            style={{ width: `${ratio * 100}%` }}
+          />
+        </div>
+      </div>
+    );
+  }, [bootstrapLoading, effectivePlan, weeklyUsage]);
+
   if (!projectId) {
     return (
       <div className="min-h-[60vh] bg-[#0b0b10] p-6" style={{ gridColumn: "2 / -1" }}>
@@ -266,40 +415,43 @@ export default function WeeklyReportClient() {
     );
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center bg-[#0b0b10] p-6" style={{ gridColumn: "2 / -1" }}>
-        <div className="w-full max-w-5xl rounded-2xl border border-white/10 bg-[rgba(10,10,18,0.96)] p-8">
-          <p className="text-white/50">Загрузка отчёта…</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!data) {
-    return (
-      <div className="min-h-[60vh] bg-[#0b0b10] p-6" style={{ gridColumn: "2 / -1" }}>
-        <div className="mx-auto w-full max-w-5xl rounded-2xl border border-white/10 bg-[rgba(10,10,18,0.96)] p-8">
-          <p className="text-white/50">Не удалось загрузить отчёт.</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!data.has_sufficient_data) {
-    return (
-      <div className="min-h-[60vh] bg-[#0b0b10] p-6" style={{ gridColumn: "2 / -1" }}>
-        <div className="mx-auto max-w-2xl rounded-2xl border border-white/10 bg-[rgba(10,10,18,0.96)] p-12 text-center">
-          <h1 className="mb-2 text-xl font-semibold text-white/90">Shared Board Report</h1>
-          <p className="text-white/60">Недостаточно данных для формирования weekly report.</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-[60vh] bg-[#0b0b10] p-6" style={{ gridColumn: "2 / -1" }}>
-      <div className="mx-auto w-full max-w-5xl space-y-5">
+    <PlanRestrictedOverlay
+      allowedPlans={["starter", "growth", "scale"]}
+      message={STARTER_WEEKLY_LIMIT_OVERLAY_COPY}
+      quotaExhausted={quotaExhausted}
+      quotaMessage={STARTER_WEEKLY_LIMIT_OVERLAY_COPY}
+      upgradeSource="weekly_report_limit"
+    >
+      <div className="min-h-[60vh] bg-[#0b0b10] p-6" style={{ gridColumn: "2 / -1" }}>
+        {reportLoading && !data ? (
+          <div className="flex min-h-[60vh] items-center justify-center">
+            <div className="w-full max-w-5xl rounded-2xl border border-white/10 bg-[rgba(10,10,18,0.96)] p-8">
+              <p className="text-white/50">Загрузка отчёта…</p>
+            </div>
+          </div>
+        ) : !data ? (
+          <div className="mx-auto w-full max-w-5xl space-y-4">
+            {usageCard}
+            <div className="rounded-2xl border border-white/10 bg-[rgba(10,10,18,0.96)] p-8">
+              <p className="text-white/50">
+                {weeklyLimitHit
+                  ? "Достигнут лимит отчётов на тарифе Starter за текущий месяц (UTC)."
+                  : "Не удалось загрузить отчёт."}
+              </p>
+            </div>
+          </div>
+        ) : !data.has_sufficient_data ? (
+          <div className="mx-auto w-full max-w-5xl space-y-4">
+            {usageCard}
+            <div className="mx-auto max-w-2xl rounded-2xl border border-white/10 bg-[rgba(10,10,18,0.96)] p-12 text-center">
+              <h1 className="mb-2 text-xl font-semibold text-white/90">Shared Board Report</h1>
+              <p className="text-white/60">Недостаточно данных для формирования weekly report.</p>
+            </div>
+          </div>
+        ) : (
+          <div className="mx-auto w-full max-w-5xl space-y-5">
+        {usageCard}
         {shareNotice && (
           <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-center text-sm leading-relaxed text-amber-100">
             {shareNotice}
@@ -423,24 +575,31 @@ export default function WeeklyReportClient() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-white/10 bg-[rgba(10,10,18,0.96)] p-5">
-          <WeeklyReportContent
-            data={{
-              period: data.period,
-              currency: data.currency,
-              summary: data.summary,
-              kpis: data.kpis,
-              insights_ru: data.insights_ru,
-              risks_ru: data.risks_ru,
-              actions_ru: data.actions_ru,
-              attribution_highlights: data.attribution_highlights,
-              risks: data.risks,
-              priority_actions: data.priority_actions,
-            }}
-            showSubtitle={false}
-          />
+        <section className="relative rounded-2xl border border-white/10 bg-[rgba(10,10,18,0.96)] p-5">
+          {reportLoading ? (
+            <div className="flex min-h-[280px] items-center justify-center py-12">
+              <p className="text-sm text-white/50">Обновление отчёта…</p>
+            </div>
+          ) : (
+            <WeeklyReportContent
+              data={{
+                period: data.period,
+                currency: data.currency,
+                summary: data.summary,
+                kpis: data.kpis,
+                insights_ru: data.insights_ru,
+                risks_ru: data.risks_ru,
+                actions_ru: data.actions_ru,
+                attribution_highlights: data.attribution_highlights,
+                risks: data.risks,
+                priority_actions: data.priority_actions,
+              }}
+              showSubtitle={false}
+            />
+          )}
         </section>
-      </div>
+          </div>
+        )}
 
       {warningOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-labelledby="share-warning-title">
@@ -495,6 +654,7 @@ export default function WeeklyReportClient() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </PlanRestrictedOverlay>
   );
 }

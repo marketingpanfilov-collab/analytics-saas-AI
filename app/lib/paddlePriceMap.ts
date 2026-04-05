@@ -11,7 +11,7 @@ const PRICE_BY_PLAN_AND_BILLING: Record<PricingPlanId, Record<BillingPeriod, str
     monthly: process.env.NEXT_PUBLIC_PADDLE_PRICE_GROWTH,
     yearly: process.env.NEXT_PUBLIC_PADDLE_PRICE_GROWTH_YEARLY,
   },
-  agency: {
+  scale: {
     monthly: process.env.NEXT_PUBLIC_PADDLE_PRICE_AGENCY,
     yearly: process.env.NEXT_PUBLIC_PADDLE_PRICE_AGENCY_YEARLY,
   },
@@ -27,7 +27,7 @@ const PRODUCT_BY_PLAN_AND_BILLING: Record<PricingPlanId, Record<BillingPeriod, s
     monthly: process.env.NEXT_PUBLIC_PADDLE_PRODUCT_GROWTH,
     yearly: process.env.NEXT_PUBLIC_PADDLE_PRODUCT_GROWTH_YEARLY,
   },
-  agency: {
+  scale: {
     monthly: process.env.NEXT_PUBLIC_PADDLE_PRODUCT_AGENCY,
     yearly: process.env.NEXT_PUBLIC_PADDLE_PRODUCT_AGENCY_YEARLY,
   },

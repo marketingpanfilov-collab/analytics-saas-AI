@@ -2,6 +2,7 @@
 
 import {
   createContext,
+  Suspense,
   useCallback,
   useContext,
   useEffect,
@@ -10,7 +11,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ReasonCode, ScreenId, type ResolvedUiStateV1 } from "@/app/lib/billingUiContract";
 import {
   BILLING_BC_NAME,
@@ -40,19 +41,47 @@ import {
 import type { PlanFeatureMatrix } from "@/app/lib/planConfig";
 import { supabase } from "@/app/lib/supabaseClient";
 
+/** Результат `reloadBootstrap`: свежий resolved + snapshot bootstrap (для polling без гонки с React state). */
+export type BillingBootstrapReloadPack = {
+  resolved: ResolvedUiStateV1 | null;
+  bootstrap: BillingBootstrapApiOk | null;
+};
+
 export type BillingBootstrapContextValue = {
   /** Stabilized shell state from server; do not branch shell on other bootstrap fields (P0-CON-03). */
   resolvedUi: ResolvedUiStateV1 | null;
   bootstrap: BillingBootstrapApiOk | null;
   loading: boolean;
   clientSafeMode: boolean;
-  /** Single-flight: concurrent calls await the same in-flight fetch; resolves with applied `resolved_ui_state`. */
-  reloadBootstrap: () => Promise<ResolvedUiStateV1 | null>;
+  /** Single-flight: concurrent calls await the same in-flight fetch. */
+  reloadBootstrap: () => Promise<BillingBootstrapReloadPack>;
   showPostCheckoutModal: boolean;
   planFeatureMatrix: PlanFeatureMatrix | undefined;
+  /** До этого timestamp (ms) OVER_LIMIT не блокирует шелл/polling после успешного apply. */
+  overLimitApplyGraceUntilMs: number | null;
+  setOverLimitApplyGraceUntilMs: (v: number | null) => void;
+  /**
+   * После истечения grace: не показывать жёсткий fullscreen OVER_LIMIT, пока ждём webhook (оптимистичный тариф).
+   */
+  relaxOverLimitForPendingWebhook: boolean;
+  setRelaxOverLimitForPendingWebhook: (v: boolean) => void;
 };
 
 const BillingBootstrapContext = createContext<BillingBootstrapContextValue | null>(null);
+
+const BILLING_BOOTSTRAP_SUSPENSE_FALLBACK: BillingBootstrapContextValue = {
+  resolvedUi: null,
+  bootstrap: null,
+  loading: true,
+  clientSafeMode: false,
+  reloadBootstrap: async () => ({ resolved: null, bootstrap: null }),
+  showPostCheckoutModal: false,
+  planFeatureMatrix: undefined,
+  overLimitApplyGraceUntilMs: null,
+  setOverLimitApplyGraceUntilMs: () => {},
+  relaxOverLimitForPendingWebhook: false,
+  setRelaxOverLimitForPendingWebhook: () => {},
+};
 
 export function useBillingBootstrap(): BillingBootstrapContextValue {
   const ctx = useContext(BillingBootstrapContext);
@@ -62,8 +91,12 @@ export function useBillingBootstrap(): BillingBootstrapContextValue {
   return ctx;
 }
 
-async function fetchBootstrapOnce(requestId: string): Promise<BillingBootstrapApiOk | null> {
-  const res = await fetch("/api/billing/current-plan", {
+async function fetchBootstrapOnce(
+  requestId: string,
+  projectId: string | null
+): Promise<BillingBootstrapApiOk | null> {
+  const q = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+  const res = await fetch(`/api/billing/current-plan${q}`, {
     credentials: "include",
     cache: "no-store",
     headers: { "x-request-id": requestId },
@@ -73,14 +106,18 @@ async function fetchBootstrapOnce(requestId: string): Promise<BillingBootstrapAp
   return json;
 }
 
-export function BillingBootstrapProvider({ children }: { children: ReactNode }) {
+function BillingBootstrapProviderInner({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname() ?? "";
+  const searchParams = useSearchParams();
+  const billingProjectId = searchParams.get("project_id")?.trim() || null;
 
   const [bootstrap, setBootstrap] = useState<BillingBootstrapApiOk | null>(null);
   const [displayedResolved, setDisplayedResolved] = useState<ResolvedUiStateV1 | null>(null);
   const [loading, setLoading] = useState(true);
   const [clientSafeMode, setClientSafeMode] = useState(false);
+  const [overLimitApplyGraceUntilMs, setOverLimitApplyGraceUntilMs] = useState<number | null>(null);
+  const [relaxOverLimitForPendingWebhook, setRelaxOverLimitForPendingWebhook] = useState(false);
 
   const prevFetchFpRef = useRef<string | null>(null);
   const consecutiveSuccessOutOfSafeRef = useRef(0);
@@ -91,7 +128,7 @@ export function BillingBootstrapProvider({ children }: { children: ReactNode }) 
   const lastBootstrapFpRef = useRef<string | null>(null);
   const prevSuccessBootstrapFpRef = useRef<string | null>(null);
   const clientLogDedupRef = useRef<{ fp: string; ts: number }>({ fp: "", ts: 0 });
-  const bootstrapInflightRef = useRef<Promise<ResolvedUiStateV1 | null> | null>(null);
+  const bootstrapInflightRef = useRef<Promise<BillingBootstrapReloadPack> | null>(null);
   const lastAuthUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -103,11 +140,15 @@ export function BillingBootstrapProvider({ children }: { children: ReactNode }) 
       if (event === "SIGNED_OUT") {
         clearBillingRouteStorage();
         lastAuthUserIdRef.current = null;
+        setOverLimitApplyGraceUntilMs(null);
+        setRelaxOverLimitForPendingWebhook(false);
         return;
       }
       const uid = session?.user?.id ?? null;
       if (lastAuthUserIdRef.current !== null && uid !== null && lastAuthUserIdRef.current !== uid) {
         clearBillingRouteStorage();
+        setOverLimitApplyGraceUntilMs(null);
+        setRelaxOverLimitForPendingWebhook(false);
       }
       lastAuthUserIdRef.current = uid;
     });
@@ -116,6 +157,13 @@ export function BillingBootstrapProvider({ children }: { children: ReactNode }) 
     });
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!relaxOverLimitForPendingWebhook) return;
+    const capMs = 6 * 60 * 60 * 1000;
+    const t = window.setTimeout(() => setRelaxOverLimitForPendingWebhook(false), capMs);
+    return () => window.clearTimeout(t);
+  }, [relaxOverLimitForPendingWebhook]);
 
   const applyResolvedToDisplay = useCallback((incoming: ResolvedUiStateV1) => {
     if (shouldApplyResolvedImmediately(incoming.reason)) {
@@ -133,6 +181,15 @@ export function BillingBootstrapProvider({ children }: { children: ReactNode }) 
       if (ifp === cfp) {
         prevFetchFpRef.current = ifp;
         return current;
+      }
+      // Сервер снял over-limit (OK / DASHBOARD), но blocking_level ниже, чем у OVER_LIMIT_FULLSCREEN
+      // (hard → none|soft). Гард `incR < curR` ниже ошибочно сохранял бы старый fullscreen.
+      if (
+        current.screen === ScreenId.OVER_LIMIT_FULLSCREEN &&
+        incoming.screen !== ScreenId.OVER_LIMIT_FULLSCREEN
+      ) {
+        prevFetchFpRef.current = fingerprintResolvedUi(incoming);
+        return incoming;
       }
       const incR = blockingLevelRank(incoming.blocking_level);
       const curR = blockingLevelRank(current.blocking_level);
@@ -173,14 +230,14 @@ export function BillingBootstrapProvider({ children }: { children: ReactNode }) 
     [applyResolvedToDisplay]
   );
 
-  const runBootstrap = useCallback(async (): Promise<ResolvedUiStateV1 | null> => {
+  const runBootstrap = useCallback(async (): Promise<BillingBootstrapReloadPack> => {
     setLoading(true);
     const requestId = newBootstrapRequestId();
-    let result: BillingBootstrapApiOk | null = await fetchBootstrapOnce(requestId);
+    let result: BillingBootstrapApiOk | null = await fetchBootstrapOnce(requestId, billingProjectId);
     if (!result) {
       for (const delay of BILLING_BOOTSTRAP_RETRY_DELAYS_MS) {
         await new Promise((r) => setTimeout(r, delay));
-        result = await fetchBootstrapOnce(requestId);
+        result = await fetchBootstrapOnce(requestId, billingProjectId);
         if (result) break;
       }
     }
@@ -214,7 +271,7 @@ export function BillingBootstrapProvider({ children }: { children: ReactNode }) 
         consecutiveSuccessOutOfSafeRef.current = 0;
       }
       setLoading(false);
-      return normalized.resolved_ui_state;
+      return { resolved: normalized.resolved_ui_state, bootstrap: normalized };
     }
 
     const last = readLastKnownBootstrap();
@@ -238,7 +295,7 @@ export function BillingBootstrapProvider({ children }: { children: ReactNode }) 
         client_safe_mode: true,
         used_last_known: true,
       });
-      return capped;
+      return { resolved: capped, bootstrap: merged };
     }
 
     const rid = newBootstrapRequestId();
@@ -255,15 +312,15 @@ export function BillingBootstrapProvider({ children }: { children: ReactNode }) 
       client_safe_mode: true,
       used_last_known: false,
     });
-    return fallback;
-  }, [scheduleIncomingResolved]);
+    return { resolved: fallback, bootstrap: null };
+  }, [scheduleIncomingResolved, billingProjectId]);
 
   const runBootstrapRef = useRef(runBootstrap);
   runBootstrapRef.current = runBootstrap;
 
   useEffect(() => {
     void runBootstrapRef.current();
-  }, []);
+  }, [billingProjectId]);
 
   useEffect(() => {
     if (typeof BroadcastChannel === "undefined") return;
@@ -311,7 +368,7 @@ export function BillingBootstrapProvider({ children }: { children: ReactNode }) 
     router.replace(target);
   }, [displayedResolved, loading, pathname, router]);
 
-  const reloadBootstrap = useCallback((): Promise<ResolvedUiStateV1 | null> => {
+  const reloadBootstrap = useCallback((): Promise<BillingBootstrapReloadPack> => {
     if (bootstrapInflightRef.current) return bootstrapInflightRef.current;
     const p = runBootstrap().finally(() => {
       bootstrapInflightRef.current = null;
@@ -359,9 +416,35 @@ export function BillingBootstrapProvider({ children }: { children: ReactNode }) 
         displayedResolved?.screen === ScreenId.POST_CHECKOUT_MODAL &&
         displayedResolved?.reason === ReasonCode.POST_CHECKOUT_REQUIRED,
       planFeatureMatrix: bootstrap?.plan_feature_matrix,
+      overLimitApplyGraceUntilMs,
+      setOverLimitApplyGraceUntilMs,
+      relaxOverLimitForPendingWebhook,
+      setRelaxOverLimitForPendingWebhook,
     }),
-    [displayedResolved, bootstrap, loading, clientSafeMode, reloadBootstrap]
+    [
+      displayedResolved,
+      bootstrap,
+      loading,
+      clientSafeMode,
+      reloadBootstrap,
+      overLimitApplyGraceUntilMs,
+      relaxOverLimitForPendingWebhook,
+    ]
   );
 
   return <BillingBootstrapContext.Provider value={value}>{children}</BillingBootstrapContext.Provider>;
+}
+
+export function BillingBootstrapProvider({ children }: { children: ReactNode }) {
+  return (
+    <Suspense
+      fallback={
+        <BillingBootstrapContext.Provider value={BILLING_BOOTSTRAP_SUSPENSE_FALLBACK}>
+          {children}
+        </BillingBootstrapContext.Provider>
+      }
+    >
+      <BillingBootstrapProviderInner>{children}</BillingBootstrapProviderInner>
+    </Suspense>
+  );
 }

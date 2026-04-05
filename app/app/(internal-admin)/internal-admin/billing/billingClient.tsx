@@ -4,6 +4,8 @@ import { useState } from "react";
 
 type Entitlement = {
   id: string;
+  organization_id: string | null;
+  user_id: string | null;
   plan_override: string | null;
   status: string;
   starts_at: string | null;
@@ -12,7 +14,8 @@ type Entitlement = {
 };
 
 export default function InternalBillingPageClient() {
-  const [userId, setUserId] = useState("");
+  const [organizationId, setOrganizationId] = useState("");
+  const [auditUserId, setAuditUserId] = useState("");
   const [plan, setPlan] = useState("starter");
   const [days, setDays] = useState("30");
   const [reason, setReason] = useState("");
@@ -21,14 +24,16 @@ export default function InternalBillingPageClient() {
   const [history, setHistory] = useState<Entitlement[]>([]);
 
   async function loadEntitlements() {
-    if (!/^[0-9a-f-]{36}$/i.test(userId.trim())) {
+    const oid = organizationId.trim();
+    if (!/^[0-9a-f-]{36}$/i.test(oid)) {
       setHistory([]);
       return;
     }
     try {
-      const res = await fetch(`/api/internal-admin/billing/entitlements?user_id=${encodeURIComponent(userId.trim())}`, {
-        cache: "no-store",
-      });
+      const res = await fetch(
+        `/api/internal-admin/billing/entitlements?organization_id=${encodeURIComponent(oid)}`,
+        { cache: "no-store" }
+      );
       const json = await res.json();
       if (!res.ok || !json?.success) {
         setHistory([]);
@@ -45,15 +50,19 @@ export default function InternalBillingPageClient() {
     setBusy(true);
     setMsg(null);
     try {
+      const body: Record<string, unknown> = {
+        organization_id: organizationId.trim(),
+        plan_override: plan,
+        days: Number(days),
+        reason: reason.trim(),
+      };
+      const au = auditUserId.trim();
+      if (/^[0-9a-f-]{36}$/i.test(au)) body.user_id = au;
+
       const res = await fetch("/api/internal-admin/billing/entitlements", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: userId.trim(),
-          plan_override: plan,
-          days: Number(days),
-          reason: reason.trim(),
-        }),
+        body: JSON.stringify(body),
       });
       const json = await res.json();
       if (!res.ok || !json?.success) {
@@ -96,18 +105,24 @@ export default function InternalBillingPageClient() {
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold text-white/95">Billing entitlements</h1>
       <p className="text-sm text-white/65">
-        Override access поверх Paddle. Это не меняет фактическую подписку в Paddle.
+        Override по организации (organization_id). Поверх Paddle; подписка в Paddle не меняется.
       </p>
       <form onSubmit={grantEntitlement} className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-4">
         <input
-          value={userId}
-          onChange={(e) => setUserId(e.target.value)}
+          value={organizationId}
+          onChange={(e) => setOrganizationId(e.target.value)}
           onBlur={() => {
             void loadEntitlements();
           }}
-          placeholder="User ID (uuid)"
+          placeholder="Organization ID (uuid)"
           className="h-10 w-full rounded-lg border border-white/10 bg-black/30 px-3 text-sm"
           required
+        />
+        <input
+          value={auditUserId}
+          onChange={(e) => setAuditUserId(e.target.value)}
+          placeholder="Optional: user_id for audit column (legacy)"
+          className="h-10 w-full rounded-lg border border-white/10 bg-black/30 px-3 text-sm"
         />
         <div className="grid gap-3 md:grid-cols-2">
           <select
@@ -117,7 +132,7 @@ export default function InternalBillingPageClient() {
           >
             <option value="starter">starter</option>
             <option value="growth">growth</option>
-            <option value="agency">agency</option>
+            <option value="scale">Scale</option>
           </select>
           <input
             value={days}
@@ -167,4 +182,3 @@ export default function InternalBillingPageClient() {
     </div>
   );
 }
-

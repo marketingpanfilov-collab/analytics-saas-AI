@@ -1,4 +1,4 @@
--- Dev / staging: grant Agency (max plan) via billing_entitlements for test@gmail.com until end of tomorrow (UTC).
+-- Dev / staging: grant Scale (max plan) via billing_entitlements for test@gmail.com until end of tomorrow (UTC).
 -- loadBillingCurrentPlan checks entitlements first; no Paddle rows required.
 
 DO $$
@@ -37,14 +37,14 @@ BEGIN
   )
   VALUES (
     uid,
-    'agency',
+    'scale',
     'active',
     timezone('UTC', now()),
     ends_at_utc,
-    'Seed: Agency (max) until end of next UTC day (test@gmail.com)',
+    'Seed: Scale (max) until end of next UTC day (test@gmail.com)',
     'admin_grant',
     now()
   );
 
-  RAISE NOTICE 'billing_entitlement seed: user % (id %) agency active until %', target_email, uid, ends_at_utc;
+  RAISE NOTICE 'billing_entitlement seed: user % (id %) scale active until %', target_email, uid, ends_at_utc;
 END $$;

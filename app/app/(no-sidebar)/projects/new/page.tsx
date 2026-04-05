@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/app/lib/supabaseClient";
+import { PROJECT_PLAN_LIMIT_USER_MESSAGE } from "@/app/lib/projectPlanLimit";
+import PortalTooltip from "@/app/app/components/PortalTooltip";
 
 const ORG_ROLES_CAN_CREATE = ["owner", "admin"];
 
@@ -16,6 +18,7 @@ export default function NewProjectPage() {
   const [name, setName] = useState("");
   const [submitLoading, setSubmitLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [planBlocked, setPlanBlocked] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -39,14 +42,34 @@ export default function NewProjectPage() {
       setUserId(u.id);
       setOrganizationId(mem.organization_id);
       setAllowed(true);
+
+      const res = await fetch("/api/projects", { cache: "no-store" });
+      const j = (await res.json()) as {
+        success?: boolean;
+        plan_max_projects?: number | null;
+        projects?: unknown[];
+      };
+      if (!mounted) return;
+      if (
+        j.success &&
+        j.plan_max_projects != null &&
+        typeof j.plan_max_projects === "number" &&
+        Array.isArray(j.projects)
+      ) {
+        setPlanBlocked(j.projects.length >= j.plan_max_projects);
+      } else {
+        setPlanBlocked(false);
+      }
       setLoading(false);
     })();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!organizationId || !userId) return;
+    if (!organizationId || !userId || planBlocked) return;
     const trimmed = name.trim();
     if (!trimmed) {
       setError("Введите название проекта");
@@ -55,41 +78,32 @@ export default function NewProjectPage() {
     setError(null);
     setSubmitLoading(true);
 
-    const { data: proj, error: insertErr } = await supabase
-      .from("projects")
-      .insert({
-        organization_id: organizationId,
-        owner_id: userId,
-        name: trimmed,
-      })
-      .select("id")
-      .single();
-
-    if (insertErr) {
-      setError(insertErr.message ?? "Ошибка создания проекта");
+    try {
+      const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      const json = (await res.json()) as { success?: boolean; error?: string; code?: string; project_id?: string };
+      if (!res.ok || !json.success) {
+        setError(json.error ?? "Ошибка создания проекта");
+        setSubmitLoading(false);
+        if (json.code === "PROJECT_PLAN_LIMIT") {
+          setPlanBlocked(true);
+        }
+        return;
+      }
+      const pid = json.project_id;
+      if (!pid) {
+        setError("Не удалось создать проект");
+        setSubmitLoading(false);
+        return;
+      }
+      router.replace(`/app?project_id=${encodeURIComponent(pid)}`);
+    } catch {
+      setError("Не удалось создать проект. Попробуйте ещё раз.");
       setSubmitLoading(false);
-      return;
     }
-
-    if (!proj?.id) {
-      setError("Не удалось создать проект");
-      setSubmitLoading(false);
-      return;
-    }
-
-    const { error: memErr } = await supabase.from("project_members").insert({
-      project_id: proj.id,
-      user_id: userId,
-      role: "project_admin",
-    });
-
-    setSubmitLoading(false);
-    if (memErr) {
-      setError(memErr.message ?? "Ошибка добавления в проект");
-      return;
-    }
-
-    router.replace(`/app?project_id=${proj.id}`);
   }
 
   if (loading || !allowed) {
@@ -119,21 +133,35 @@ export default function NewProjectPage() {
               setName(e.target.value);
               if (error) setError(null);
             }}
+            disabled={planBlocked}
             placeholder="Например: Маркетинг 2025"
-            className="mt-2 w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-white/20 focus:outline-none"
+            className="mt-2 w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-white/20 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
           />
         </div>
+        {planBlocked && (
+          <p className="text-sm text-zinc-400">{PROJECT_PLAN_LIMIT_USER_MESSAGE}</p>
+        )}
         {error && (
           <p className="text-sm text-red-400">{error}</p>
         )}
         <div className="flex flex-wrap gap-3">
-          <button
-            type="submit"
-            disabled={submitLoading}
-            className="h-11 rounded-xl bg-white/10 px-6 text-sm font-medium text-white hover:bg-white/15 disabled:opacity-50"
-          >
-            {submitLoading ? "Создание…" : "Создать проект"}
-          </button>
+          {planBlocked ? (
+            <PortalTooltip
+              content={PROJECT_PLAN_LIMIT_USER_MESSAGE}
+              ariaDisabled
+              className="inline-flex h-11 cursor-not-allowed items-center justify-center rounded-xl bg-white/[0.05] px-6 text-sm font-medium text-white/35 outline-none focus-visible:ring-2 focus-visible:ring-white/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b0b10]"
+            >
+              Создать проект
+            </PortalTooltip>
+          ) : (
+            <button
+              type="submit"
+              disabled={submitLoading}
+              className="h-11 cursor-pointer rounded-xl bg-white/10 px-6 text-sm font-medium text-white hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {submitLoading ? "Создание…" : "Создать проект"}
+            </button>
+          )}
           <Link
             href="/app/projects"
             className="inline-flex h-11 items-center rounded-xl border border-white/10 px-6 text-sm text-zinc-300 hover:bg-white/[0.04]"

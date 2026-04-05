@@ -87,9 +87,22 @@ export default function WeeklyReportContent({ data, printMode, showSubtitle = tr
   };
 
   const renderGrid = (list: Array<[string, ExecutiveKpi]>) => (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    <div
+      className={
+        printMode
+          ? "weekly-report-print-kpi-grid grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+          : "grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3"
+      }
+    >
       {list.map(([key, kpi]) => (
-        <div key={key} className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+        <div
+          key={key}
+          className={
+            printMode
+              ? "weekly-report-print-kpi-cell rounded-xl border border-white/10 bg-white/[0.03] p-3"
+              : "rounded-xl border border-white/10 bg-white/[0.03] p-4"
+          }
+        >
           <div className="text-xs text-white/50">{kpi.label}</div>
           <div className="mt-1 text-lg font-semibold text-white">
             {formatValue(kpi, currency)}

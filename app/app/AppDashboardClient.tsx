@@ -81,6 +81,24 @@ function extractApiError(payload: any): string {
   return parts.filter(Boolean).join(" | ");
 }
 
+const INTEGRATION_REASON_HUMAN: Record<string, string> = {
+  sync_old: "Данные устарели — запустите синхронизацию.",
+  data_behind: "Данные отстают от рекламного кабинета.",
+  no_data_updates_today: "За сегодня пока нет обновлённых данных.",
+  sync_failed: "Ошибка при последней синхронизации.",
+  internal_error: "Временная ошибка сервиса. Повторите позже.",
+  token_invalid: "Сессия истекла — переподключите аккаунт.",
+};
+
+function integrationTooltipHuman(
+  row:
+    | { reason?: string | null; token_reason_code?: string | null; last_sync_error?: string | null }
+    | undefined
+): string {
+  if (!row?.reason) return "";
+  return INTEGRATION_REASON_HUMAN[row.reason] ?? "Проверьте подключение в разделе «Рекламные аккаунты».";
+}
+
 type Summary = {
   spend: number;
   impressions?: number;
@@ -590,16 +608,28 @@ function narrowRefreshRangeForTodayEnd(start: string, end: string): { start: str
 export default function AppDashboardClient() {
   const router = useRouter();
   const sp = useSearchParams();
-  const { resolvedUi, bootstrap } = useBillingBootstrap();
+  const { resolvedUi, bootstrap, overLimitApplyGraceUntilMs, relaxOverLimitForPendingWebhook } =
+    useBillingBootstrap();
   const { requestBillingPricingModal } = useBillingPricingModalRequest();
   const projectId = sp.get("project_id") || "";
+  const billingBlockingOpts = useMemo(
+    () => ({ overLimitApplyGraceUntilMs, relaxOverLimitForPendingWebhook }),
+    [overLimitApplyGraceUntilMs, relaxOverLimitForPendingWebhook]
+  );
   const syncAllowed = billingActionAllowed(resolvedUi, ActionId.sync_refresh);
   const syncWallClickable =
-    !syncAllowed && isBillingBlocking(resolvedUi) && canOfferBillingInlinePricing(resolvedUi);
+    !syncAllowed &&
+    isBillingBlocking(resolvedUi, billingBlockingOpts) &&
+    canOfferBillingInlinePricing(resolvedUi);
   const dashboardWidgetPack = useMemo(() => resolveDashboardWidgetState(resolvedUi), [resolvedUi]);
   const attributionLimited = useMemo(() => {
     const m = bootstrap?.plan_feature_matrix;
-    return Boolean(m && m.attribution_heavy === false && dashboardWidgetPack.state !== "BLOCKED");
+    return Boolean(
+      m &&
+        m.attribution_heavy === false &&
+        dashboardWidgetPack.state !== "BLOCKED" &&
+        dashboardWidgetPack.state !== "LOADING"
+    );
   }, [bootstrap?.plan_feature_matrix, dashboardWidgetPack.state]);
   const refreshBaselineKey = `${REFRESH_BASELINE_SESSION_KEY}:${projectId}`;
 
@@ -1978,7 +2008,7 @@ export default function AppDashboardClient() {
       <div style={{ marginBottom: 10 }}>
         <div style={{ fontSize: 34, fontWeight: 900, lineHeight: 1.1 }}>Дашборд</div>
         <div style={{ opacity: 0.75, marginTop: 6 }}>
-          Spend, Impressions, Clicks из рекламных платформ (Meta, Google, TikTok) через daily_ad_metrics.
+          Обзор метрик по выбранному периоду и статус данных.
         </div>
 
         {errorText ? (
@@ -1986,9 +2016,20 @@ export default function AppDashboardClient() {
             {errorText}
           </div>
         ) : null}
-        {dashboardWidgetPack.state === "BLOCKED" || dashboardWidgetPack.state === "LIMITED" ? (
+        {dashboardWidgetPack.state === "BLOCKED" ||
+        dashboardWidgetPack.state === "LIMITED" ||
+        dashboardWidgetPack.state === "LOADING" ? (
           <div style={{ marginTop: 12 }}>
-            <BillingWidgetPlaceholder pack={dashboardWidgetPack} minHeight={dashboardWidgetPack.state === "BLOCKED" ? 100 : 88} />
+            <BillingWidgetPlaceholder
+              pack={dashboardWidgetPack}
+              minHeight={
+                dashboardWidgetPack.state === "BLOCKED"
+                  ? 100
+                  : dashboardWidgetPack.state === "LOADING"
+                    ? 72
+                    : 88
+              }
+            />
           </div>
         ) : null}
       </div>
@@ -2394,17 +2435,21 @@ export default function AppDashboardClient() {
       >
         <div style={{ ...mini, ...card, padding: 20 }}>
           <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 10 }}>Динамика расхода</div>
-          <div style={{ opacity: 0.7, marginBottom: 14 }}>Spend, Registrations, Sales (по выбранному диапазону)</div>
+          <div style={{ opacity: 0.7, marginBottom: 14 }}>Spend, Registrations, Sales и CAC</div>
 
-          {dashboardWidgetPack.state === "BLOCKED" ? (
+          {dashboardWidgetPack.state === "BLOCKED" || dashboardWidgetPack.state === "LOADING" ? (
             <BillingWidgetPlaceholder
-              pack={{
-                ...dashboardWidgetPack,
-                title: dashboardWidgetPack.title || "График недоступен",
-                hint:
-                  dashboardWidgetPack.hint ||
-                  "Данные скрыты из‑за ограничений подписки или статуса аккаунта.",
-              }}
+              pack={
+                dashboardWidgetPack.state === "LOADING"
+                  ? dashboardWidgetPack
+                  : {
+                      ...dashboardWidgetPack,
+                      title: dashboardWidgetPack.title || "График недоступен",
+                      hint:
+                        dashboardWidgetPack.hint ||
+                        "Данные скрыты из‑за ограничений подписки или статуса аккаунта.",
+                    }
+              }
               minHeight={260}
             />
           ) : (
@@ -2540,13 +2585,7 @@ export default function AppDashboardClient() {
                 const dotColor = platformStatusColor[status];
                 const label = platformStatusLabel[status];
                 const row = integrationRowByPlatform.get(p.id);
-                const diagnostics = [
-                  row?.reason ? `reason: ${row.reason}` : null,
-                  row?.token_reason_code ? `token: ${row.token_reason_code}` : null,
-                  row?.last_sync_error ? `sync: ${row.last_sync_error}` : null,
-                ]
-                  .filter(Boolean)
-                  .join(" | ");
+                const diagnostics = integrationTooltipHuman(row);
                 return (
                   <div
                     key={p.id}
@@ -2658,7 +2697,7 @@ export default function AppDashboardClient() {
 
       {backgroundReady ? (
         <>
-          {dashboardWidgetPack.state === "BLOCKED" ? (
+          {dashboardWidgetPack.state === "BLOCKED" || dashboardWidgetPack.state === "LOADING" ? (
             <BillingWidgetPlaceholder pack={dashboardWidgetPack} minHeight={280} />
           ) : attributionLimited ? (
             <BillingWidgetPlaceholder

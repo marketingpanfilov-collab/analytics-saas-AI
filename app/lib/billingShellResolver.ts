@@ -55,6 +55,8 @@ export function resolveBillingShell(input: {
     intended_route: null as string | null,
   };
 
+  const hasSharedProductAccess = input.has_org_membership || input.has_any_accessible_project;
+
   if (input.demo_mode) {
     return {
       ...base,
@@ -104,7 +106,8 @@ export function resolveBillingShell(input: {
     };
   }
 
-  if (input.access_state === "no_subscription") {
+  // Личная подписка (Paddle) отсутствует — но доступ через орг/проект (приглашённый) не ведёт на paywall.
+  if (input.access_state === "no_subscription" && !hasSharedProductAccess) {
     return {
       ...base,
       screen: ScreenId.PAYWALL,
@@ -140,6 +143,7 @@ export function resolveBillingShell(input: {
         ActionId.navigate_settings,
         ActionId.navigate_projects,
         ActionId.billing_manage,
+        ActionId.manage_project_members,
       ],
       blocking_level: "soft",
       pending_plan_change: false,
@@ -158,6 +162,7 @@ export function resolveBillingShell(input: {
         ActionId.navigate_settings,
         ActionId.navigate_projects,
         ActionId.billing_manage,
+        ActionId.manage_project_members,
         ActionId.sync_refresh,
       ],
       blocking_level: "soft",
@@ -176,6 +181,7 @@ export function resolveBillingShell(input: {
         ActionId.navigate_settings,
         ActionId.navigate_projects,
         ActionId.billing_manage,
+        ActionId.manage_project_members,
         ActionId.sync_refresh,
       ],
       blocking_level: "soft",
@@ -189,26 +195,41 @@ export function resolveBillingShell(input: {
       screen: ScreenId.READ_ONLY_SHELL,
       reason: ReasonCode.BILLING_UNPAID,
       cta: CtaKey.support,
-      allowed_actions: [ActionId.navigate_settings, ActionId.billing_manage, ActionId.support],
+      allowed_actions: [
+        ActionId.navigate_settings,
+        ActionId.billing_manage,
+        ActionId.support,
+        ActionId.manage_project_members,
+      ],
       blocking_level: "soft",
       pending_plan_change: false,
     };
   }
 
   if (input.over_limit_violations.length > 0) {
+    // Все типы превышений (в т.ч. только места): жёсткий шелл — борды под блюром, без закрытия оверлея до снятия нарушения;
+    // исправление — «Команда» / проекты / рекл. аккаунты / тариф (см. BillingShellGate + remedial routes).
     return {
       ...base,
       screen: ScreenId.OVER_LIMIT_FULLSCREEN,
       reason: firstOverLimitReason(input.over_limit_violations),
       cta: CtaKey.upgrade,
-      allowed_actions: [ActionId.billing_manage, ActionId.navigate_settings, ActionId.support],
+      allowed_actions: [
+        ActionId.billing_manage,
+        ActionId.navigate_settings,
+        ActionId.support,
+        ActionId.navigate_projects,
+        ActionId.manage_project_members,
+      ],
       blocking_level: "hard",
       pending_plan_change: false,
       over_limit_details: input.over_limit_violations,
+      data_state_default: "BLOCKED",
     };
   }
 
-  if (!input.has_org_membership) {
+  // Только project_members — нет строки organization_members, но проекты есть.
+  if (!input.has_org_membership && !input.has_any_accessible_project) {
     return {
       ...base,
       screen: ScreenId.NO_ORG_ACCESS,
@@ -243,7 +264,12 @@ export function resolveBillingShell(input: {
       screen: ScreenId.NO_ACCESS,
       reason: ReasonCode.NO_ACTIVE_PROJECT,
       cta: CtaKey.support,
-      allowed_actions: [ActionId.navigate_projects, ActionId.navigate_settings, ActionId.support],
+      allowed_actions: [
+        ActionId.navigate_projects,
+        ActionId.navigate_settings,
+        ActionId.support,
+        ActionId.manage_project_members,
+      ],
       blocking_level: "soft",
       pending_plan_change: false,
     };
@@ -263,6 +289,7 @@ export function resolveBillingShell(input: {
         ActionId.navigate_app,
         ActionId.navigate_settings,
         ActionId.retry_bootstrap,
+        ActionId.manage_project_members,
       ],
       blocking_level: "soft",
       pending_plan_change: true,

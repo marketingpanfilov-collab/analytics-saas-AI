@@ -35,9 +35,15 @@ export async function POST(req: Request) {
   const now = new Date().toISOString();
   const email = (user.email ?? "").trim().toLowerCase() || null;
 
+  const bodyProjectId =
+    typeof body.project_id === "string" && body.project_id.trim().length > 0
+      ? body.project_id.trim()
+      : null;
+
   if (action === "advance_step" || action === "save_company" || action === "complete") {
     const snap = await loadBillingCurrentPlan(admin, user.id, email, {
       requestId: `pco-${randomUUID()}`,
+      projectId: bodyProjectId,
     });
     if (!snap.success) {
       return NextResponse.json({ success: false, error: "Billing snapshot failed" }, { status: 500 });

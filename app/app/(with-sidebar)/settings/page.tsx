@@ -136,6 +136,38 @@ function SettingsPageContent() {
   const [apiAccessSubmitting, setApiAccessSubmitting] = useState(false);
   const [apiAccessSuccess, setApiAccessSuccess] = useState(false);
   const [apiAccessError, setApiAccessError] = useState<string | null>(null);
+  const [pickProjectTried, setPickProjectTried] = useState(false);
+
+  useEffect(() => {
+    if (projectId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/projects", { cache: "no-store" });
+        const json = await res.json();
+        if (cancelled) return;
+        if (!res.ok || !json?.success || !Array.isArray(json.projects) || json.projects.length === 0) {
+          setPickProjectTried(true);
+          return;
+        }
+        const first = json.projects[0]?.id;
+        if (typeof first !== "string" || !first) {
+          setPickProjectTried(true);
+          return;
+        }
+        const sec =
+          sectionFromUrl && isSectionId(sectionFromUrl)
+            ? `&section=${encodeURIComponent(sectionFromUrl)}`
+            : "";
+        router.replace(`/app/settings?project_id=${encodeURIComponent(first)}${sec}`);
+      } catch {
+        if (!cancelled) setPickProjectTried(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, router, sectionFromUrl]);
 
   useEffect(() => {
     if (!projectId) {
@@ -457,6 +489,13 @@ function SettingsPageContent() {
   );
 
   if (!projectId) {
+    if (!pickProjectTried) {
+      return (
+        <div style={{ padding: 24, color: "rgba(255,255,255,0.85)", fontSize: 14 }}>
+          Загружаем настройки…
+        </div>
+      );
+    }
     return (
       <div style={{ padding: 24 }}>
         <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 8 }}>⚙️ Настройки</h1>
@@ -471,7 +510,8 @@ function SettingsPageContent() {
             color: "rgba(255,255,255,0.8)",
           }}
         >
-          Сначала выберите проект. Откройте страницу так:{" "}
+          Нет доступных проектов или не удалось подобрать проект. Создайте проект в разделе «Проекты» или откройте
+          настройки с явным адресом:{" "}
           <code style={{ color: "rgba(200,220,255,0.95)" }}>/app/settings?project_id=…</code>
         </div>
       </div>

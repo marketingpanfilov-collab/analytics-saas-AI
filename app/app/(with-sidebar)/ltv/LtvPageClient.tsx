@@ -12,6 +12,7 @@ import { LTV_HELP_CROSS_BOARD_PARITY } from "./ltvHelpCopy";
 import { resolveLtvWidgetState } from "@/app/lib/billingWidgetState";
 import { useBillingBootstrap } from "../../components/BillingBootstrapProvider";
 import BillingWidgetPlaceholder from "../../components/BillingWidgetPlaceholder";
+import PlanRestrictedOverlay from "../../components/PlanRestrictedOverlay";
 
 const pillStyle = (active: boolean) => ({
   padding: "6px 16px",
@@ -636,6 +637,9 @@ export default function LtvPageClient() {
       setLoading(false);
       return;
     }
+    if (ltvPack.state === "LOADING") {
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -652,7 +656,7 @@ export default function LtvPageClient() {
       const json = await res.json();
       if (!res.ok) {
         if (json?.code === "BILLING_BLOCKED") {
-          setError("LTV недоступен при текущем статусе подписки (reason: BILLING_BLOCKED).");
+          setError("LTV недоступен при текущем статусе подписки. Проверьте тариф в настройках.");
         } else {
           setError(json?.error ?? "Ошибка загрузки");
         }
@@ -958,6 +962,17 @@ export default function LtvPageClient() {
     );
   }
 
+  if (ltvPack.state === "LOADING") {
+    return (
+      <div style={{ padding: 24, background: "#0a0a0a", minHeight: "100%" }}>
+        <h1 style={{ fontSize: 28, fontWeight: 900, margin: 0 }}>LTV / Retention</h1>
+        <div style={{ marginTop: 16 }}>
+          <BillingWidgetPlaceholder pack={ltvPack} minHeight={200} />
+        </div>
+      </div>
+    );
+  }
+
   if (ltvPack.state === "BLOCKED") {
     return (
       <div style={{ padding: 24, background: "#0a0a0a", minHeight: "100%" }}>
@@ -990,6 +1005,11 @@ export default function LtvPageClient() {
   const showDemoBadgeInHeader = isDemoLtv;
 
   return (
+    <PlanRestrictedOverlay
+      allowedPlans={["growth", "scale"]}
+      message="Полная аналитика доступна на тарифах Growth и Scale. Обновите тариф, чтобы открыть эти данные."
+      upgradeSource="plan_restricted_ltv"
+    >
     <div style={{ background: "#0a0a0a", minHeight: "100%", padding: "24px 24px 40px", maxWidth: 1280, margin: "0 auto" }}>
       <header style={{ marginBottom: 32, display: "flex", flexDirection: "column", gap: 4 }}>
         <h1 style={{ fontSize: 26, fontWeight: 600, margin: 0, letterSpacing: "-0.02em", display: "flex", alignItems: "center", flexWrap: "wrap" }}>
@@ -1890,5 +1910,6 @@ export default function LtvPageClient() {
         />
       </section>
     </div>
+    </PlanRestrictedOverlay>
   );
 }

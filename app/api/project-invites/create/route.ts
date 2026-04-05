@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
+import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { sendProjectInviteEmail } from "@/app/lib/projectInviteEmail";
 import crypto from "crypto";
-import { billingHeavySyncGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
+import { billingAnalyticsReadGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
+
+export const runtime = "nodejs";
 
 const ORG_ROLES_MANAGE = ["owner", "admin"];
 const ORG_ROLES_ALL_PROJECTS = ["owner", "admin"];
@@ -33,7 +37,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  const billingPre = await billingHeavySyncGateBeforeProject(req);
+  // Приглашение не занимает seat и не должно упираться в heavy-sync / over-limit; достаточно «не мёртвой» подписки для чтения.
+  const billingPre = await billingAnalyticsReadGateBeforeProject(req);
   if (!billingPre.ok) return billingPre.response;
 
   const { data: mem } = await supabase
@@ -117,23 +122,68 @@ export async function POST(req: Request) {
   const baseUrl = origin.startsWith("http") ? origin : `https://${origin}`;
   const inviteUrl = `${baseUrl}/app/invite/accept?token=${encodeURIComponent(token)}`;
 
-  // Email delivery uses the same path as password reset (Supabase Auth SMTP). Invite emails
-  // are not sent from this app to avoid a second email stack; creator can share invite_url manually.
-  if (inviteType === "link") {
-    return NextResponse.json({
-      success: true,
-      invite_id: invite.id,
-      token: invite.token,
-      expires_at: invite.expires_at,
-      invite_url: inviteUrl,
+  const admin = supabaseAdmin();
+  const { data: projMeta } = await admin
+    .from("projects")
+    .select("name")
+    .eq("id", projectId)
+    .maybeSingle();
+  const { data: orgMeta } = await admin
+    .from("organizations")
+    .select("name")
+    .eq("id", proj.organization_id)
+    .maybeSingle();
+
+  const projectName = (projMeta?.name != null && String(projMeta.name).trim()) || "Проект";
+  const organizationName = (orgMeta?.name != null && String(orgMeta.name).trim()) || "Организация";
+
+  const meta = user.user_metadata as Record<string, unknown> | undefined;
+  const inviterDisplayName =
+    typeof meta?.full_name === "string"
+      ? meta.full_name.trim()
+      : typeof meta?.name === "string"
+        ? meta.name.trim()
+        : null;
+
+  let emailSent = false;
+  let emailError: string | null = null;
+  if (inviteType === "email" && email) {
+    const send = await sendProjectInviteEmail({
+      to: email,
+      inviteUrl,
+      projectName,
+      organizationName,
+      roleKey: role,
+      inviterEmail: user.email ?? null,
+      inviterDisplayName: inviterDisplayName || null,
+      expiresAtIso: expiresAt,
     });
+    if (send.ok) {
+      emailSent = true;
+    } else {
+      emailError = send.error;
+      if (send.error === "smtp_not_configured" && process.env.NODE_ENV === "development") {
+        console.warn(
+          "[project-invites/create] Почта не настроена (SMTP_* или RESEND_API_KEY) — письмо не отправлено. invite_url:",
+          inviteUrl
+        );
+      } else if (send.error !== "smtp_not_configured") {
+        console.warn("[project-invites/create] email failed:", send.error);
+      }
+    }
   }
 
-  return NextResponse.json({
+  const payload: Record<string, unknown> = {
     success: true,
     invite_id: invite.id,
     token: invite.token,
     expires_at: invite.expires_at,
     invite_url: inviteUrl,
-  });
+    email_sent: emailSent,
+    project_name: projectName,
+    organization_name: organizationName,
+  };
+  if (emailError) payload.email_error = emailError;
+
+  return NextResponse.json(payload);
 }

@@ -4,7 +4,7 @@
 import type { PlanFeatureMatrix } from "@/app/lib/planConfig";
 import { ReasonCode, ScreenId, type ResolvedUiStateV1 } from "@/app/lib/billingUiContract";
 
-export type BillingWidgetState = "EMPTY" | "LIMITED" | "BLOCKED";
+export type BillingWidgetState = "EMPTY" | "LIMITED" | "BLOCKED" | "LOADING";
 
 export type BillingWidgetStatePack = {
   state: BillingWidgetState;
@@ -31,7 +31,7 @@ const REASON_LABELS: Partial<Record<ReasonCode, { title: string; hint: string }>
     hint: "По подписке оформлен возврат. Обратитесь в поддержку или оформите новый тариф.",
   },
   [ReasonCode.BILLING_NO_SUBSCRIPTION]: {
-    title: "Нужна подписка",
+    title: "Необходимо оформить подписку",
     hint: "Оформите тариф, чтобы видеть аналитику.",
   },
   [ReasonCode.PLAN_CHANGE_PENDING]: {
@@ -62,7 +62,7 @@ function pack(
  */
 export function resolveDashboardWidgetState(resolved: ResolvedUiStateV1 | null): BillingWidgetStatePack {
   if (!resolved) {
-    return pack("BLOCKED", "NO_RESOLVED", "Загрузка доступа", "Ожидайте инициализации сессии.");
+    return pack("LOADING", "NO_RESOLVED", "", "");
   }
   if (resolved.screen === ScreenId.READ_ONLY_SHELL && resolved.blocking_level === "soft") {
     const lab = REASON_LABELS[resolved.reason as ReasonCode];
@@ -127,7 +127,7 @@ export function resolveLtvWidgetState(
   matrix: PlanFeatureMatrix | undefined
 ): BillingWidgetStatePack {
   const base = resolveDashboardWidgetState(resolved);
-  if (base.state === "BLOCKED") return base;
+  if (base.state === "LOADING" || base.state === "BLOCKED") return base;
   if (!matrix?.ltv_full_history) {
     return pack(
       "LIMITED",
@@ -144,7 +144,7 @@ export function resolveReportsWidgetState(
   matrix: PlanFeatureMatrix | undefined
 ): BillingWidgetStatePack {
   const base = resolveDashboardWidgetState(resolved);
-  if (base.state === "BLOCKED") return base;
+  if (base.state === "LOADING" || base.state === "BLOCKED") return base;
   if (matrix && matrix.marketing_summary === false) {
     return pack(
       "BLOCKED",

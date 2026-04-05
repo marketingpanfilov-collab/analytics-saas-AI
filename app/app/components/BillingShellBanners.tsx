@@ -2,14 +2,10 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import {
-  billingActionAllowed,
-  blockingLevelRank,
-  normalizeBillingFeatureFlags,
-} from "@/app/lib/billingBootstrapClient";
+import { billingActionAllowed, blockingLevelRank, normalizeBillingFeatureFlags } from "@/app/lib/billingBootstrapClient";
 import { ActionId, ReasonCode, ScreenId, type BlockingLevel } from "@/app/lib/billingUiContract";
 import { useBillingBootstrap } from "./BillingBootstrapProvider";
-import BillingInlinePricing from "./BillingInlinePricing";
+import { BillingInlinePricingSuspended } from "./BillingInlinePricing";
 
 const REASON_HUMAN: Partial<Record<ReasonCode, string>> = {
   [ReasonCode.BILLING_UNPAID]: "статус подписки: не оплачено",
@@ -85,7 +81,7 @@ export function BillingAccessStricterBanner() {
 
   if (!open) return null;
   const reasonHuman =
-    REASON_HUMAN[resolvedUi?.reason as ReasonCode] ?? `причина: ${resolvedUi?.reason ?? "—"}`;
+    REASON_HUMAN[resolvedUi?.reason as ReasonCode] ?? "ограничение доступа по подписке";
   return (
     <div
       role="status"
@@ -104,11 +100,6 @@ export function BillingAccessStricterBanner() {
     >
       <span>
         Режим доступа стал строже — {reasonHuman}. Проверьте биллинг и тариф.
-        {resolvedUi?.request_id ? (
-          <span style={{ opacity: 0.65, marginLeft: 8, fontSize: 11 }}>
-            (request_id: {resolvedUi.request_id})
-          </span>
-        ) : null}
       </span>
       <button
         type="button"
@@ -166,9 +157,8 @@ function ReadOnlyPaywallBannerInner({ projectId }: { projectId: string | null })
       >
         <span style={{ lineHeight: 1.45 }}>
           <strong style={{ display: "block", marginBottom: 4 }}>Доступ только для чтения</strong>
-          Причина:{" "}
-          {REASON_HUMAN[resolvedUi.reason as ReasonCode] ?? resolvedUi.reason}. Продлите подписку, чтобы снова
-          изменять данные и синхронизации.
+          {REASON_HUMAN[resolvedUi.reason as ReasonCode] ?? "Статус оплаты временно не определён"}. Продлите подписку,
+          чтобы снова изменять данные и синхронизации.
         </span>
         <button
           type="button"
@@ -239,7 +229,7 @@ function ReadOnlyPaywallBannerInner({ projectId }: { projectId: string | null })
                 ✕
               </button>
             </div>
-            <BillingInlinePricing
+            <BillingInlinePricingSuspended
               projectId={projectId}
               compact
               showComparisonLink

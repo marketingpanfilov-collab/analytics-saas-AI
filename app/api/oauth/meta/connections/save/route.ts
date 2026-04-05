@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
 import { billingHeavySyncGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
 import { logCabinetState } from "@/app/lib/cabinetAuditLog";
+import { assertAdAccountSelectionWithinPlanLimit } from "@/app/lib/adAccountPlanLimit";
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
@@ -43,6 +45,43 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: "integration not found or no token" }, { status: 400 });
   }
 
+  const { data: canonicalIntRow } = await admin
+    .from("integrations_meta")
+    .select("integrations_id")
+    .eq("id", integrationId)
+    .eq("project_id", projectId)
+    .single();
+  const integrationsId =
+    (canonicalIntRow as { integrations_id?: string } | null)?.integrations_id ?? null;
+  const { data: adRowsForIntegration } = integrationsId
+    ? await admin.from("ad_accounts").select("id, external_account_id").eq("integration_id", integrationsId)
+    : { data: [] as { id: string; external_account_id: string }[] };
+
+  const { data: projOrg } = await admin
+    .from("projects")
+    .select("organization_id")
+    .eq("id", projectId)
+    .maybeSingle();
+  const organizationId = projOrg?.organization_id ? String(projOrg.organization_id) : null;
+
+  if (organizationId && access.source === "user") {
+    const supabase = await createServerSupabase();
+    const {
+      data: { user: u },
+    } = await supabase.auth.getUser();
+    if (u) {
+      const lim = await assertAdAccountSelectionWithinPlanLimit({
+        admin,
+        organizationId,
+        userId: u.id,
+        userEmail: u.email ?? null,
+        integrationAccountRows: (adRowsForIntegration ?? []) as { id: string; external_account_id: string }[],
+        selectedExternalIds: adAccountIds,
+      });
+      if (!lim.ok) return lim.response;
+    }
+  }
+
   // 1) meta_ad_accounts: single DB transaction (see save_meta_ad_account_selection migration)
   const { error: rpcErr } = await admin.rpc("save_meta_ad_account_selection", {
     p_project_id: projectId,
@@ -60,23 +99,10 @@ export async function POST(req: Request) {
   }
 
   // 2) Platform-agnostic source of truth: ad_account_settings
-  const { data: canonicalInt } = await admin
-    .from("integrations_meta")
-    .select("integrations_id")
-    .eq("id", integrationId)
-    .eq("project_id", projectId)
-    .single();
-
-  const integrationsId = (canonicalInt as { integrations_id?: string } | null)?.integrations_id ?? null;
   if (integrationsId) {
-    const { data: adRows } = await admin
-      .from("ad_accounts")
-      .select("id, external_account_id")
-      .eq("integration_id", integrationsId);
-
     const now = new Date().toISOString();
     const selectedSet = new Set(adAccountIds);
-    const settingsRows = (adRows ?? []).map((row: { id: string; external_account_id: string }) => {
+    const settingsRows = (adRowsForIntegration ?? []).map((row: { id: string; external_account_id: string }) => {
       const isEnabled = selectedSet.has(row.external_account_id);
       return {
         ad_account_id: row.id,

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
-import { billingHeavySyncGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
+import { billingAnalyticsReadGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
 
 const ORG_ROLES_MANAGE = ["owner", "admin"];
 const ORG_ROLES_ALL_PROJECTS = ["owner", "admin"];
@@ -21,7 +21,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  const billingPre = await billingHeavySyncGateBeforeProject(req);
+  const billingPre = await billingAnalyticsReadGateBeforeProject(req);
   if (!billingPre.ok) return billingPre.response;
 
   const { data: invite } = await supabase

@@ -9,7 +9,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "verify:cabinet-migrations": "node -e \"console.log('Run scripts/verify-cabinet-migrations.sql in the Supabase SQL Editor (staging/prod).')\"",
-    "verify:meta-connections-smoke": "bash scripts/smoke-meta-connections-save.sh"
+    "verify:meta-connections-smoke": "bash scripts/smoke-meta-connections-save.sh",
+    "db:migrate:billing-org": "node scripts/run-billing-org-migration.mjs"
   },
   "dependencies": {
     "@paddle/paddle-js": "^1.6.2",
@@ -38,6 +39,7 @@
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.1",
     "typescript": "^5",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "pg": "^8.14.1"
   }
 }

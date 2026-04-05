@@ -47,7 +47,7 @@ function planLabel(plan: string | null | undefined): string {
   const p = String(plan ?? "").toLowerCase();
   if (p === "starter") return "Starter";
   if (p === "growth") return "Growth";
-  if (p === "agency") return "Agency";
+  if (p === "scale" || p === "agency") return "Scale";
   return p || "—";
 }
 

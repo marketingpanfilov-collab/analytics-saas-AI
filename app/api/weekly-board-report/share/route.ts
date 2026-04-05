@@ -10,6 +10,14 @@ import {
   billingAnalyticsReadGateBeforeProject,
   billingHeavySyncGateBeforeProject,
 } from "@/app/lib/auth/requireBillingAccess";
+import { resolveBillingGateContext } from "@/app/lib/billingCurrentPlan";
+import {
+  consumeWeeklyReportUsageAfterSuccess,
+  countWeeklyReportUsageForMonth,
+  loadProjectOrganizationId,
+  maxWeeklyReportsForEffectivePlan,
+  weeklyReportUsageMonthUtc,
+} from "@/app/lib/weeklyReportOrgUsage";
 import { buildWeeklyReportPayload } from "../route";
 
 const REPORT_TYPE = "weekly_board_report";
@@ -145,6 +153,38 @@ export async function POST(req: Request) {
       accountIds,
     });
 
+    const ctx = await resolveBillingGateContext(admin, user.id, user.email ?? null, { projectId });
+    const maxWeekly = maxWeeklyReportsForEffectivePlan(ctx.effective_plan);
+    const periodStart = start && /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : monthStart;
+    const periodEnd = end && /^\d{4}-\d{2}-\d{2}$/.test(end) ? end : today;
+    const usageMonth = weeklyReportUsageMonthUtc();
+    const organizationId = await loadProjectOrganizationId(admin, projectId);
+
+    if (maxWeekly != null && payload.has_sufficient_data && organizationId) {
+      const consume = await consumeWeeklyReportUsageAfterSuccess(admin, {
+        organizationId,
+        projectId,
+        start: periodStart,
+        end: periodEnd,
+        sources,
+        accountIds,
+        maxPerMonth: maxWeekly,
+        kind: "share_link",
+      });
+      if (!consume.ok) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: consume.code,
+            used: consume.used,
+            limit: consume.limit,
+            usage_month_utc: usageMonth,
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     const token = generateToken();
     const { error: insertErr } = await admin.from("report_share_links").insert({
       project_id: projectId,
@@ -166,12 +206,29 @@ export async function POST(req: Request) {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "";
     const shareUrl = `${baseUrl.replace(/\/$/, "")}${PUBLIC_SHARE_PATH}/${token}`;
 
+    let weeklyUsage: {
+      used: number;
+      limit: number | null;
+      unlimited: boolean;
+      usage_month_utc: string;
+    } | null = null;
+    if (organizationId) {
+      const used = await countWeeklyReportUsageForMonth(admin, organizationId, usageMonth);
+      weeklyUsage = {
+        used,
+        limit: maxWeekly,
+        unlimited: maxWeekly == null,
+        usage_month_utc: usageMonth,
+      };
+    }
+
     return NextResponse.json({
       success: true,
       token,
       url: shareUrl,
       created_at: new Date().toISOString(),
       existing: false,
+      weekly_usage: weeklyUsage,
     });
   } catch (e) {
     console.error("[WEEKLY_REPORT_SHARE_CREATE]", e);

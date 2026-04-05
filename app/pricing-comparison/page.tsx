@@ -15,7 +15,7 @@ type FeatureRow = {
   title: string;
   starter: FeatureValue;
   growth: FeatureValue;
-  agency: FeatureValue;
+  scale: FeatureValue;
 };
 
 const BILLING_OPTIONS: { value: BillingPeriod; label: string }[] = [
@@ -26,32 +26,33 @@ const BILLING_OPTIONS: { value: BillingPeriod; label: string }[] = [
 const MONTHLY_PRICE: Record<PricingPlanId, number> = {
   starter: 39,
   growth: 99,
-  agency: 249,
+  scale: 249,
 };
 
 const YEARLY_DISCOUNT_PERCENT: Record<PricingPlanId, number> = {
   starter: 10,
   growth: 15,
-  agency: 20,
+  scale: 20,
 };
 
 const FEATURES: FeatureRow[] = [
-  { group: "Лимиты", title: "Количество источников", starter: "до 3", growth: "до 10", agency: "без ограничений" },
-  { group: "Лимиты", title: "Проекты / аккаунты", starter: "1", growth: "до 3", agency: "неограниченно" },
-  { group: "Аналитика", title: "Тип отчетов", starter: "Базовые", growth: "Управленческие", agency: "Расширенные + кастом" },
-  { group: "Аналитика", title: "DDA (атрибуция)", starter: "Базовый вклад", growth: "Полный DDA", agency: "Продвинутый DDA + кастом модели" },
-  { group: "Аналитика", title: "AI-рекомендации", starter: false, growth: "Базовые", agency: "Продвинутые" },
-  { group: "Операционка", title: "Алерты / уведомления", starter: false, growth: "Стандартные", agency: "Real-time + кастом правила" },
-  { group: "Операционка", title: "Дашборды", starter: "1", growth: "до 5", agency: "неограниченно" },
-  { group: "Операционка", title: "Обновление данных", starter: "каждые 24 часа", growth: "каждые 6 часов", agency: "почти real-time" },
-  { group: "Интеграции", title: "Интеграции", starter: "Базовые", growth: "Расширенные", agency: "Все + приоритетные" },
-  { group: "Интеграции", title: "UTM / трекинг система", starter: "Базовая", growth: "Расширенная", agency: "Продвинутая + свои параметры" },
-  { group: "Команда", title: "Работа с командой", starter: false, growth: "Ограниченно", agency: "Роли, права, команды" },
-  { group: "Команда", title: "Роли и доступы", starter: false, growth: "Частично", agency: "Полный контроль" },
-  { group: "Enterprise", title: "API доступ", starter: false, growth: "Ограниченный", agency: "Полный API" },
-  { group: "Enterprise", title: "White-label", starter: false, growth: false, agency: true },
-  { group: "Поддержка", title: "Поддержка", starter: "Стандарт", growth: "Приоритетная", agency: "VIP / выделенная" },
-  { group: "Поддержка", title: "Кому подходит", starter: "Фриланс / стартап", growth: "Бизнес", agency: "Агентство / холдинг" },
+  { group: "Лимиты", title: "Количество источников", starter: "до 3", growth: "до 10", scale: "без ограничений" },
+  { group: "Лимиты", title: "Проекты / аккаунты", starter: "1", growth: "до 3", scale: "неограниченно" },
+  { group: "Лимиты", title: "Участники организации", starter: "1", growth: "до 10", scale: "неограниченно" },
+  { group: "Аналитика", title: "Тип отчетов", starter: "Базовые", growth: "Управленческие", scale: "Расширенные + кастом" },
+  { group: "Аналитика", title: "DDA (атрибуция)", starter: "Базовый вклад", growth: "Полный DDA", scale: "Продвинутый DDA + кастом модели" },
+  { group: "Аналитика", title: "AI-рекомендации", starter: false, growth: "Базовые", scale: "Продвинутые" },
+  { group: "Операционка", title: "Алерты / уведомления", starter: false, growth: "Стандартные", scale: "Real-time + кастом правила" },
+  { group: "Операционка", title: "Дашборды", starter: "1", growth: "до 5", scale: "неограниченно" },
+  { group: "Операционка", title: "Обновление данных", starter: "каждые 24 часа", growth: "каждые 6 часов", scale: "почти real-time" },
+  { group: "Интеграции", title: "Интеграции", starter: "Базовые", growth: "Расширенные", scale: "Все + приоритетные" },
+  { group: "Интеграции", title: "UTM / трекинг система", starter: "Базовая", growth: "Расширенная", scale: "Продвинутая + свои параметры" },
+  { group: "Команда", title: "Работа с командой", starter: false, growth: "Ограниченно", scale: "Роли, права, команды" },
+  { group: "Команда", title: "Роли и доступы", starter: false, growth: "Частично", scale: "Полный контроль" },
+  { group: "Enterprise", title: "API доступ", starter: false, growth: "Ограниченный", scale: "Полный API" },
+  { group: "Enterprise", title: "White-label", starter: false, growth: false, scale: true },
+  { group: "Поддержка", title: "Поддержка", starter: "Стандарт", growth: "Приоритетная", scale: "VIP / выделенная" },
+  { group: "Поддержка", title: "Кому подходит", starter: "Фриланс / стартап", growth: "Бизнес", scale: "Scale / холдинг" },
 ];
 
 function yearlyTotal(monthlyUsd: number, discountPercent: number) {
@@ -75,7 +76,7 @@ export default function PricingComparisonPage() {
   const router = useRouter();
   const [starterBilling, setStarterBilling] = useState<BillingPeriod>("monthly");
   const [growthBilling, setGrowthBilling] = useState<BillingPeriod>("monthly");
-  const [agencyBilling, setAgencyBilling] = useState<BillingPeriod>("monthly");
+  const [scaleBilling, setScaleBilling] = useState<BillingPeriod>("monthly");
 
   const starterHref = useMemo(
     () => buildLoginPurchaseHref("starter", starterBilling),
@@ -85,9 +86,9 @@ export default function PricingComparisonPage() {
     () => buildLoginPurchaseHref("growth", growthBilling),
     [growthBilling]
   );
-  const agencyHref = useMemo(
-    () => buildLoginPurchaseHref("agency", agencyBilling),
-    [agencyBilling]
+  const scaleHref = useMemo(
+    () => buildLoginPurchaseHref("scale", scaleBilling),
+    [scaleBilling]
   );
 
   const groups = useMemo(() => [...new Set(FEATURES.map((f) => f.group))], []);
@@ -143,7 +144,7 @@ export default function PricingComparisonPage() {
                   <th className="px-4 py-4 text-left font-semibold text-white/90">Функция / Возможность</th>
                   <th className="px-4 py-4 text-center font-semibold text-white/90">Starter</th>
                   <th className="px-4 py-4 text-center font-semibold text-white/90">Growth</th>
-                  <th className="px-4 py-4 text-center font-semibold text-white/90">Agency</th>
+                  <th className="px-4 py-4 text-center font-semibold text-white/90">Scale</th>
                 </tr>
               </thead>
               <tbody>
@@ -164,7 +165,7 @@ export default function PricingComparisonPage() {
                     <PeriodSelect value={growthBilling} onChange={setGrowthBilling} />
                   </td>
                   <td className="px-4 py-3 text-center">
-                    <PeriodSelect value={agencyBilling} onChange={setAgencyBilling} />
+                    <PeriodSelect value={scaleBilling} onChange={setScaleBilling} />
                   </td>
                 </tr>
 
@@ -193,13 +194,13 @@ export default function PricingComparisonPage() {
                     </p>
                   </td>
                   <td className="px-4 py-3 text-center text-base font-bold text-emerald-300">
-                    {formatUsd(totalByBilling("agency", agencyBilling))}
+                    {formatUsd(totalByBilling("scale", scaleBilling))}
                     <span className="ml-1 text-xs font-medium text-white/50">
-                      / {agencyBilling === "yearly" ? "год" : "мес"}
+                      / {scaleBilling === "yearly" ? "год" : "мес"}
                     </span>
-                    <p className={`mt-1 text-xs font-medium ${agencyBilling === "yearly" ? "text-red-400" : "text-white/60"}`}>
-                      {agencyBilling === "yearly"
-                        ? `Скидка ${formatUsd(yearlySavings(MONTHLY_PRICE.agency, YEARLY_DISCOUNT_PERCENT.agency))}`
+                    <p className={`mt-1 text-xs font-medium ${scaleBilling === "yearly" ? "text-red-400" : "text-white/60"}`}>
+                      {scaleBilling === "yearly"
+                        ? `Скидка ${formatUsd(yearlySavings(MONTHLY_PRICE.scale, YEARLY_DISCOUNT_PERCENT.scale))}`
                         : "Без скидки"}
                     </p>
                   </td>
@@ -214,7 +215,7 @@ export default function PricingComparisonPage() {
                     <PricingBuyButton guestHref={growthHref} planId="growth" billing={growthBilling} />
                   </td>
                   <td className="px-4 py-4 text-center">
-                    <PricingBuyButton guestHref={agencyHref} planId="agency" billing={agencyBilling} />
+                    <PricingBuyButton guestHref={scaleHref} planId="scale" billing={scaleBilling} />
                   </td>
                 </tr>
               </tbody>
@@ -270,7 +271,7 @@ function FragmentRows({ group, rows }: { group: string; rows: FeatureRow[] }) {
           <td className="px-4 py-3 text-white/80">{row.title}</td>
           <td className="px-4 py-3 text-center">{renderFeatureValue(row.starter)}</td>
           <td className="px-4 py-3 text-center">{renderFeatureValue(row.growth)}</td>
-          <td className="px-4 py-3 text-center">{renderFeatureValue(row.agency)}</td>
+          <td className="px-4 py-3 text-center">{renderFeatureValue(row.scale)}</td>
         </tr>
       ))}
     </>

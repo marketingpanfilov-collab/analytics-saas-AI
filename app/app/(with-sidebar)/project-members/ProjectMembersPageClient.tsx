@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
 import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
 import { ActionId } from "@/app/lib/billingUiContract";
@@ -10,6 +10,12 @@ import { supabase } from "@/app/lib/supabaseClient";
 
 const ORG_ROLES_ALL_PROJECTS = ["owner", "admin"];
 const ORG_ROLES_MANAGE = ["owner", "admin"];
+const MEMBERS_MUTATION_BILLING_MSG =
+  "Изменение состава участников недоступно при текущем статусе подписки или режиме доступа.";
+const INVITE_SEAT_HINT =
+  "Приглашение можно отправить заранее. Доступ к проекту активируется при принятии — по правилам тарифа и лимита мест.";
+const ADD_MODAL_INVITE_SUCCESS_HINT =
+  "Приглашение создано. Доступ активируется по правилам тарифа, когда человек примет ссылку.";
 const PROJECT_ROLES = [
   { value: "project_admin", label: "Админ проекта" },
   { value: "marketer", label: "Маркетолог" },
@@ -62,6 +68,28 @@ function formatDateTime(iso: string): string {
   }
 }
 
+const COPY_FEEDBACK_ADD_MODAL = "add-modal";
+const COPY_FEEDBACK_EMAIL_FALLBACK = "email-fallback";
+const COPY_FEEDBACK_LINK_MODAL = "link-modal";
+
+function InviteUrlFlashBox({ url, copied }: { url: string; copied: boolean }) {
+  return (
+    <div
+      className={`rounded-xl px-4 transition-all duration-300 ease-out ${
+        copied
+          ? "flex min-h-[120px] items-center justify-center border-2 border-emerald-500/70 bg-emerald-500/[0.18] py-6 shadow-[0_0_28px_rgba(16,185,129,0.2)]"
+          : "min-h-[108px] border border-white/10 bg-white/[0.04] py-8 text-center"
+      }`}
+    >
+      {copied ? (
+        <p className="m-0 text-center text-sm font-semibold text-emerald-200">Ссылка скопирована</p>
+      ) : (
+        <p className="m-0 text-left text-sm leading-relaxed text-zinc-300 break-all">{url}</p>
+      )}
+    </div>
+  );
+}
+
 export type ProjectMembersPageClientProps = {
   /** Встроенный блок (например раздел «Управление доступом» в настройках) — без лишних отступов контейнера */
   variant?: "page" | "embedded";
@@ -72,9 +100,9 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project_id")?.trim() ?? "";
   const isEmbedded = variant === "embedded";
-  const { resolvedUi } = useBillingBootstrap();
-  const canSyncMembers = useMemo(
-    () => billingActionAllowed(resolvedUi, ActionId.sync_refresh),
+  const { resolvedUi, reloadBootstrap } = useBillingBootstrap();
+  const canMutateProjectMembers = useMemo(
+    () => billingActionAllowed(resolvedUi, ActionId.manage_project_members),
     [resolvedUi]
   );
 
@@ -88,6 +116,9 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
   const [addRole, setAddRole] = useState<string>("marketer");
   const [addError, setAddError] = useState<string | null>(null);
   const [addLoading, setAddLoading] = useState(false);
+  /** После успешного create invite из модалки (бывш. «прямое добавление»). */
+  const [addModalInviteUrl, setAddModalInviteUrl] = useState<string | null>(null);
+  const [addModalEmailSent, setAddModalEmailSent] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   const [tab, setTab] = useState<"members" | "invites">("members");
@@ -98,11 +129,29 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
   const [inviteByEmailLoading, setInviteByEmailLoading] = useState(false);
   const [inviteByEmailError, setInviteByEmailError] = useState<string | null>(null);
   const [inviteByEmailFallbackUrl, setInviteByEmailFallbackUrl] = useState<string | null>(null);
+  const [inviteByEmailSentToInbox, setInviteByEmailSentToInbox] = useState(false);
   const [inviteByLinkModal, setInviteByLinkModal] = useState(false);
   const [inviteByLinkUrl, setInviteByLinkUrl] = useState<string | null>(null);
   const [inviteByLinkLoading, setInviteByLinkLoading] = useState(false);
   const [inviteByLinkRole, setInviteByLinkRole] = useState<string>("marketer");
   const [revokeLoadingId, setRevokeLoadingId] = useState<string | null>(null);
+
+  const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [inviteLinkCopiedKey, setInviteLinkCopiedKey] = useState<string | null>(null);
+
+  const resetInviteCopyFeedback = useCallback(() => {
+    if (copyFeedbackTimerRef.current) {
+      clearTimeout(copyFeedbackTimerRef.current);
+      copyFeedbackTimerRef.current = null;
+    }
+    setInviteLinkCopiedKey(null);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (copyFeedbackTimerRef.current) clearTimeout(copyFeedbackTimerRef.current);
+    };
+  }, []);
 
   const fetchMembers = useCallback(async () => {
     if (!projectId) return;
@@ -221,37 +270,40 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
 
   const handleRoleChange = useCallback(
     async (memberId: string, newRole: string) => {
-      if (!canSyncMembers) return;
+      if (!canMutateProjectMembers) return;
       setActionLoadingId(memberId);
       const { error } = await supabase
         .from("project_members")
         .update({ role: newRole })
         .eq("id", memberId);
       setActionLoadingId(null);
-      if (!error) await fetchMembers();
+      if (!error) {
+        await fetchMembers();
+        void reloadBootstrap();
+      }
     },
-    [fetchMembers, canSyncMembers]
+    [fetchMembers, canMutateProjectMembers, reloadBootstrap]
   );
 
   const handleRemove = useCallback(
     async (row: MemberRow) => {
-      if (!canSyncMembers) return;
+      if (!canMutateProjectMembers) return;
       if (row.user_id === currentUserId && row.role === "project_admin") return;
       setActionLoadingId(row.id);
       const { error } = await supabase.from("project_members").delete().eq("id", row.id);
       setActionLoadingId(null);
-      if (!error) await fetchMembers();
+      if (!error) {
+        await fetchMembers();
+        void reloadBootstrap();
+      }
     },
-    [currentUserId, fetchMembers, canSyncMembers]
+    [currentUserId, fetchMembers, canMutateProjectMembers, reloadBootstrap]
   );
 
   const handleAddSubmit = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!canSyncMembers) {
-        setAddError("Действие недоступно при текущем статусе подписки");
-        return;
-      }
+      if (!allowed) return;
       const email = addEmail.trim().toLowerCase();
       if (!email) {
         setAddError("Введите email");
@@ -260,53 +312,55 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
       setAddError(null);
       setAddLoading(true);
 
-      const res = await fetch(
-        `/api/users/by-email?email=${encodeURIComponent(email)}`,
-        { cache: "no-store" }
-      );
-      const json = (await res.json()) as { success?: boolean; user?: { id: string; email: string | null } };
-
-      if (!json?.success || !json?.user?.id) {
-        setAddError("Пользователь не найден");
-        setAddLoading(false);
-        return;
-      }
-
-      const userId = json.user.id;
-      if (members.some((m) => m.user_id === userId)) {
-        setAddError("Пользователь уже добавлен в проект");
-        setAddLoading(false);
-        return;
-      }
-
-      const { error: insertErr } = await supabase.from("project_members").insert({
-        project_id: projectId,
-        user_id: userId,
-        role: addRole,
+      const lookup = await fetch(`/api/users/by-email?email=${encodeURIComponent(email)}`, {
+        cache: "no-store",
       });
+      const looked = (await lookup.json()) as { success?: boolean; user?: { id: string; email: string | null } };
+      if (looked?.success && looked?.user?.id && members.some((m) => m.user_id === looked.user!.id)) {
+        setAddLoading(false);
+        setAddError("Пользователь уже добавлен в проект");
+        return;
+      }
+
+      const res = await fetch("/api/project-invites/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: projectId,
+          invite_type: "email",
+          email,
+          role: addRole,
+        }),
+      });
+      const json = (await res.json()) as {
+        success?: boolean;
+        error?: string;
+        invite_url?: string;
+        email_sent?: boolean;
+      };
 
       setAddLoading(false);
-      if (insertErr) {
-        setAddError(insertErr.message ?? "Ошибка добавления");
+      if (!json?.success) {
+        setAddError(json?.error ?? "Не удалось создать приглашение");
         return;
       }
 
-      setModalOpen(false);
-      setAddEmail("");
-      setAddRole("marketer");
+      setAddModalEmailSent(json.email_sent === true);
+      if (json.invite_url) {
+        resetInviteCopyFeedback();
+        setAddModalInviteUrl(json.invite_url);
+      }
       setAddError(null);
-      await fetchMembers();
+      await fetchInvites();
+      void reloadBootstrap();
     },
-    [addEmail, addRole, projectId, members, fetchMembers, canSyncMembers]
+    [addEmail, addRole, projectId, members, fetchInvites, allowed, reloadBootstrap, resetInviteCopyFeedback]
   );
 
   const handleInviteByEmail = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!canSyncMembers) {
-        setInviteByEmailError("Действие недоступно при текущем статусе подписки");
-        return;
-      }
+      if (!allowed) return;
       const email = inviteEmail.trim().toLowerCase();
       if (!email) {
         setInviteByEmailError("Введите email");
@@ -314,6 +368,7 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
       }
       setInviteByEmailError(null);
       setInviteByEmailFallbackUrl(null);
+      resetInviteCopyFeedback();
       setInviteByEmailLoading(true);
       const res = await fetch("/api/project-invites/create", {
         method: "POST",
@@ -328,30 +383,36 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
       };
       setInviteByEmailLoading(false);
       if (json?.success) {
+        setInviteByEmailSentToInbox(json.email_sent === true);
         if (json?.invite_url) {
           setInviteByEmailFallbackUrl(json.invite_url);
           await fetchInvites();
         } else {
+          resetInviteCopyFeedback();
           setInviteByEmailModal(false);
           setInviteEmail("");
           setInviteRole("marketer");
           setInviteByEmailFallbackUrl(null);
           await fetchInvites();
         }
+        void reloadBootstrap();
       } else if (json?.invite_url) {
+        setInviteByEmailSentToInbox(json.email_sent === true);
         setInviteByEmailFallbackUrl(json.invite_url);
         await fetchInvites();
+        void reloadBootstrap();
       } else {
         setInviteByEmailError(json?.error ?? "Ошибка создания приглашения");
       }
     },
-    [projectId, inviteEmail, inviteRole, fetchInvites, canSyncMembers]
+    [projectId, inviteEmail, inviteRole, fetchInvites, allowed, reloadBootstrap, resetInviteCopyFeedback]
   );
 
   const handleInviteByLink = useCallback(async () => {
-    if (!canSyncMembers) return;
+    if (!allowed) return;
     setInviteByLinkLoading(true);
     setInviteByLinkUrl(null);
+    resetInviteCopyFeedback();
     const res = await fetch("/api/project-invites/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -362,12 +423,14 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
     if (json?.success && json?.invite_url) {
       setInviteByLinkUrl(json.invite_url);
       await fetchInvites();
+      // Не вызываем reloadBootstrap(): он ставит loading=true на весь шелл и при смене fingerprint
+      // шлёт broadcast → второй runBootstrap — визуально как «перезагрузка» страницы. Список приглашений уже обновлён.
     }
-  }, [projectId, inviteByLinkRole, fetchInvites, canSyncMembers]);
+  }, [projectId, inviteByLinkRole, fetchInvites, allowed, resetInviteCopyFeedback]);
 
   const handleRevokeInvite = useCallback(
     async (inviteId: string) => {
-      if (!canSyncMembers) return;
+      if (!allowed) return;
       setRevokeLoadingId(inviteId);
       const res = await fetch("/api/project-invites/revoke", {
         method: "PATCH",
@@ -375,15 +438,31 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
         body: JSON.stringify({ invite_id: inviteId }),
       });
       setRevokeLoadingId(null);
-      if (res.ok) await fetchInvites();
+      if (res.ok) {
+        await fetchInvites();
+        void reloadBootstrap();
+      }
     },
-    [fetchInvites, canSyncMembers]
+    [fetchInvites, allowed, reloadBootstrap]
   );
 
-  const copyInviteLink = useCallback((url: string) => {
-    const full = url.startsWith("http") ? url : `${typeof window !== "undefined" ? window.location.origin : ""}${url}`;
-    navigator.clipboard.writeText(full).catch(() => {});
-  }, []);
+  const copyInviteLink = useCallback(
+    (url: string, feedbackKey: string) => {
+      const full = url.startsWith("http") ? url : `${typeof window !== "undefined" ? window.location.origin : ""}${url}`;
+      void navigator.clipboard.writeText(full).then(
+        () => {
+          if (copyFeedbackTimerRef.current) clearTimeout(copyFeedbackTimerRef.current);
+          setInviteLinkCopiedKey(feedbackKey);
+          copyFeedbackTimerRef.current = setTimeout(() => {
+            setInviteLinkCopiedKey(null);
+            copyFeedbackTimerRef.current = null;
+          }, 2200);
+        },
+        () => {}
+      );
+    },
+    []
+  );
 
   if (loading || !allowed) {
     return (
@@ -404,11 +483,28 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
     ? "settings-surface overflow-hidden"
     : "rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden";
 
+  const membersBillingBlockedNotice =
+    !canMutateProjectMembers ? (
+      <div
+        className={
+          isEmbedded
+            ? "rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/90"
+            : "rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/90"
+        }
+        role="status"
+      >
+        {MEMBERS_MUTATION_BILLING_MSG}
+      </div>
+    ) : null;
+
   const openAddMemberModal = () => {
+    resetInviteCopyFeedback();
     setModalOpen(true);
     setAddError(null);
     setAddEmail("");
     setAddRole("marketer");
+    setAddModalInviteUrl(null);
+    setAddModalEmailSent(false);
   };
 
   const invitesTableInner =
@@ -462,19 +558,25 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
                   <td className="px-4 py-3 text-sm text-zinc-400">{inv.status}</td>
                   <td className="px-4 py-3 text-right">
                     {inviteUrl && isPending && (
-                      <button
-                        type="button"
-                        onClick={() => copyInviteLink(inviteUrl)}
-                        className="mr-2 rounded-lg border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/10"
-                      >
-                        Копировать ссылку
-                      </button>
+                      inviteLinkCopiedKey === `invite-row:${inv.id}` ? (
+                        <span className="mr-2 inline-flex rounded-lg border border-emerald-500/45 bg-emerald-500/15 px-3 py-1.5 text-xs font-medium text-emerald-200">
+                          Ссылка скопирована
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => copyInviteLink(inviteUrl, `invite-row:${inv.id}`)}
+                          className="mr-2 rounded-lg border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/10"
+                        >
+                          Копировать ссылку
+                        </button>
+                      )
                     )}
                     {isPending && (
                       <button
                         type="button"
                         onClick={() => handleRevokeInvite(inv.id)}
-                        disabled={busy}
+                        disabled={busy || !allowed}
                         className="rounded-lg border border-white/10 px-2 py-1 text-xs text-zinc-300 hover:bg-white/10 disabled:opacity-50"
                       >
                         Отозвать
@@ -492,17 +594,22 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
   const membersTableInner =
     members.length === 0 ? (
       <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
-        <p className="text-zinc-400">В проекте пока нет участников</p>
+        <p className="max-w-md text-zinc-400">
+          В этом проекте пока нет участников. Лимит мест считается по всей организации: пользователи в других проектах
+          тоже учитываются — см. раздел «Участники организации».
+        </p>
         <button
           type="button"
           onClick={openAddMemberModal}
+          disabled={!allowed}
+          title={!allowed ? undefined : "Создать приглашение по email"}
           className={
             isEmbedded
-              ? "settings-primary-btn mt-4"
-              : "mt-4 inline-flex h-10 items-center rounded-xl bg-white/10 px-5 text-sm font-medium text-white hover:bg-white/15"
+              ? "settings-primary-btn mt-4 disabled:cursor-not-allowed disabled:opacity-50"
+              : "mt-4 inline-flex h-10 items-center rounded-xl bg-white/10 px-5 text-sm font-medium text-white hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
           }
         >
-          Добавить первого участника
+          Пригласить первого участника
         </button>
       </div>
     ) : (
@@ -551,7 +658,7 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
                     <select
                       value={row.role}
                       onChange={(e) => handleRoleChange(row.id, e.target.value)}
-                      disabled={busy}
+                      disabled={busy || !canMutateProjectMembers}
                       className={
                         isEmbedded
                           ? "settings-page-select settings-page-select-sm min-w-[10rem] disabled:opacity-50"
@@ -572,7 +679,7 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
                     <button
                       type="button"
                       onClick={() => handleRemove(row)}
-                      disabled={cannotRemove || busy}
+                      disabled={cannotRemove || busy || !canMutateProjectMembers}
                       className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-white/10 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       Удалить
@@ -625,40 +732,59 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
                 </button>
               </div>
               {tab === "members" && (
-                <button type="button" onClick={openAddMemberModal} className="settings-primary-btn shrink-0">
-                  Добавить участника
+                <button
+                  type="button"
+                  onClick={openAddMemberModal}
+                  disabled={!allowed}
+                  className="settings-primary-btn shrink-0 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Пригласить
                 </button>
               )}
             </div>
           </div>
 
+          {tab === "members" && !canMutateProjectMembers && (
+            <div style={{ padding: "0 20px 12px" }}>{membersBillingBlockedNotice}</div>
+          )}
+
           {tab === "invites" && (
             <>
-              <div style={{ padding: "16px 20px" }} className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setInviteByEmailModal(true);
-                    setInviteByEmailError(null);
-                    setInviteByEmailFallbackUrl(null);
-                    setInviteEmail("");
-                    setInviteRole("marketer");
-                  }}
-                  className="settings-primary-btn"
-                >
-                  Пригласить по email
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setInviteByLinkModal(true);
-                    setInviteByLinkUrl(null);
-                    setInviteByLinkRole("marketer");
-                  }}
-                  className="settings-secondary-btn"
-                >
-                  Создать ссылку
-                </button>
+              <div style={{ padding: "16px 20px" }} className="flex flex-col gap-3">
+                <div className="flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetInviteCopyFeedback();
+                      setInviteByEmailModal(true);
+                      setInviteByEmailError(null);
+                      setInviteByEmailFallbackUrl(null);
+                      setInviteByEmailSentToInbox(false);
+                      setInviteEmail("");
+                      setInviteRole("marketer");
+                    }}
+                    disabled={!allowed}
+                    className="settings-primary-btn disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Пригласить по email
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetInviteCopyFeedback();
+                      setInviteByLinkModal(true);
+                      setInviteByLinkUrl(null);
+                      setInviteByLinkRole("marketer");
+                    }}
+                    disabled={!allowed}
+                    className="settings-secondary-btn disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Создать ссылку
+                  </button>
+                </div>
+                <p style={{ margin: 0, fontSize: 12, color: "rgba(255,255,255,0.55)", maxWidth: 520 }}>
+                  {INVITE_SEAT_HINT}
+                </p>
               </div>
               <div className="border-t border-white/10 overflow-hidden">{invitesTableInner}</div>
             </>
@@ -683,9 +809,10 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
               <button
                 type="button"
                 onClick={openAddMemberModal}
-                className="inline-flex h-10 items-center rounded-xl bg-white/10 px-5 text-sm font-medium text-white hover:bg-white/15"
+                disabled={!allowed}
+                className="inline-flex h-10 items-center rounded-xl bg-white/10 px-5 text-sm font-medium text-white hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Добавить участника
+                Пригласить
               </button>
             )}
           </header>
@@ -706,42 +833,59 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
               Приглашения
             </button>
           </div>
+
+          {tab === "members" && !canMutateProjectMembers && (
+            <div className="mt-4">{membersBillingBlockedNotice}</div>
+          )}
         </>
       )}
 
       {!isEmbedded && tab === "invites" && (
         <>
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={() => {
-                setInviteByEmailModal(true);
-                setInviteByEmailError(null);
-                setInviteByEmailFallbackUrl(null);
-                setInviteEmail("");
-                setInviteRole("marketer");
-              }}
-              className="inline-flex h-10 items-center rounded-xl bg-white/10 px-5 text-sm font-medium text-white hover:bg-white/15"
-            >
-              Пригласить по email
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setInviteByLinkModal(true);
-                setInviteByLinkUrl(null);
-                setInviteByLinkRole("marketer");
-              }}
-              className="inline-flex h-10 items-center rounded-xl border border-white/10 px-5 text-sm font-medium text-zinc-300 hover:bg-white/[0.04]"
-            >
-              Создать ссылку
-            </button>
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  resetInviteCopyFeedback();
+                  setInviteByEmailModal(true);
+                  setInviteByEmailError(null);
+                  setInviteByEmailFallbackUrl(null);
+                  setInviteByEmailSentToInbox(false);
+                  setInviteEmail("");
+                  setInviteRole("marketer");
+                }}
+                disabled={!allowed}
+                className="inline-flex h-10 items-center rounded-xl bg-white/10 px-5 text-sm font-medium text-white hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Пригласить по email
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  resetInviteCopyFeedback();
+                  setInviteByLinkModal(true);
+                  setInviteByLinkUrl(null);
+                  setInviteByLinkRole("marketer");
+                }}
+                disabled={!allowed}
+                className="inline-flex h-10 items-center rounded-xl border border-white/10 px-5 text-sm font-medium text-zinc-300 hover:bg-white/[0.04] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Создать ссылку
+              </button>
+            </div>
+            <p className="text-xs text-zinc-500 max-w-xl">{INVITE_SEAT_HINT}</p>
           </div>
           <div className={tableFrame}>{invitesTableInner}</div>
         </>
       )}
 
-      {!isEmbedded && tab === "members" && <div className={tableFrame}>{membersTableInner}</div>}
+      {!isEmbedded && tab === "members" && (
+        <div className="space-y-4">
+          {!canMutateProjectMembers && membersBillingBlockedNotice}
+          <div className={tableFrame}>{membersTableInner}</div>
+        </div>
+      )}
 
       {!isEmbedded && (
         <div>
@@ -757,7 +901,12 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
       {modalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-          onClick={() => !addLoading && setModalOpen(false)}
+          onClick={() => {
+            if (!addLoading) {
+              resetInviteCopyFeedback();
+              setModalOpen(false);
+            }
+          }}
           role="dialog"
           aria-modal="true"
         >
@@ -765,60 +914,104 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
             className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0b0b10] p-6 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-lg font-semibold text-white">Добавить участника</h2>
-            <form onSubmit={handleAddSubmit} className="mt-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-zinc-300">
-                  Email
-                </label>
-                <input
-                  type="email"
-                  value={addEmail}
-                  onChange={(e) => {
-                    setAddEmail(e.target.value);
-                    if (addError) setAddError(null);
-                  }}
-                  placeholder="user@example.com"
-                  className="mt-2 w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-white/20 focus:outline-none"
-                  autoFocus
+            <h2 className="text-lg font-semibold text-white">Пригласить в проект</h2>
+            <p className="mt-1 text-sm text-zinc-500">{INVITE_SEAT_HINT}</p>
+            {addModalInviteUrl ? (
+              <div className="mt-6 space-y-4">
+                {addModalEmailSent ? (
+                  <>
+                    <p className="text-sm text-emerald-300/95">
+                      Письмо отправлено на <span className="font-medium text-white">{addEmail}</span> с кнопкой
+                      «Принять приглашение» и данными проекта.
+                    </p>
+                    <p className="text-xs text-zinc-500">Резервная ссылка ниже, если письма нет (в т.ч. «Спам»).</p>
+                  </>
+                ) : (
+                  <p className="text-sm text-zinc-400">
+                    {ADD_MODAL_INVITE_SUCCESS_HINT} Письмо не отправлено — настройте SMTP или отправьте ссылку
+                    вручную.
+                  </p>
+                )}
+                <InviteUrlFlashBox
+                  url={addModalInviteUrl}
+                  copied={inviteLinkCopiedKey === COPY_FEEDBACK_ADD_MODAL}
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-zinc-300">
-                  Роль
-                </label>
-                <select
-                  value={addRole}
-                  onChange={(e) => setAddRole(e.target.value)}
-                  className="mt-2 w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white focus:border-white/20 focus:outline-none"
-                >
-                  {PROJECT_ROLES.map((r) => (
-                    <option key={r.value} value={r.value}>
-                      {r.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {addError && (
-                <p className="text-sm text-red-400">{addError}</p>
-              )}
-              <div className="flex flex-wrap gap-3 pt-2">
                 <button
-                  type="submit"
-                  disabled={addLoading}
-                  className="h-11 rounded-xl bg-white/10 px-6 text-sm font-medium text-white hover:bg-white/15 disabled:opacity-50"
+                  type="button"
+                  onClick={() => addModalInviteUrl && copyInviteLink(addModalInviteUrl, COPY_FEEDBACK_ADD_MODAL)}
+                  className="w-full rounded-xl bg-white/10 py-2.5 text-sm font-medium text-white hover:bg-white/15"
                 >
-                  {addLoading ? "Добавление…" : "Добавить"}
+                  Копировать ссылку
                 </button>
                 <button
                   type="button"
-                  onClick={() => !addLoading && setModalOpen(false)}
-                  className="h-11 rounded-xl border border-white/10 px-6 text-sm text-zinc-300 hover:bg-white/[0.04]"
+                  onClick={() => {
+                    resetInviteCopyFeedback();
+                    setModalOpen(false);
+                    setAddModalInviteUrl(null);
+                    setAddModalEmailSent(false);
+                    setAddEmail("");
+                    setAddRole("marketer");
+                  }}
+                  className="w-full rounded-xl border border-white/10 py-2.5 text-sm text-zinc-300 hover:bg-white/[0.04]"
                 >
-                  Отмена
+                  Закрыть
                 </button>
               </div>
-            </form>
+            ) : (
+              <form onSubmit={handleAddSubmit} className="mt-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300">Email</label>
+                  <input
+                    type="email"
+                    value={addEmail}
+                    onChange={(e) => {
+                      setAddEmail(e.target.value);
+                      if (addError) setAddError(null);
+                    }}
+                    placeholder="user@example.com"
+                    className="mt-2 w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white placeholder-zinc-500 focus:border-white/20 focus:outline-none"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300">Роль</label>
+                  <select
+                    value={addRole}
+                    onChange={(e) => setAddRole(e.target.value)}
+                    className="mt-2 w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white focus:border-white/20 focus:outline-none"
+                  >
+                    {PROJECT_ROLES.map((r) => (
+                      <option key={r.value} value={r.value}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {addError && <p className="text-sm text-red-400">{addError}</p>}
+                <div className="flex flex-wrap gap-3 pt-2">
+                  <button
+                    type="submit"
+                    disabled={addLoading || !allowed}
+                    className="h-11 rounded-xl bg-white/10 px-6 text-sm font-medium text-white hover:bg-white/15 disabled:opacity-50"
+                  >
+                    {addLoading ? "Создание…" : "Создать приглашение"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!addLoading) {
+                        resetInviteCopyFeedback();
+                        setModalOpen(false);
+                      }
+                    }}
+                    className="h-11 rounded-xl border border-white/10 px-6 text-sm text-zinc-300 hover:bg-white/[0.04]"
+                  >
+                    Отмена
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}
@@ -828,8 +1021,10 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
           onClick={() => {
             if (!inviteByEmailLoading) {
+              resetInviteCopyFeedback();
               setInviteByEmailModal(false);
               setInviteByEmailFallbackUrl(null);
+              setInviteByEmailSentToInbox(false);
             }
           }}
           role="dialog"
@@ -842,15 +1037,32 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
             <h2 className="text-lg font-semibold text-white">Пригласить по email</h2>
             {inviteByEmailFallbackUrl ? (
               <div className="mt-6 space-y-4">
-                <p className="text-sm text-zinc-400">
-                  Приглашение создано. Скопируйте ссылку и отправьте приглашённому.
-                </p>
-                <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-zinc-300 break-all">
-                  {inviteByEmailFallbackUrl}
-                </div>
+                {inviteByEmailSentToInbox ? (
+                  <>
+                    <p className="text-sm text-emerald-300/95">
+                      Письмо отправлено на <span className="font-medium text-white">{inviteEmail}</span>. В письме —
+                      название проекта, роль и кнопка «Принять приглашение».
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      Нет во «Входящих»? Проверьте «Спам». Ниже — резервная ссылка.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-zinc-400">
+                    Приглашение создано. Письмо не отправлено (проверьте SMTP в окружении сервера). Отправьте ссылку
+                    вручную.
+                  </p>
+                )}
+                <InviteUrlFlashBox
+                  url={inviteByEmailFallbackUrl}
+                  copied={inviteLinkCopiedKey === COPY_FEEDBACK_EMAIL_FALLBACK}
+                />
                 <button
                   type="button"
-                  onClick={() => copyInviteLink(inviteByEmailFallbackUrl)}
+                  onClick={() =>
+                    inviteByEmailFallbackUrl &&
+                    copyInviteLink(inviteByEmailFallbackUrl, COPY_FEEDBACK_EMAIL_FALLBACK)
+                  }
                   className="w-full rounded-xl bg-white/10 py-2.5 text-sm font-medium text-white hover:bg-white/15"
                 >
                   Копировать ссылку
@@ -858,8 +1070,10 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
                 <button
                   type="button"
                   onClick={() => {
+                    resetInviteCopyFeedback();
                     setInviteByEmailModal(false);
                     setInviteByEmailFallbackUrl(null);
+                    setInviteByEmailSentToInbox(false);
                   }}
                   className="w-full rounded-xl border border-white/10 py-2.5 text-sm text-zinc-300 hover:bg-white/[0.04]"
                 >
@@ -897,7 +1111,7 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
                 <div className="flex gap-3 pt-2">
                   <button
                     type="submit"
-                    disabled={inviteByEmailLoading}
+                    disabled={inviteByEmailLoading || !allowed}
                     className="h-11 rounded-xl bg-white/10 px-6 text-sm font-medium text-white hover:bg-white/15 disabled:opacity-50"
                   >
                     {inviteByEmailLoading ? "Создание…" : "Создать приглашение"}
@@ -906,6 +1120,7 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
                     type="button"
                     onClick={() => {
                       if (!inviteByEmailLoading) {
+                        resetInviteCopyFeedback();
                         setInviteByEmailModal(false);
                         setInviteByEmailFallbackUrl(null);
                       }
@@ -924,7 +1139,10 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
       {inviteByLinkModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-          onClick={() => setInviteByLinkModal(false)}
+          onClick={() => {
+            resetInviteCopyFeedback();
+            setInviteByLinkModal(false);
+          }}
           role="dialog"
           aria-modal="true"
         >
@@ -951,15 +1169,21 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
                 <div className="flex gap-3">
                   <button
                     type="button"
-                    onClick={handleInviteByLink}
-                    disabled={inviteByLinkLoading}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      void handleInviteByLink();
+                    }}
+                    disabled={inviteByLinkLoading || !allowed}
                     className="h-11 rounded-xl bg-white/10 px-6 text-sm font-medium text-white hover:bg-white/15 disabled:opacity-50"
                   >
                     {inviteByLinkLoading ? "Создание…" : "Создать ссылку"}
                   </button>
                   <button
                     type="button"
-                    onClick={() => setInviteByLinkModal(false)}
+                    onClick={() => {
+                      resetInviteCopyFeedback();
+                      setInviteByLinkModal(false);
+                    }}
                     className="h-11 rounded-xl border border-white/10 px-6 text-sm text-zinc-300 hover:bg-white/[0.04]"
                   >
                     Отмена
@@ -968,19 +1192,23 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
               </div>
             ) : (
               <div className="mt-6 space-y-4">
-                <div className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-zinc-300 break-all">
-                  {inviteByLinkUrl}
-                </div>
+                <InviteUrlFlashBox
+                  url={inviteByLinkUrl}
+                  copied={inviteLinkCopiedKey === COPY_FEEDBACK_LINK_MODAL}
+                />
                 <button
                   type="button"
-                  onClick={() => copyInviteLink(inviteByLinkUrl)}
+                  onClick={() => inviteByLinkUrl && copyInviteLink(inviteByLinkUrl, COPY_FEEDBACK_LINK_MODAL)}
                   className="w-full rounded-xl bg-white/10 py-2.5 text-sm font-medium text-white hover:bg-white/15"
                 >
                   Копировать ссылку
                 </button>
                 <button
                   type="button"
-                  onClick={() => setInviteByLinkModal(false)}
+                  onClick={() => {
+                    resetInviteCopyFeedback();
+                    setInviteByLinkModal(false);
+                  }}
                   className="w-full rounded-xl border border-white/10 py-2.5 text-sm text-zinc-300 hover:bg-white/[0.04]"
                 >
                   Закрыть

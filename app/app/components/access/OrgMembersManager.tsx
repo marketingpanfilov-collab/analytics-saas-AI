@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
 import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
 import { ActionId } from "@/app/lib/billingUiContract";
+import {
+  ORG_SEAT_PLAN_LIMIT_CODE,
+  ORG_SEAT_PLAN_LIMIT_USER_MESSAGE,
+} from "@/app/lib/orgSeatPlanLimit";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/app/lib/supabaseClient";
@@ -31,6 +35,41 @@ type MemberRow = {
   email: string | null;
 };
 
+type ProjectOnlySeatDetail = {
+  user_id: string;
+  project_ids: string[];
+  projects: { id: string; name: string }[];
+  email: string | null;
+};
+
+function normalizeProjectOnlySeatDetails(
+  raw: unknown
+): ProjectOnlySeatDetail[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => {
+    const o = item as {
+      user_id?: string;
+      project_ids?: string[];
+      projects?: { id?: string; name?: string }[];
+      email?: string | null;
+    };
+    const user_id = String(o.user_id ?? "");
+    const project_ids = Array.isArray(o.project_ids)
+      ? o.project_ids.map((id) => String(id))
+      : [];
+    const projects =
+      Array.isArray(o.projects) && o.projects.length > 0
+        ? o.projects.map((p) => ({
+            id: String(p.id ?? ""),
+            name: String(p.name ?? "").trim() || String(p.id ?? ""),
+          }))
+        : project_ids.map((id) => ({ id, name: id }));
+    const email =
+      o.email === null || typeof o.email === "string" ? o.email : null;
+    return { user_id, project_ids, projects, email };
+  });
+}
+
 function formatJoined(iso: string): string {
   try {
     return new Date(iso).toLocaleDateString("ru-RU", {
@@ -50,9 +89,13 @@ export type OrgMembersManagerProps = {
 
 export default function OrgMembersManager({ layout = "page" }: OrgMembersManagerProps) {
   const router = useRouter();
-  const { resolvedUi } = useBillingBootstrap();
+  const { resolvedUi, planFeatureMatrix, reloadBootstrap } = useBillingBootstrap();
+  const maxSeats = planFeatureMatrix?.max_seats ?? null;
+  /** OVER_LIMIT shell даёт manage_project_members (правка ростера), но не sync_refresh — без этого удаление org молча не уходит в API. */
   const canMutateOrgMembers = useMemo(
-    () => billingActionAllowed(resolvedUi, ActionId.sync_refresh),
+    () =>
+      billingActionAllowed(resolvedUi, ActionId.sync_refresh) ||
+      billingActionAllowed(resolvedUi, ActionId.manage_project_members),
     [resolvedUi]
   );
   const [loading, setLoading] = useState(true);
@@ -66,14 +109,49 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
   const [addError, setAddError] = useState<string | null>(null);
   const [addLoading, setAddLoading] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [billableSeatCount, setBillableSeatCount] = useState<number | null>(null);
+  const [projectOnlyBillableUserCount, setProjectOnlyBillableUserCount] = useState(0);
+  const [projectOnlySeatDetails, setProjectOnlySeatDetails] = useState<ProjectOnlySeatDetail[]>([]);
+  const [projectOnlyRemoveLoadingId, setProjectOnlyRemoveLoadingId] = useState<string | null>(null);
+  const [memberActionError, setMemberActionError] = useState<string | null>(null);
+
+  const addBlockedBySeatLimit = useMemo(() => {
+    if (maxSeats == null) return false;
+    const n = billableSeatCount ?? members.length;
+    return n >= maxSeats;
+  }, [maxSeats, billableSeatCount, members.length]);
 
   const fetchMembers = useCallback(async () => {
     const res = await fetch("/api/org-members/list", { cache: "no-store" });
-    const json = (await res.json()) as { success?: boolean; members?: MemberRow[] };
+    const json = (await res.json()) as {
+      success?: boolean;
+      members?: MemberRow[];
+      billable_seat_count?: number;
+      seat_visibility?: {
+        billable_seat_count?: number;
+        project_only_billable_user_count?: number;
+        project_only_seat_details?: unknown;
+      };
+    };
     if (json?.success && Array.isArray(json.members)) {
       setMembers(json.members);
+      const vis = json.seat_visibility;
+      setBillableSeatCount(
+        typeof vis?.billable_seat_count === "number"
+          ? vis.billable_seat_count
+          : typeof json.billable_seat_count === "number"
+            ? json.billable_seat_count
+            : json.members.length
+      );
+      setProjectOnlyBillableUserCount(
+        typeof vis?.project_only_billable_user_count === "number" ? vis.project_only_billable_user_count : 0
+      );
+      setProjectOnlySeatDetails(normalizeProjectOnlySeatDetails(vis?.project_only_seat_details));
     } else {
       setMembers([]);
+      setBillableSeatCount(null);
+      setProjectOnlyBillableUserCount(0);
+      setProjectOnlySeatDetails([]);
     }
   }, []);
 
@@ -123,6 +201,7 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
   const handleRoleChange = useCallback(
     async (memberId: string, newRole: string) => {
       if (!canMutateOrgMembers) return;
+      setMemberActionError(null);
       setActionLoadingId(memberId);
       const res = await fetch("/api/org-members/role", {
         method: "PATCH",
@@ -130,9 +209,15 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
         body: JSON.stringify({ member_id: memberId, role: newRole }),
       });
       setActionLoadingId(null);
-      if (res.ok) await fetchMembers();
+      if (res.ok) {
+        await fetchMembers();
+        await reloadBootstrap();
+        return;
+      }
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      setMemberActionError(j.error ?? `Не удалось сменить роль (${res.status})`);
     },
-    [fetchMembers, canMutateOrgMembers]
+    [fetchMembers, canMutateOrgMembers, reloadBootstrap]
   );
 
   const handleRemove = useCallback(
@@ -140,14 +225,21 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
       if (!canMutateOrgMembers) return;
       if (row.role === "owner") return;
       if (row.user_id === currentUserId && currentUserRole === "owner") return;
+      setMemberActionError(null);
       setActionLoadingId(row.id);
       const res = await fetch(`/api/org-members/remove?member_id=${encodeURIComponent(row.id)}`, {
         method: "DELETE",
       });
       setActionLoadingId(null);
-      if (res.ok) await fetchMembers();
+      if (res.ok) {
+        await fetchMembers();
+        await reloadBootstrap();
+        return;
+      }
+      const j = (await res.json().catch(() => ({}))) as { error?: string };
+      setMemberActionError(j.error ?? `Не удалось удалить участника (${res.status})`);
     },
-    [currentUserId, currentUserRole, fetchMembers, canMutateOrgMembers]
+    [currentUserId, currentUserRole, fetchMembers, canMutateOrgMembers, reloadBootstrap]
   );
 
   const handleAddSubmit = useCallback(
@@ -155,6 +247,10 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
       e.preventDefault();
       if (!canMutateOrgMembers) {
         setAddError("Действие недоступно при текущем статусе подписки");
+        return;
+      }
+      if (addBlockedBySeatLimit) {
+        setAddError(ORG_SEAT_PLAN_LIMIT_USER_MESSAGE);
         return;
       }
       const email = addEmail.trim().toLowerCase();
@@ -181,9 +277,39 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
         await fetchMembers();
         return;
       }
-      setAddError(json?.error ?? "Ошибка добавления");
+      const errPayload = json as { error?: string; code?: string };
+      if (errPayload?.code === ORG_SEAT_PLAN_LIMIT_CODE) {
+        setAddError(ORG_SEAT_PLAN_LIMIT_USER_MESSAGE);
+        return;
+      }
+      setAddError(errPayload?.error ?? "Ошибка добавления");
     },
-    [addEmail, addRole, fetchMembers, canMutateOrgMembers]
+    [addEmail, addRole, fetchMembers, canMutateOrgMembers, addBlockedBySeatLimit]
+  );
+
+  const handleRemoveProjectOnlySeat = useCallback(
+    async (targetUserId: string) => {
+      if (!canMutateOrgMembers) return;
+      setMemberActionError(null);
+      setProjectOnlyRemoveLoadingId(targetUserId);
+      try {
+        const res = await fetch("/api/org-members/remove-project-only-seat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: targetUserId }),
+        });
+        const json = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
+        if (res.ok && json?.success) {
+          await fetchMembers();
+          await reloadBootstrap();
+          return;
+        }
+        setMemberActionError(json.error ?? `Не удалось снять доступ к проектам (${res.status})`);
+      } finally {
+        setProjectOnlyRemoveLoadingId(null);
+      }
+    },
+    [canMutateOrgMembers, fetchMembers, reloadBootstrap]
   );
 
   if (loading || !allowed) {
@@ -205,18 +331,30 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
             <h1 className="text-2xl font-semibold tracking-tight text-white">Участники организации</h1>
             <p className="mt-1 text-sm text-zinc-400">Управляйте доступом к организации</p>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setModalOpen(true);
-              setAddError(null);
-              setAddEmail("");
-              setAddRole("member");
-            }}
-            className="inline-flex h-10 items-center rounded-xl bg-white/10 px-5 text-sm font-medium text-white hover:bg-white/15"
-          >
-            Добавить участника
-          </button>
+          {addBlockedBySeatLimit ? (
+            <span className="inline-block max-w-full" title={ORG_SEAT_PLAN_LIMIT_USER_MESSAGE}>
+              <button
+                type="button"
+                disabled
+                className="inline-flex h-10 cursor-not-allowed items-center rounded-xl bg-white/10 px-5 text-sm font-medium text-white opacity-50"
+              >
+                Добавить участника
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setModalOpen(true);
+                setAddError(null);
+                setAddEmail("");
+                setAddRole("member");
+              }}
+              className="inline-flex h-10 items-center rounded-xl bg-white/10 px-5 text-sm font-medium text-white hover:bg-white/15"
+            >
+              Добавить участника
+            </button>
+          )}
         </header>
       )}
 
@@ -233,20 +371,101 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
               Роли на уровне аккаунта (вся организация)
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setModalOpen(true);
-              setAddError(null);
-              setAddEmail("");
-              setAddRole("member");
-            }}
-            className="settings-primary-btn shrink-0"
-          >
-            Добавить участника
-          </button>
+          {addBlockedBySeatLimit ? (
+            <span className="inline-block max-w-full shrink-0" title={ORG_SEAT_PLAN_LIMIT_USER_MESSAGE}>
+              <button type="button" disabled className="settings-primary-btn shrink-0 cursor-not-allowed opacity-50">
+                Добавить участника
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setModalOpen(true);
+                setAddError(null);
+                setAddEmail("");
+                setAddRole("member");
+              }}
+              className="settings-primary-btn shrink-0"
+            >
+              Добавить участника
+            </button>
+          )}
         </div>
       )}
+
+      {projectOnlyBillableUserCount > 0 ? (
+        <div
+          role="status"
+          className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-100/95"
+        >
+          <p className="m-0">
+            В лимит мест входят все участники организации и все участники любых проектов этой организации. Ниже —{" "}
+            <strong className="text-amber-50">
+              {projectOnlyBillableUserCount}{" "}
+              {(() => {
+                const n = projectOnlyBillableUserCount;
+                const a = Math.abs(n) % 100;
+                const c = n % 10;
+                const word =
+                  a > 10 && a < 20
+                    ? "пользователей"
+                    : c === 1
+                      ? "пользователь"
+                      : c >= 2 && c <= 4
+                        ? "пользователя"
+                        : "пользователей";
+                return word;
+              })()}
+            </strong>{" "}
+            без строки в таблице команды организации, но с доступом через проекты.
+          </p>
+          {projectOnlySeatDetails.length > 0 ? (
+            <ul className="mt-3 list-none space-y-4 border-t border-amber-500/20 pt-3 pl-0">
+              {projectOnlySeatDetails.map((d) => (
+                <li key={d.user_id} className="flex flex-col gap-2">
+                  <div className="text-sm text-amber-50">
+                    {d.email?.trim() ? (
+                      d.email
+                    ) : (
+                      <span className="font-mono text-xs break-all text-amber-50/90">{d.user_id}</span>
+                    )}
+                  </div>
+                  <p className="m-0 text-xs text-amber-100/85">
+                    Пользователь имеет доступ к проектам организации и всё ещё занимает место.
+                  </p>
+                  {d.projects.length > 0 ? (
+                    <ul className="m-0 list-disc space-y-0.5 pl-5 text-xs text-amber-100/90">
+                      {d.projects.map((p) => (
+                        <li key={p.id}>{p.name}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  {canMutateOrgMembers ? (
+                    <button
+                      type="button"
+                      disabled={projectOnlyRemoveLoadingId === d.user_id}
+                      onClick={() => void handleRemoveProjectOnlySeat(d.user_id)}
+                      className="inline-flex w-fit shrink-0 items-center rounded-lg border border-amber-400/40 bg-amber-950/40 px-2.5 py-1 text-xs font-medium text-amber-50 hover:bg-amber-950/60 disabled:opacity-50"
+                    >
+                      {projectOnlyRemoveLoadingId === d.user_id ? "…" : "Удалить доступ из всех проектов"}
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+
+      {memberActionError ? (
+        <div
+          role="alert"
+          className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100/95"
+        >
+          {memberActionError}
+        </div>
+      ) : null}
 
       <div className="settings-surface overflow-hidden">
         {members.length === 0 ? (
@@ -276,6 +495,14 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
                   const isSelf = row.user_id === currentUserId;
                   const cannotRemove = isOwner || (isSelf && currentUserRole === "owner");
                   const busy = actionLoadingId === row.id;
+                  const removeDisabled = cannotRemove || busy || !canMutateOrgMembers;
+                  const removeTitle = !canMutateOrgMembers
+                    ? "Действие недоступно при текущем статусе подписки"
+                    : isOwner
+                      ? "Нельзя удалить владельца организации"
+                      : isSelf && currentUserRole === "owner"
+                        ? "Владелец не может удалить сам себя"
+                        : "Удалить участника из организации";
                   return (
                     <tr key={row.id} className="border-b border-white/5 transition-colors hover:bg-white/[0.04]">
                       <td className="px-4 py-3">
@@ -296,7 +523,12 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
                           <select
                             value={row.role}
                             onChange={(e) => handleRoleChange(row.id, e.target.value)}
-                            disabled={busy}
+                            disabled={busy || !canMutateOrgMembers}
+                            title={
+                              !canMutateOrgMembers
+                                ? "Действие недоступно при текущем статусе подписки"
+                                : undefined
+                            }
                             className="settings-page-select settings-page-select-sm min-w-[10rem] disabled:opacity-50"
                           >
                             {ORG_ROLES_DROPDOWN.map((r) => (
@@ -311,8 +543,9 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
                       <td className="px-4 py-3 text-right">
                         <button
                           type="button"
-                          onClick={() => handleRemove(row)}
-                          disabled={cannotRemove || busy}
+                          onClick={() => void handleRemove(row)}
+                          disabled={removeDisabled}
+                          title={removeTitle}
                           className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           Удалить
@@ -380,7 +613,7 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
               <div className="flex flex-wrap gap-3 pt-2">
                 <button
                   type="submit"
-                  disabled={!canMutateOrgMembers || addLoading}
+                  disabled={!canMutateOrgMembers || addLoading || addBlockedBySeatLimit}
                   className="settings-primary-btn"
                 >
                   {addLoading ? "Добавление…" : "Добавить"}

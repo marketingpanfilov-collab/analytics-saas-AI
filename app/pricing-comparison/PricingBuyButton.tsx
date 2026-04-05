@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { BILLING_CHECKOUT_MISSING_ORG_MESSAGE } from "@/app/lib/billing/billingCheckoutMessages";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import type { PricingPlanId } from "@/app/lib/auth/loginPurchaseUrl";
@@ -76,9 +77,14 @@ export default function PricingBuyButton({ guestHref, planId, billing }: Props) 
   }, []);
 
   const pendingPlanChange = bootstrapLite?.resolved_ui_state?.pending_plan_change === true;
+  const primaryOrg = (bootstrapLite?.primary_org_id ?? "").trim();
+  const hasValidBillingOrg = /^[0-9a-f-]{36}$/i.test(primaryOrg);
+  const billingOrgMissing = Boolean(
+    authPhase === "authed" && session?.email && bootstrapLite !== null && !hasValidBillingOrg
+  );
 
   const onPaddleBuy = useCallback(async () => {
-    if (!session?.email || busy || pendingPlanChange) return;
+    if (!session?.email || busy || pendingPlanChange || billingOrgMissing) return;
     setErr(null);
     setBusy(true);
     try {
@@ -112,7 +118,7 @@ export default function PricingBuyButton({ guestHref, planId, billing }: Props) 
       setErr(e instanceof Error ? e.message : "Ошибка оплаты");
       setBusy(false);
     }
-  }, [session, busy, pendingPlanChange, planId, billing, pwCustomerId, bootstrapLite?.primary_org_id, router]);
+  }, [session, busy, pendingPlanChange, billingOrgMissing, planId, billing, pwCustomerId, bootstrapLite?.primary_org_id, router]);
 
   if (authPhase === "loading") {
     return (
@@ -141,14 +147,35 @@ export default function PricingBuyButton({ guestHref, planId, billing }: Props) 
     <span className="inline-flex flex-col items-center gap-1">
       <button
         type="button"
-        disabled={busy || pendingPlanChange}
+        disabled={busy || pendingPlanChange || billingOrgMissing}
         onClick={() => void onPaddleBuy()}
         className="inline-flex h-10 min-w-[130px] cursor-pointer items-center justify-center rounded-xl border border-emerald-400/35 bg-emerald-500/[0.18] px-4 text-sm font-semibold text-white transition hover:bg-emerald-500/[0.28] disabled:cursor-not-allowed disabled:opacity-45"
         aria-label={`Приобрести тариф ${planId}`}
-        title={pendingPlanChange ? "Идёт смена тарифа — не оплачивайте повторно" : undefined}
+        title={
+          pendingPlanChange
+            ? "Идёт смена тарифа — не оплачивайте повторно"
+            : billingOrgMissing
+              ? "Сначала откройте приложение и выберите организацию для биллинга"
+              : undefined
+        }
       >
         {busy ? "Открываем…" : pendingPlanChange ? "Смена тарифа…" : "Приобрести"}
       </button>
+      {billingOrgMissing ? (
+        <span className="flex max-w-[220px] flex-col items-center gap-1 text-center text-[11px] text-amber-200/90">
+          <span>
+            {BILLING_CHECKOUT_MISSING_ORG_MESSAGE} Создайте проект или откройте приложение из списка проектов.
+          </span>
+          <span className="flex flex-wrap justify-center gap-x-2 gap-y-0.5">
+            <Link href="/app/projects/new" className="text-emerald-300/95 underline">
+              Создать проект
+            </Link>
+            <Link href="/app/projects" className="text-emerald-300/95 underline">
+              Мои проекты
+            </Link>
+          </span>
+        </span>
+      ) : null}
       {err ? <span className="max-w-[180px] text-center text-[11px] text-red-300">{err}</span> : null}
     </span>
   );

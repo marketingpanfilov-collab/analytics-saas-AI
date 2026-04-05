@@ -28,7 +28,11 @@ export async function requireBillingHeavySyncForUser(
     return { ok: true, access_state: "active" };
   }
   const admin = supabaseAdmin();
-  const ctx = await resolveBillingGateContext(admin, access.userId, userEmail ?? null);
+  const projectId =
+    access.source === "user" && access.projectId ? access.projectId : null;
+  const ctx = await resolveBillingGateContext(admin, access.userId, userEmail ?? null, {
+    projectId,
+  });
   if (!accessStateAllowsHeavySync(ctx.access_state)) {
     return {
       ok: false,
@@ -58,7 +62,11 @@ export async function requireBillingAnalyticsReadForUser(
     return { ok: true, access_state: "active" };
   }
   const admin = supabaseAdmin();
-  const ctx = await resolveBillingGateContext(admin, access.userId, userEmail ?? null);
+  const projectId =
+    access.source === "user" && access.projectId ? access.projectId : null;
+  const ctx = await resolveBillingGateContext(admin, access.userId, userEmail ?? null, {
+    projectId,
+  });
   if (!accessStateAllowsAnalyticsRead(ctx.access_state)) {
     return {
       ok: false,
@@ -119,10 +127,13 @@ export async function billingHeavySyncGateBeforeProject(
       response: NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 }),
     };
   }
+  const url = new URL(req.url);
+  const qp = url.searchParams.get("project_id")?.trim();
   const synthetic: Extract<ProjectAccessCheckResult, { allowed: true }> = {
     allowed: true,
     source: "user",
     userId: user.id,
+    ...(qp ? { projectId: qp } : {}),
   };
   const billing = await requireBillingHeavySyncForUser(synthetic, user.email ?? null);
   if (!billing.ok) return { ok: false, response: billing.response };
@@ -146,10 +157,13 @@ export async function billingAnalyticsReadGateBeforeProject(
       response: NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 }),
     };
   }
+  const url = new URL(req.url);
+  const qp = url.searchParams.get("project_id")?.trim();
   const synthetic: Extract<ProjectAccessCheckResult, { allowed: true }> = {
     allowed: true,
     source: "user",
     userId: user.id,
+    ...(qp ? { projectId: qp } : {}),
   };
   const billing = await requireBillingAnalyticsReadForUser(synthetic, user.email ?? null);
   if (!billing.ok) return { ok: false, response: billing.response };

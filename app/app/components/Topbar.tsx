@@ -9,7 +9,7 @@ import { billingPayloadFromResolved, emitBillingCjmEvent } from "@/app/lib/billi
 import { ActionId } from "@/app/lib/billingUiContract";
 import { suggestUpgradePlanId } from "@/app/lib/billingPlanDisplay";
 import { useBillingBootstrap } from "./BillingBootstrapProvider";
-import BillingInlinePricing from "./BillingInlinePricing";
+import { BillingInlinePricingSuspended } from "./BillingInlinePricing";
 import DataHealthMini, {
   type DataHealthIssue,
   type DataHealthRecommendation,
@@ -108,7 +108,7 @@ function Dot({ color }: { color: string }) {
 }
 
 export default function Topbar({ email }: { email?: string }) {
-  type CurrentPlan = "starter" | "growth" | "agency" | "unknown";
+  type CurrentPlan = "starter" | "growth" | "scale" | "unknown";
 
   const router = useRouter();
   const pathname = usePathname();
@@ -121,7 +121,7 @@ export default function Topbar({ email }: { email?: string }) {
   const { bootstrap, resolvedUi, loading: billingUiLoading } = useBillingBootstrap();
   const matrix = bootstrap?.plan_feature_matrix;
   const isMaxPlan =
-    matrix?.plan === "agency" &&
+    matrix?.plan === "scale" &&
     matrix.max_projects == null &&
     matrix.max_seats == null &&
     matrix.max_ad_accounts == null;
@@ -143,9 +143,9 @@ export default function Topbar({ email }: { email?: string }) {
             bg: "rgba(16,185,129,0.14)",
             dotGlow: "rgba(16,185,129,0.25)",
           }
-        : currentPlan === "agency"
+        : currentPlan === "scale"
           ? {
-            label: "Agency",
+            label: "Scale",
             dot: "rgba(52,211,153,0.95)",
             border: "rgba(52,211,153,0.35)",
             bg: "rgba(16,185,129,0.14)",
@@ -297,12 +297,15 @@ export default function Topbar({ email }: { email?: string }) {
   useEffect(() => {
     const m = bootstrap?.plan_feature_matrix;
     const sub = bootstrap?.subscription;
-    if (m?.plan === "starter" || m?.plan === "growth" || m?.plan === "agency") {
+    if (m?.plan === "starter" || m?.plan === "growth" || m?.plan === "scale") {
       setCurrentPlan(m.plan as CurrentPlan);
     } else if (sub) {
       const planRaw = String(sub.plan ?? "").toLowerCase();
+      const normalized = planRaw === "agency" ? "scale" : planRaw;
       setCurrentPlan(
-        planRaw === "starter" || planRaw === "growth" || planRaw === "agency" ? (planRaw as CurrentPlan) : "unknown"
+        normalized === "starter" || normalized === "growth" || normalized === "scale"
+          ? (normalized as CurrentPlan)
+          : "unknown"
       );
     } else {
       setCurrentPlan("unknown");
@@ -764,41 +767,49 @@ export default function Topbar({ email }: { email?: string }) {
         >
           <div
             style={{
-              maxWidth: 520,
+              position: "relative",
+              maxWidth: "min(880px, calc(100vw - 40px))",
               width: "100%",
               borderRadius: 18,
               border: "1px solid rgba(255,255,255,0.12)",
               background: "rgba(18,18,26,0.98)",
-              padding: "22px 20px",
+              padding: "24px 24px 22px",
               boxShadow: "0 24px 80px rgba(0,0,0,0.65)",
+              boxSizing: "border-box",
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-              <div style={{ fontWeight: 900, fontSize: 17, color: "white" }}>Сменить тариф</div>
-              <button
-                type="button"
-                onClick={() => setTariffModalOpen(false)}
-                style={{
-                  border: "1px solid rgba(255,255,255,0.2)",
-                  background: "rgba(255,255,255,0.06)",
-                  color: "white",
-                  borderRadius: 10,
-                  width: 36,
-                  height: 36,
-                  cursor: "pointer",
-                  fontSize: 16,
-                  lineHeight: 1,
-                }}
-                aria-label="Закрыть"
-              >
-                ✕
-              </button>
-            </div>
-            <BillingInlinePricing
+            <button
+              type="button"
+              onClick={() => setTariffModalOpen(false)}
+              style={{
+                position: "absolute",
+                top: 18,
+                right: 18,
+                zIndex: 20,
+                width: 40,
+                height: 40,
+                margin: 0,
+                padding: 0,
+                border: "1px solid rgba(255,255,255,0.2)",
+                background: "rgba(255,255,255,0.06)",
+                color: "white",
+                borderRadius: 10,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                lineHeight: 0,
+              }}
+              aria-label="Закрыть"
+            >
+              <span style={{ fontSize: 18, lineHeight: 1, display: "block" }}>✕</span>
+            </button>
+            <BillingInlinePricingSuspended
               projectId={projectId}
               suggestPlan={suggestUpgradePlanId(bootstrap?.plan_feature_matrix?.plan)}
               showComparisonLink
+              widePlanGrid
               onAfterCheckoutCompleted={() => setTariffModalOpen(false)}
             />
           </div>

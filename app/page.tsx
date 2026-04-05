@@ -47,14 +47,14 @@ function PricingCard({
   name: string;
   planId: PricingPlanId;
   items: string[];
-  /** popular — зелёная карточка «Популярный / Компания»; agency — жёлтый бейдж; startup — серый бейдж «Стартап / Фриланс» (Starter) */
-  highlight?: "popular" | "agency" | "startup";
+  /** popular — зелёная карточка «Популярный / Компания»; scale — жёлтый бейдж Scale; startup — серый бейдж «Стартап / Фриланс» (Starter) */
+  highlight?: "popular" | "scale" | "startup";
   billing: BillingPeriod;
   monthlyUsd: number;
   yearlyDiscountPercent: number;
 }) {
   const isPopular = highlight === "popular";
-  const isAgency = highlight === "agency";
+  const isScaleTier = highlight === "scale";
   const isStartup = highlight === "startup";
   const showYearlyDiscountBadge = billing === "yearly" && yearlyDiscountPercent > 0;
   const yearlyNet = yearlyPriceDiscountedUsd(monthlyUsd, yearlyDiscountPercent);
@@ -99,9 +99,9 @@ function PricingCard({
                 Стартап / Фриланс
               </div>
             ) : null}
-            {isAgency ? (
+            {isScaleTier ? (
               <div className="inline-flex max-w-full rounded-full border border-amber-400/45 bg-amber-500/[0.14] px-3 py-1 text-[11px] font-bold leading-tight text-amber-50 ring-1 ring-amber-400/30 sm:text-xs">
-                Холдинг / Агентство
+                Холдинг / Scale
               </div>
             ) : null}
           </div>
@@ -187,7 +187,7 @@ const PRICING_PLANS: {
   monthlyUsd: number;
   yearlyDiscountPercent: number;
   items: string[];
-  highlight?: "popular" | "agency" | "startup";
+  highlight?: "popular" | "scale" | "startup";
 }[] = [
   {
     id: "starter",
@@ -195,7 +195,7 @@ const PRICING_PLANS: {
     monthlyUsd: 39,
     yearlyDiscountPercent: 10,
     highlight: "startup",
-    items: ["До 3 источников", "Базовые отчёты", "DDA-вклад"],
+    items: ["До 3 источников", "1 проект · 1 участник", "Базовые отчёты"],
   },
   {
     id: "growth",
@@ -203,15 +203,19 @@ const PRICING_PLANS: {
     monthlyUsd: 99,
     yearlyDiscountPercent: 15,
     highlight: "popular",
-    items: ["До 10 источников", "Управленческие отчёты", "Рекомендации"],
+    items: ["До 10 источников", "До 3 проектов · 10 участников", "Управленческие отчёты"],
   },
   {
-    id: "agency",
-    name: "Agency",
+    id: "scale",
+    name: "Scale",
     monthlyUsd: 249,
     yearlyDiscountPercent: 20,
-    highlight: "agency",
-    items: ["Много проектов", "Роли и доступы", "Расширенная аналитика"],
+    highlight: "scale",
+    items: [
+      "Без лимита по источникам",
+      "Без лимита по проектам и участникам",
+      "Максимальная аналитика",
+    ],
   },
 ];
 
@@ -342,49 +346,47 @@ export default function Page() {
         className="landing-mid-scope relative z-10 scroll-mt-24 border-t border-white/10"
       >
         <div className="mx-auto max-w-6xl px-5 pb-14 pt-14 md:pb-20 md:pt-20">
-          <div className="mb-10 text-center md:mb-12">
+          <div className="mb-5 text-center md:mb-6">
             <h2 className="text-3xl font-semibold tracking-tight text-white/95 md:text-4xl">Тарифы</h2>
             <div className="mt-6 flex justify-center">
-              <div className="flex w-[320px] flex-col items-center sm:w-[360px]">
-                <div
-                  className="grid w-full grid-cols-2 gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/10 transition-[box-shadow,background-color] duration-300 ease-out"
-                  role="group"
-                  aria-label="Период оплаты"
+              <div
+                className="grid w-full max-w-[360px] grid-cols-2 gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/10 transition-[box-shadow,background-color] duration-300 ease-out"
+                role="group"
+                aria-label="Период оплаты"
+              >
+                <button
+                  type="button"
+                  onClick={() => setBilling("monthly")}
+                  className={cn(
+                    "flex-1 cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-[color,background-color,transform] duration-300 ease-out",
+                    billing === "monthly"
+                      ? "bg-white/10 text-white"
+                      : "text-zinc-400 hover:text-zinc-200"
+                  )}
                 >
+                  Ежемесячно
+                </button>
+                <span className="relative inline-flex">
                   <button
                     type="button"
-                    onClick={() => setBilling("monthly")}
+                    onClick={() => setBilling("yearly")}
                     className={cn(
-                      "flex-1 cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-[color,background-color,transform] duration-300 ease-out",
-                      billing === "monthly"
+                      "w-full cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-[color,background-color,transform] duration-300 ease-out",
+                      billing === "yearly"
                         ? "bg-white/10 text-white"
                         : "text-zinc-400 hover:text-zinc-200"
                     )}
                   >
-                    Ежемесячно
+                    Ежегодно
                   </button>
-                  <span className="relative inline-flex">
-                    <button
-                      type="button"
-                      onClick={() => setBilling("yearly")}
-                      className={cn(
-                        "w-full cursor-pointer rounded-lg px-4 py-2 text-sm font-medium transition-[color,background-color,transform] duration-300 ease-out",
-                        billing === "yearly"
-                          ? "bg-white/10 text-white"
-                          : "text-zinc-400 hover:text-zinc-200"
-                      )}
-                    >
-                      Ежегодно
-                    </button>
-                    {/* Вершина внешней рамки кнопки: центр круга в углу, половина снаружи блока */}
-                    <span
-                      className="pointer-events-none absolute right-0 top-0 z-10 flex h-6 w-6 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full bg-emerald-500/35 text-[11px] font-bold leading-none text-emerald-100 ring-1 ring-emerald-400/50"
-                      aria-hidden
-                    >
-                      %
-                    </span>
+                  {/* Вершина внешней рамки кнопки: центр круга в углу, половина снаружи блока */}
+                  <span
+                    className="pointer-events-none absolute right-0 top-0 z-10 flex h-6 w-6 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full bg-emerald-500/35 text-[11px] font-bold leading-none text-emerald-100 ring-1 ring-emerald-400/50"
+                    aria-hidden
+                  >
+                    %
                   </span>
-                </div>
+                </span>
               </div>
             </div>
           </div>
@@ -403,6 +405,11 @@ export default function Page() {
               />
             ))}
           </div>
+
+          <p className="mt-6 w-full text-center text-[10px] leading-snug text-zinc-500/50 sm:mt-7 sm:text-[11px] sm:text-zinc-500/55 sm:leading-relaxed">
+            Цены указаны без учёта НДС. Итоговая сумма налога рассчитывается в соответствии с налоговым
+            законодательством страны покупателя.
+          </p>
 
           <div className="mt-8 flex justify-center">
             <Link

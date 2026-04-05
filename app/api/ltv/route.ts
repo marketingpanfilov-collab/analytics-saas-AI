@@ -171,7 +171,7 @@ export async function GET(req: Request) {
 
     const admin = supabaseAdmin();
     const email = (user.email ?? "").trim().toLowerCase() || null;
-    const gate = await resolveBillingGateContext(admin, user.id, email);
+    const gate = await resolveBillingGateContext(admin, user.id, email, { projectId });
     if (!accessStateAllowsAnalyticsRead(gate.access_state)) {
       return NextResponse.json(
         {

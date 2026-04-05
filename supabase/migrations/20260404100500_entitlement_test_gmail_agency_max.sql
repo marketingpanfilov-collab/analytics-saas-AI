@@ -1,5 +1,5 @@
--- Upgrade test@gmail.com to Agency (max tier) if an older migration already granted Starter.
--- Idempotent: revokes active entitlements for that user, then inserts one Agency row (same window as seed).
+-- Upgrade test@gmail.com to Scale (max tier) if an older migration already granted Starter.
+-- Idempotent: revokes active entitlements for that user, then inserts one Scale row (same window as seed).
 
 DO $$
 DECLARE
@@ -14,7 +14,7 @@ BEGIN
   LIMIT 1;
 
   IF uid IS NULL THEN
-    RAISE NOTICE 'billing_entitlement agency: no auth.users row for % — skip', target_email;
+    RAISE NOTICE 'billing_entitlement scale: no auth.users row for % — skip', target_email;
     RETURN;
   END IF;
 
@@ -36,14 +36,14 @@ BEGIN
   )
   VALUES (
     uid,
-    'agency',
+    'scale',
     'active',
     timezone('UTC', now()),
     ends_at_utc,
-    'Upgrade to Agency (max) until end of next UTC day (test@gmail.com)',
+    'Upgrade to Scale (max) until end of next UTC day (test@gmail.com)',
     'admin_grant',
     now()
   );
 
-  RAISE NOTICE 'billing_entitlement agency: user % agency until %', target_email, ends_at_utc;
+  RAISE NOTICE 'billing_entitlement scale: user % scale until %', target_email, ends_at_utc;
 END $$;

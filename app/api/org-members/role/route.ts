@@ -41,7 +41,8 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ success: false, error: "Only owner or admin can change roles" }, { status: 403 });
   }
 
-  const { data: target, error: fetchErr } = await supabase
+  const admin = supabaseAdmin();
+  const { data: target, error: fetchErr } = await admin
     .from("organization_members")
     .select("id, organization_id, role")
     .eq("id", memberId)
@@ -59,7 +60,6 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ success: false, error: "Cannot change owner role" }, { status: 400 });
   }
 
-  const admin = supabaseAdmin();
   const { error: updateErr } = await admin
     .from("organization_members")
     .update({ role: newRole })

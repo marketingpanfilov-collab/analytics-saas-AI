@@ -5,6 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { IntegrationStatusRow, IntegrationStatusValue } from "@/app/api/oauth/integration/status/route";
 import { ActionId } from "@/app/lib/billingUiContract";
 import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
+import {
+  AD_ACCOUNT_PLAN_LIMIT_CODE,
+  AD_ACCOUNT_PLAN_LIMIT_USER_MESSAGE,
+} from "@/app/lib/adAccountPlanLimit";
 import { useBillingBootstrap } from "../../components/BillingBootstrapProvider";
 
 /** Canonical account (same as dashboard). Optional fields from coverage + sync_runs. */
@@ -234,7 +238,9 @@ function formatLastSync(iso: string | null | undefined, status: string | null | 
 export default function AccountsPageClient() {
   const router = useRouter();
   const sp = useSearchParams();
-  const { resolvedUi } = useBillingBootstrap();
+  const { resolvedUi, bootstrap, planFeatureMatrix, reloadBootstrap } = useBillingBootstrap();
+  const maxAdAccounts = planFeatureMatrix?.max_ad_accounts ?? null;
+  const orgAdAccountsCount = bootstrap?.org_enabled_ad_accounts ?? null;
   const canMutateIntegrations = billingActionAllowed(resolvedUi, ActionId.sync_refresh);
   const guardIntegrationWrite = useCallback(() => {
     if (!canMutateIntegrations) {
@@ -679,21 +685,96 @@ export default function AccountsPageClient() {
   const googleEnabledCount = (accountsByPlatform.get("google") ?? []).filter((a) => a.is_enabled).length;
   const tiktokEnabledCount = (accountsByPlatform.get("tiktok") ?? []).filter((a) => a.is_enabled).length;
 
-  function toggleSelected(platformAccountId: string) {
-    setSelectedIds((prev) => (prev.includes(platformAccountId) ? prev.filter((x) => x !== platformAccountId) : [...prev, platformAccountId]));
-  }
+  const metaAdProjected =
+    orgAdAccountsCount != null ? orgAdAccountsCount - enabledMetaIds.length + selectedIds.length : null;
+  const googleAdProjected =
+    orgAdAccountsCount != null
+      ? orgAdAccountsCount - enabledGoogleIds.length + selectedGoogleIds.length
+      : null;
+  const tiktokAdProjected =
+    orgAdAccountsCount != null
+      ? orgAdAccountsCount - enabledTikTokIds.length + selectedTikTokIds.length
+      : null;
 
-  function toggleSelectedGoogle(platformAccountId: string) {
-    setSelectedGoogleIds((prev) =>
-      prev.includes(platformAccountId) ? prev.filter((x) => x !== platformAccountId) : [...prev, platformAccountId]
-    );
-  }
+  const metaAdLimitExceeded =
+    maxAdAccounts != null && metaAdProjected != null && metaAdProjected > maxAdAccounts;
+  const googleAdLimitExceeded =
+    maxAdAccounts != null && googleAdProjected != null && googleAdProjected > maxAdAccounts;
+  const tiktokAdLimitExceeded =
+    maxAdAccounts != null && tiktokAdProjected != null && tiktokAdProjected > maxAdAccounts;
 
-  function toggleSelectedTikTok(platformAccountId: string) {
-    setSelectedTikTokIds((prev) =>
-      prev.includes(platformAccountId) ? prev.filter((x) => x !== platformAccountId) : [...prev, platformAccountId]
-    );
-  }
+  const metaNextCheckboxWouldExceed =
+    maxAdAccounts != null &&
+    orgAdAccountsCount != null &&
+    orgAdAccountsCount - enabledMetaIds.length + selectedIds.length + 1 > maxAdAccounts;
+  const googleNextCheckboxWouldExceed =
+    maxAdAccounts != null &&
+    orgAdAccountsCount != null &&
+    orgAdAccountsCount - enabledGoogleIds.length + selectedGoogleIds.length + 1 > maxAdAccounts;
+  const tiktokNextCheckboxWouldExceed =
+    maxAdAccounts != null &&
+    orgAdAccountsCount != null &&
+    orgAdAccountsCount - enabledTikTokIds.length + selectedTikTokIds.length + 1 > maxAdAccounts;
+
+  const toggleSelected = useCallback(
+    (platformAccountId: string) => {
+      if (selectedIds.includes(platformAccountId)) {
+        setSelectedIds((p) => p.filter((x) => x !== platformAccountId));
+        return;
+      }
+      const next = [...selectedIds, platformAccountId];
+      if (
+        maxAdAccounts != null &&
+        orgAdAccountsCount != null &&
+        orgAdAccountsCount - enabledMetaIds.length + next.length > maxAdAccounts
+      ) {
+        setToast({ type: "error", text: AD_ACCOUNT_PLAN_LIMIT_USER_MESSAGE });
+        return;
+      }
+      setSelectedIds(next);
+    },
+    [selectedIds, maxAdAccounts, orgAdAccountsCount, enabledMetaIds]
+  );
+
+  const toggleSelectedGoogle = useCallback(
+    (platformAccountId: string) => {
+      if (selectedGoogleIds.includes(platformAccountId)) {
+        setSelectedGoogleIds((p) => p.filter((x) => x !== platformAccountId));
+        return;
+      }
+      const next = [...selectedGoogleIds, platformAccountId];
+      if (
+        maxAdAccounts != null &&
+        orgAdAccountsCount != null &&
+        orgAdAccountsCount - enabledGoogleIds.length + next.length > maxAdAccounts
+      ) {
+        setToast({ type: "error", text: AD_ACCOUNT_PLAN_LIMIT_USER_MESSAGE });
+        return;
+      }
+      setSelectedGoogleIds(next);
+    },
+    [selectedGoogleIds, maxAdAccounts, orgAdAccountsCount, enabledGoogleIds]
+  );
+
+  const toggleSelectedTikTok = useCallback(
+    (platformAccountId: string) => {
+      if (selectedTikTokIds.includes(platformAccountId)) {
+        setSelectedTikTokIds((p) => p.filter((x) => x !== platformAccountId));
+        return;
+      }
+      const next = [...selectedTikTokIds, platformAccountId];
+      if (
+        maxAdAccounts != null &&
+        orgAdAccountsCount != null &&
+        orgAdAccountsCount - enabledTikTokIds.length + next.length > maxAdAccounts
+      ) {
+        setToast({ type: "error", text: AD_ACCOUNT_PLAN_LIMIT_USER_MESSAGE });
+        return;
+      }
+      setSelectedTikTokIds(next);
+    },
+    [selectedTikTokIds, maxAdAccounts, orgAdAccountsCount, enabledTikTokIds]
+  );
 
   async function saveGoogleSelection() {
     if (!projectId) return;
@@ -720,19 +801,24 @@ export default function AccountsPageClient() {
           ad_account_ids: selectedGoogleIds,
         }),
       });
-      const j = await r.json();
+      const j = (await r.json()) as { success?: boolean; error?: string; code?: string; saved?: number };
       if (!j?.success) {
-        setToast({
-          type: "error",
-          text:
-            j?.error ??
-            (googleStatus === "disconnected"
-              ? "Не удалось сохранить: переподключи Google OAuth и попробуй снова."
-              : "Не удалось сохранить выбор Google"),
-        });
+        if (j?.code === AD_ACCOUNT_PLAN_LIMIT_CODE) {
+          setToast({ type: "error", text: AD_ACCOUNT_PLAN_LIMIT_USER_MESSAGE });
+        } else {
+          setToast({
+            type: "error",
+            text:
+              j?.error ??
+              (googleStatus === "disconnected"
+                ? "Не удалось сохранить: переподключи Google OAuth и попробуй снова."
+                : "Не удалось сохранить выбор Google"),
+          });
+        }
       } else {
         setToast({ type: "success", text: `Сохранено аккаунтов Google: ${j.saved ?? selectedGoogleIds.length}` });
         await refresh();
+        void reloadBootstrap();
       }
     } catch {
       setToast({ type: "error", text: "Ошибка сохранения выбора Google" });
@@ -766,19 +852,24 @@ export default function AccountsPageClient() {
           ad_account_ids: selectedTikTokIds,
         }),
       });
-      const j = await r.json();
+      const j = (await r.json()) as { success?: boolean; error?: string; code?: string; saved?: number };
       if (!j?.success) {
-        setToast({
-          type: "error",
-          text:
-            j?.error ??
-            (tiktokStatus === "disconnected"
-              ? "Не удалось сохранить: переподключи TikTok OAuth и попробуй снова."
-              : "Не удалось сохранить выбор TikTok"),
-        });
+        if (j?.code === AD_ACCOUNT_PLAN_LIMIT_CODE) {
+          setToast({ type: "error", text: AD_ACCOUNT_PLAN_LIMIT_USER_MESSAGE });
+        } else {
+          setToast({
+            type: "error",
+            text:
+              j?.error ??
+              (tiktokStatus === "disconnected"
+                ? "Не удалось сохранить: переподключи TikTok OAuth и попробуй снова."
+                : "Не удалось сохранить выбор TikTok"),
+          });
+        }
       } else {
         setToast({ type: "success", text: `Сохранено TikTok аккаунтов: ${j.saved ?? selectedTikTokIds.length}` });
         await refresh();
+        void reloadBootstrap();
       }
     } catch {
       setToast({ type: "error", text: "Ошибка сохранения выбора TikTok" });
@@ -811,12 +902,17 @@ export default function AccountsPageClient() {
           ad_account_ids: selectedIds,
         }),
       });
-      const j = await r.json();
+      const j = (await r.json()) as { success?: boolean; error?: string; code?: string; saved?: number };
       if (!j?.success) {
-        setToast({ type: "error", text: "Не удалось сохранить выбор кабинетов" });
+        if (j?.code === AD_ACCOUNT_PLAN_LIMIT_CODE) {
+          setToast({ type: "error", text: AD_ACCOUNT_PLAN_LIMIT_USER_MESSAGE });
+        } else {
+          setToast({ type: "error", text: j?.error ?? "Не удалось сохранить выбор кабинетов" });
+        }
       } else {
         setToast({ type: "success", text: `Сохранено кабинетов: ${j.saved ?? selectedIds.length}. Синхронизация…` });
         await refresh();
+        void reloadBootstrap();
         const toSync = selectedIds;
         let totalRows = 0;
         for (const ad of toSync) {
@@ -835,6 +931,7 @@ export default function AccountsPageClient() {
         }
         setToast({ type: "success", text: `Сохранено и синхронизировано: ${totalRows} строк` });
         await refresh();
+        void reloadBootstrap();
       }
     } catch {
       setToast({ type: "error", text: "Ошибка сохранения (connections/save)" });
@@ -1379,13 +1476,18 @@ export default function AccountsPageClient() {
               {metaMainButtonText}
             </Button>
             {metaShowSaveSelection ? (
-              <Button
-                kind="ghost"
-                onClick={saveSelection}
-                disabled={!projectId || loading || selectedIds.length === 0}
+              <span
+                className="inline-block max-w-full"
+                title={metaAdLimitExceeded ? AD_ACCOUNT_PLAN_LIMIT_USER_MESSAGE : undefined}
               >
-                Сохранить выбор
-              </Button>
+                <Button
+                  kind="ghost"
+                  onClick={saveSelection}
+                  disabled={!projectId || loading || selectedIds.length === 0 || metaAdLimitExceeded}
+                >
+                  Сохранить выбор
+                </Button>
+              </span>
             ) : null}
             {metaShowDisconnect ? (
               <button
@@ -1411,6 +1513,12 @@ export default function AccountsPageClient() {
 
           <div style={{ ...smallMuted, marginTop: 10 }}>
             Найдено: <b>{metaDiscoveredCount}</b> • Выбрано: <b>{selectedIds.length}</b> • В sync: <b>{activeIds.length}</b>
+            {maxAdAccounts != null && orgAdAccountsCount != null ? (
+              <span>
+                {" "}
+                • В организации: <b>{orgAdAccountsCount}</b> / {maxAdAccounts} источников
+              </span>
+            ) : null}
           </div>
 
           {/* Selection UI: all discovered Meta accounts (only when connected) */}
@@ -1422,11 +1530,23 @@ export default function AccountsPageClient() {
               <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
                 {(accountsByPlatform.get("meta") ?? []).map((a) => {
                   const checked = selectedIds.includes(a.platform_account_id);
+                  const disableUncheck = !checked && metaNextCheckboxWouldExceed;
                   return (
-                    <label key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                    <label
+                      key={a.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        cursor: disableUncheck ? "not-allowed" : "pointer",
+                        opacity: disableUncheck ? 0.55 : 1,
+                      }}
+                      title={disableUncheck ? AD_ACCOUNT_PLAN_LIMIT_USER_MESSAGE : undefined}
+                    >
                       <input
                         type="checkbox"
                         checked={checked}
+                        disabled={disableUncheck}
                         onChange={() => toggleSelected(a.platform_account_id)}
                         style={{ width: 18, height: 18, flexShrink: 0 }}
                       />
@@ -1469,13 +1589,18 @@ export default function AccountsPageClient() {
               {googleMainButtonText}
             </Button>
             {googleShowSaveSelection ? (
-              <Button
-                kind="ghost"
-                onClick={saveGoogleSelection}
-                disabled={!projectId || loading || selectedGoogleIds.length === 0}
+              <span
+                className="inline-block max-w-full"
+                title={googleAdLimitExceeded ? AD_ACCOUNT_PLAN_LIMIT_USER_MESSAGE : undefined}
               >
-                Сохранить выбор
-              </Button>
+                <Button
+                  kind="ghost"
+                  onClick={saveGoogleSelection}
+                  disabled={!projectId || loading || selectedGoogleIds.length === 0 || googleAdLimitExceeded}
+                >
+                  Сохранить выбор
+                </Button>
+              </span>
             ) : null}
             {googleShowDisconnect ? (
               <button
@@ -1501,6 +1626,12 @@ export default function AccountsPageClient() {
 
           <div style={{ ...smallMuted, marginTop: 10 }}>
             Найдено: <b>{googleDiscoveredCount}</b> • Выбрано: <b>{selectedGoogleIds.length}</b> • Включено: <b>{googleEnabledCount}</b>
+            {maxAdAccounts != null && orgAdAccountsCount != null ? (
+              <span>
+                {" "}
+                • В организации: <b>{orgAdAccountsCount}</b> / {maxAdAccounts} источников
+              </span>
+            ) : null}
           </div>
 
           {googleCanShowAccountSelection && googleDiscoveredCount > 0 ? (
@@ -1511,11 +1642,23 @@ export default function AccountsPageClient() {
               <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
                 {(accountsByPlatform.get("google") ?? []).map((a) => {
                   const checked = selectedGoogleIds.includes(a.platform_account_id);
+                  const disableUncheck = !checked && googleNextCheckboxWouldExceed;
                   return (
-                    <label key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                    <label
+                      key={a.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        cursor: disableUncheck ? "not-allowed" : "pointer",
+                        opacity: disableUncheck ? 0.55 : 1,
+                      }}
+                      title={disableUncheck ? AD_ACCOUNT_PLAN_LIMIT_USER_MESSAGE : undefined}
+                    >
                       <input
                         type="checkbox"
                         checked={checked}
+                        disabled={disableUncheck}
                         onChange={() => toggleSelectedGoogle(a.platform_account_id)}
                         style={{ width: 18, height: 18, flexShrink: 0 }}
                       />
@@ -1550,13 +1693,18 @@ export default function AccountsPageClient() {
               {tiktokMainButtonText}
             </Button>
             {tiktokShowSaveSelection ? (
-              <Button
-                kind="ghost"
-                onClick={saveTikTokSelection}
-                disabled={!projectId || loading || selectedTikTokIds.length === 0}
+              <span
+                className="inline-block max-w-full"
+                title={tiktokAdLimitExceeded ? AD_ACCOUNT_PLAN_LIMIT_USER_MESSAGE : undefined}
               >
-                Сохранить выбор
-              </Button>
+                <Button
+                  kind="ghost"
+                  onClick={saveTikTokSelection}
+                  disabled={!projectId || loading || selectedTikTokIds.length === 0 || tiktokAdLimitExceeded}
+                >
+                  Сохранить выбор
+                </Button>
+              </span>
             ) : null}
             {tiktokShowDisconnect ? (
               <button
@@ -1581,6 +1729,12 @@ export default function AccountsPageClient() {
           </div>
           <div style={{ ...smallMuted, marginTop: 10 }}>
             Найдено: <b>{tiktokDiscoveredCount}</b> • Выбрано: <b>{selectedTikTokIds.length}</b> • Включено: <b>{tiktokEnabledCount}</b>
+            {maxAdAccounts != null && orgAdAccountsCount != null ? (
+              <span>
+                {" "}
+                • В организации: <b>{orgAdAccountsCount}</b> / {maxAdAccounts} источников
+              </span>
+            ) : null}
           </div>
 
           {tiktokCanShowAccountSelection && tiktokDiscoveredCount > 0 ? (
@@ -1591,11 +1745,23 @@ export default function AccountsPageClient() {
               <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
                 {(accountsByPlatform.get("tiktok") ?? []).map((a) => {
                   const checked = selectedTikTokIds.includes(a.platform_account_id);
+                  const disableUncheck = !checked && tiktokNextCheckboxWouldExceed;
                   return (
-                    <label key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                    <label
+                      key={a.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        cursor: disableUncheck ? "not-allowed" : "pointer",
+                        opacity: disableUncheck ? 0.55 : 1,
+                      }}
+                      title={disableUncheck ? AD_ACCOUNT_PLAN_LIMIT_USER_MESSAGE : undefined}
+                    >
                       <input
                         type="checkbox"
                         checked={checked}
+                        disabled={disableUncheck}
                         onChange={() => toggleSelectedTikTok(a.platform_account_id)}
                         style={{ width: 18, height: 18, flexShrink: 0 }}
                       />

@@ -54,6 +54,8 @@ export type ReasonCode = (typeof ReasonCode)[keyof typeof ReasonCode];
 
 export const ActionId = {
   create_project: "create_project",
+  /** CRUD project_members / invites — decoupled from sync_refresh (over-limit shells allow roster fixes). */
+  manage_project_members: "manage_project_members",
   sync_refresh: "sync_refresh",
   export: "export",
   billing_manage: "billing_manage",

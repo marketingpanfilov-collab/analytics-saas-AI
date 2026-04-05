@@ -3,6 +3,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
 import { billingAnalyticsReadGateFromAccess } from "@/app/lib/auth/requireBillingAccess";
+import { resolveBillingGateContext } from "@/app/lib/billingCurrentPlan";
+import { createServerSupabase } from "@/app/lib/supabaseServer";
+import {
+  countWeeklyReportUsageForMonth,
+  loadProjectOrganizationId,
+  maxWeeklyReportsForEffectivePlan,
+  weeklyReportUsageMonthUtc,
+} from "@/app/lib/weeklyReportOrgUsage";
 import { getCanonicalSummary } from "@/app/lib/dashboardCanonical";
 import { pickInsightTexts } from "@/app/lib/weeklyReportInsightTexts";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
@@ -624,7 +632,43 @@ export async function GET(req: Request) {
     const accountIds = parseCsv(searchParams.get("account_ids"));
 
     const admin = supabaseAdmin();
+
+    let maxWeekly: number | null = null;
+    if (access.source === "user") {
+      const supabaseAuth = await createServerSupabase();
+      const {
+        data: { user },
+      } = await supabaseAuth.auth.getUser();
+      const ctx = await resolveBillingGateContext(admin, access.userId, user?.email ?? null, {
+        projectId,
+      });
+      maxWeekly = maxWeeklyReportsForEffectivePlan(ctx.effective_plan);
+    }
+
     const payload = await buildWeeklyReportPayload(admin, projectId, { start, end, sources, accountIds });
+
+    // Квота списывается при создании открытой ссылки (POST share) и перед печатью/PDF (POST consume-export), не при просмотре.
+    // Здесь только блокировка, если лимит уже исчерпан.
+    if (maxWeekly != null && payload.has_sufficient_data && access.source === "user") {
+      const organizationId = await loadProjectOrganizationId(admin, projectId);
+      if (organizationId) {
+        const month = weeklyReportUsageMonthUtc();
+        const used = await countWeeklyReportUsageForMonth(admin, organizationId, month);
+        if (used >= maxWeekly) {
+          return NextResponse.json(
+            {
+              success: false,
+              code: "WEEKLY_REPORT_LIMIT_REACHED",
+              used,
+              limit: maxWeekly,
+              usage_month_utc: month,
+            },
+            { status: 403 }
+          );
+        }
+      }
+    }
+
     return NextResponse.json(payload);
   } catch (e) {
     console.error("[WEEKLY_BOARD_REPORT_ERROR]", e);

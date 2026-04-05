@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { isValidPricingPlanId, type PricingPlanId } from "../lib/auth/loginPurchaseUrl";
+import { isValidPricingPlanId, parsePricingPlanId, type PricingPlanId } from "../lib/auth/loginPurchaseUrl";
 import { addPaddleEventListener, getPaddle } from "../lib/paddle";
 import { getPaddlePriceId, getPaddleProductId, type BillingPeriod } from "../lib/paddlePriceMap";
 import { supabase } from "../lib/supabaseClient";
@@ -16,6 +16,7 @@ export default function LoginPageClient() {
   const planParam = searchParams.get("plan");
   const billingParam = searchParams.get("billing");
   const billing: BillingPeriod = billingParam === "yearly" ? "yearly" : "monthly";
+  const isInviteOnlySignup = searchParams.get("invite") === "1";
 
   // Post-login: project selection first; never default to /app (dashboard without project_id).
   // Если пользователь пришел с тарифа, сохраняем plan/billing в next-path.
@@ -26,10 +27,11 @@ export default function LoginPageClient() {
 
     const plan = searchParams.get("plan");
     const billing = searchParams.get("billing");
-    if (isValidPricingPlanId(plan) && (billing === "monthly" || billing === "yearly")) {
+    const parsedPlan = parsePricingPlanId(plan);
+    if (parsedPlan && (billing === "monthly" || billing === "yearly")) {
       try {
         const u = new URL(path.startsWith("/") ? path : `/${path}`, "http://localhost");
-        u.searchParams.set("plan", plan);
+        u.searchParams.set("plan", parsedPlan);
         u.searchParams.set("billing", billing);
         return `${u.pathname}${u.search}`;
       } catch {
@@ -46,9 +48,7 @@ export default function LoginPageClient() {
 
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string>("");
-  const [selectedPlan, setSelectedPlan] = useState<PricingPlanId | null>(
-    isValidPricingPlanId(planParam) ? planParam : null
-  );
+  const [selectedPlan, setSelectedPlan] = useState<PricingPlanId | null>(() => parsePricingPlanId(planParam));
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [modalBilling, setModalBilling] = useState<BillingPeriod>(billing);
 
@@ -63,19 +63,19 @@ export default function LoginPageClient() {
   const PLAN_LABELS: Record<PricingPlanId, string> = {
     starter: "Starter",
     growth: "Growth",
-    agency: "Agency",
+    scale: "Scale",
   };
 
   const MONTHLY_USD: Record<PricingPlanId, number> = {
     starter: 39,
     growth: 99,
-    agency: 249,
+    scale: 249,
   };
 
   const YEARLY_DISCOUNT_PERCENT: Record<PricingPlanId, number> = {
     starter: 10,
     growth: 15,
-    agency: 20,
+    scale: 20,
   };
 
   const yearlyTotalDiscountedUsd = (plan: PricingPlanId) => {
@@ -97,9 +97,11 @@ export default function LoginPageClient() {
   useEffect(() => {
     const signup = searchParams.get("signup");
     const plan = searchParams.get("plan");
-    const openSignup = signup === "1" || signup === "true" || isValidPricingPlanId(plan);
+    const openSignup =
+      signup === "1" || signup === "true" || isValidPricingPlanId(plan) || searchParams.get("invite") === "1";
     if (openSignup) setMode("signup");
-    if (isValidPricingPlanId(plan)) setSelectedPlan(plan);
+    const parsed = parsePricingPlanId(plan);
+    if (parsed) setSelectedPlan(parsed);
   }, [searchParams]);
 
   useEffect(() => {
@@ -129,6 +131,32 @@ export default function LoginPageClient() {
       }
     });
   }, []);
+
+  const inviteOnlySignup = async () => {
+    if (!email.trim()) return setMsg("Введите email");
+    if (!password.trim()) return setMsg("Введите пароль");
+    if (!acceptTerms) {
+      return setMsg("Для регистрации необходимо принять пользовательское соглашение.");
+    }
+
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+      });
+      if (error) {
+        setMsg(error.message);
+        setLoading(false);
+        return;
+      }
+      router.replace(nextPath);
+    } catch (e) {
+      console.error("[Login invite signup] error", e);
+      setMsg(e instanceof Error ? e.message : "Не удалось выполнить запрос. Попробуйте ещё раз.");
+      setLoading(false);
+    }
+  };
 
   const submitWithPlan = async (plan: PricingPlanId, period: BillingPeriod) => {
     if (loading) return;
@@ -239,6 +267,11 @@ export default function LoginPageClient() {
     if (loading) return;
     setMsg("");
 
+    if (mode === "signup" && isInviteOnlySignup) {
+      await inviteOnlySignup();
+      return;
+    }
+
     if (mode === "signup" && !selectedPlan) {
       continueAfterPlanSelectRef.current = true;
       setShowPlanModal(true);
@@ -332,13 +365,19 @@ export default function LoginPageClient() {
                   className="inline-flex shrink-0 items-center rounded-lg border-2 border-emerald-400/90 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-300 shadow-[0_0_16px_rgba(52,211,153,0.45)] animate-pulse"
                   aria-label="Board online"
                 >
-                  {mode === "signup" && selectedPlan ? `ТАРИФ: ${PLAN_LABELS[selectedPlan]}` : "Dashboard online"}
+                  {mode === "signup" && selectedPlan && !isInviteOnlySignup
+                    ? `ТАРИФ: ${PLAN_LABELS[selectedPlan]}`
+                    : isInviteOnlySignup && mode === "signup"
+                      ? "По приглашению"
+                      : "Dashboard online"}
                 </span>
               </div>
               <p className="mt-1 text-sm text-zinc-400">
                 {mode === "login"
                   ? "Зайдите, чтобы открыть панель отчётности и подключить рекламные аккаунты."
-                  : "Создайте аккаунт, чтобы начать собирать отчётность по рекламе в одном месте."}
+                  : isInviteOnlySignup
+                    ? "Регистрация без выбора тарифа: после входа вы сможете принять приглашение в проект."
+                    : "Создайте аккаунт, чтобы начать собирать отчётность по рекламе в одном месте."}
               </p>
             </div>
 
@@ -462,7 +501,7 @@ export default function LoginPageClient() {
 
             <div
               className={`text-center -mt-2 ${
-                mode === "signup" ? "" : "invisible pointer-events-none"
+                mode === "signup" && !isInviteOnlySignup ? "" : "invisible pointer-events-none"
               }`}
             >
               <button
@@ -539,7 +578,7 @@ export default function LoginPageClient() {
 
               {/* Тариф */}
               <div className="mt-4 grid grid-cols-1 gap-2">
-                {(["starter", "growth", "agency"] as const).map((plan) => {
+                {(["starter", "growth", "scale"] as const).map((plan) => {
                   const isActive = selectedPlan === plan;
                   return (
                     <button

@@ -39,7 +39,9 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ success: false, error: "Only owner or admin can remove members" }, { status: 403 });
   }
 
-  const { data: target, error: fetchErr } = await supabase
+  const admin = supabaseAdmin();
+  // RLS для authenticated SELECT только своя строка — чужой member_id не виден; читаем target через service role после проверки прав.
+  const { data: target, error: fetchErr } = await admin
     .from("organization_members")
     .select("id, organization_id, user_id, role")
     .eq("id", memberId)
@@ -61,9 +63,28 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ success: false, error: "Owner cannot remove themselves" }, { status: 400 });
   }
 
-  const admin = supabaseAdmin();
-  const { error: deleteErr } = await admin.from("organization_members").delete().eq("id", memberId);
+  const orgId = String(target.organization_id);
+  const targetUserId = String(target.user_id);
 
+  // Инвариант биллинга: после выхода из организации не должно оставаться project_members по проектам этой org.
+  // Сначала снимаем доступ к проектам (при сбое пользователь ещё в organization_members), затем строку org.
+  const { data: projRows, error: pErr } = await admin.from("projects").select("id").eq("organization_id", orgId);
+  if (pErr) {
+    return NextResponse.json({ success: false, error: pErr.message }, { status: 500 });
+  }
+  const projectIds = (projRows ?? []).map((p: { id: string }) => String(p.id)).filter(Boolean);
+  if (projectIds.length > 0) {
+    const { error: pmDelErr } = await admin
+      .from("project_members")
+      .delete()
+      .eq("user_id", targetUserId)
+      .in("project_id", projectIds);
+    if (pmDelErr) {
+      return NextResponse.json({ success: false, error: pmDelErr.message }, { status: 500 });
+    }
+  }
+
+  const { error: deleteErr } = await admin.from("organization_members").delete().eq("id", memberId);
   if (deleteErr) {
     return NextResponse.json({ success: false, error: deleteErr.message }, { status: 500 });
   }

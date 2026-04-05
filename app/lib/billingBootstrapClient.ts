@@ -17,6 +17,8 @@ export const BILLING_BOOTSTRAP_RETRY_DELAYS_MS = [1000, 3000, 5000] as const;
 export const BILLING_LAST_KNOWN_TTL_MS = 5 * 60 * 1000;
 /** P1-RUN-03: suppress rapid screen/reason flicker after webhook vs client races */
 export const BILLING_STABILIZATION_WINDOW_MS = 450;
+/** Временное снятие жёсткого OVER_LIMIT после успешного apply, пока webhook не обновил лимиты. */
+export const BILLING_OVER_LIMIT_UPGRADE_GRACE_MS = 90_000;
 export const MAX_SHELL_REDIRECT_DEPTH = 3;
 export const BILLING_BC_NAME = "boardiq-billing-bootstrap";
 export const STORAGE_LAST_BOOTSTRAP = "boardiq_billing_last_bootstrap_v1";
@@ -31,14 +33,32 @@ const READ_ONLY_BILLING_PAYMENT_REASONS = new Set<string>([
   ReasonCode.BILLING_PAST_DUE,
 ]);
 
+/** Опции для `isBillingBlocking` / редиректов после оплаты. */
+export type BillingBlockingOptions = {
+  /**
+   * После успешного apply апгрейда: временно не считать OVER_LIMIT жёсткой блокировкой,
+   * пока webhook не обновил entitlements (см. BillingBootstrapProvider).
+   */
+  overLimitApplyGraceUntilMs?: number | null;
+  /**
+   * После истечения 90s grace: мягкий shell/banner, пока optimistic ждёт webhook.
+   */
+  relaxOverLimitForPendingWebhook?: boolean;
+};
+
 /**
  * Whether billing still blocks product access in the “need to pay” sense.
  * `null` / no data → conservative `true` (do not trust redirect targets until bootstrap is known).
  */
-export function isBillingBlocking(resolvedUi: ResolvedUiStateV1 | null): boolean {
+export function isBillingBlocking(resolvedUi: ResolvedUiStateV1 | null, opts?: BillingBlockingOptions): boolean {
   if (!resolvedUi) return true;
   if (resolvedUi.screen === ScreenId.PAYWALL) return true;
-  if (resolvedUi.screen === ScreenId.OVER_LIMIT_FULLSCREEN) return true;
+  if (resolvedUi.screen === ScreenId.OVER_LIMIT_FULLSCREEN) {
+    const g = opts?.overLimitApplyGraceUntilMs;
+    if (typeof g === "number" && g > Date.now()) return false;
+    if (opts?.relaxOverLimitForPendingWebhook === true) return false;
+    return true;
+  }
   if (resolvedUi.screen === ScreenId.READ_ONLY_SHELL) {
     if (!READ_ONLY_BILLING_PAYMENT_REASONS.has(resolvedUi.reason)) return false;
     return resolvedUi.blocking_level !== "none";
@@ -94,8 +114,10 @@ export type BillingBootstrapApiOk = {
   subscription: {
     plan?: string;
     status?: string;
+    billing_period?: string;
     current_period_end?: string | null;
     provider?: string;
+    provider_subscription_id?: string | null;
   } | null;
   access_state?: string;
   effective_plan?: string | null;
@@ -107,6 +129,8 @@ export type BillingBootstrapApiOk = {
   has_org_membership?: boolean;
   onboarding_progress?: OnboardingProgress | null;
   plan_feature_matrix?: PlanFeatureMatrix;
+  /** Включённые рекламные аккаунты в организации (см. bootstrap). */
+  org_enabled_ad_accounts?: number | null;
   resolved_ui_state: ResolvedUiStateV1;
 };
 
@@ -375,6 +399,20 @@ export function routeAllowedByResolved(path: string, resolved: ResolvedUiStateV1
       resolved.allowed_actions.includes(ActionId.navigate_projects)
     );
   }
+  if (resolved.screen === ScreenId.OVER_LIMIT_FULLSCREEN) {
+    const remedial =
+      path.startsWith("/app/org-members") ||
+      path.startsWith("/app/accounts") ||
+      path.startsWith("/app/support");
+    if (remedial) {
+      return (
+        resolved.allowed_actions.includes(ActionId.billing_manage) ||
+        resolved.allowed_actions.includes(ActionId.navigate_settings) ||
+        resolved.allowed_actions.includes(ActionId.support) ||
+        resolved.allowed_actions.includes(ActionId.navigate_projects)
+      );
+    }
+  }
   return resolved.allowed_actions.includes(ActionId.navigate_app);
 }
 
@@ -387,6 +425,7 @@ function pickSafeAppFallback(resolvedUi: ResolvedUiStateV1): string {
 
 export type ResolvePostPaymentRedirectOptions = {
   currentPath?: string;
+  billingBlockingOptions?: BillingBlockingOptions;
 };
 
 /**
@@ -396,7 +435,7 @@ export function resolvePostPaymentRedirect(
   resolvedUi: ResolvedUiStateV1,
   options?: ResolvePostPaymentRedirectOptions
 ): string {
-  if (isBillingBlocking(resolvedUi)) {
+  if (isBillingBlocking(resolvedUi, options?.billingBlockingOptions)) {
     return pickSafeAppFallback(resolvedUi);
   }
   const current = options?.currentPath ? routePathnameOnly(options.currentPath) : null;
@@ -408,7 +447,7 @@ export function resolvePostPaymentRedirect(
     const pathOnly = routePathnameOnly(v);
     if (current && pathOnly === current) return null;
     if (!routeAllowedByResolved(pathOnly, resolvedUi)) return null;
-    if (isBillingBlocking(resolvedUi)) return null;
+    if (isBillingBlocking(resolvedUi, options?.billingBlockingOptions)) return null;
     return v;
   };
 

@@ -476,7 +476,7 @@ export function LandingDemoSection() {
                     <div style={{ ...card, padding: 20 }}>
                       <div className="mb-2.5 text-lg font-black text-white">Динамика расхода</div>
                       <div className="mb-3.5 text-[13px] text-white/70">
-                        Spend, Registrations, Sales (по выбранному диапазону)
+                        Spend, Registrations, Sales и CAC
                       </div>
                       <MiniDemoChart />
                       <div className="mt-3 flex flex-wrap gap-4 text-[11px] text-white/45">

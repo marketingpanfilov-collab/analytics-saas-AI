@@ -4,6 +4,8 @@
  */
 import type { PaddleEventData } from "@paddle/paddle-js";
 import type { PricingPlanId } from "@/app/lib/auth/loginPurchaseUrl";
+import { BILLING_CHECKOUT_MISSING_ORG_MESSAGE } from "@/app/lib/billing/billingCheckoutMessages";
+import { billingClientLog } from "@/app/lib/billing/billingClientObservability";
 import { addPaddleEventListener, getPaddle } from "@/app/lib/paddle";
 import { getPaddlePriceId, getPaddleProductId, type BillingPeriod } from "@/app/lib/paddlePriceMap";
 
@@ -69,6 +71,17 @@ function ensureListener() {
 export async function openPaddleSubscriptionCheckout(
   args: OpenPaddleSubscriptionCheckoutArgs
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  const orgId = args.primaryOrgId?.trim() ?? "";
+  if (!/^[0-9a-f-]{36}$/i.test(orgId)) {
+    billingClientLog("warn", "checkout", "CHECKOUT_MISSING_ORGANIZATION_ID", {
+      plan: args.plan,
+      billing: args.billing,
+    });
+    return {
+      ok: false,
+      error: `${BILLING_CHECKOUT_MISSING_ORG_MESSAGE} Создайте проект в приложении или откройте существующий.`,
+    };
+  }
   const priceId = getPaddlePriceId(args.plan, args.billing);
   if (!priceId) {
     return { ok: false, error: "Цена тарифа не настроена (env NEXT_PUBLIC_PADDLE_PRICE_*)." };
@@ -112,7 +125,8 @@ export async function openPaddleSubscriptionCheckout(
       billing_period: args.billing,
       app_user_id: args.userId,
       app_email: email.toLowerCase(),
-      ...(args.primaryOrgId ? { primary_org_id: args.primaryOrgId } : {}),
+      app_organization_id: orgId,
+      primary_org_id: orgId,
       ...(args.projectId ? { project_id: args.projectId } : {}),
     },
   });

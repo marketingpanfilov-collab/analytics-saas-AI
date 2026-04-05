@@ -5,7 +5,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveEnabledAdAccountIdsForProject } from "@/app/lib/dashboardCanonical";
 import { getLastSyncFinishedAtForProject } from "@/app/lib/dashboardBackfill";
-import { type BillingPlanId, resolveBillingPlanForUser } from "@/app/lib/billingPlan";
+import { type BillingPlanId, resolveBillingPlanForUserWithOrg } from "@/app/lib/billingPlan";
 
 const MS_HOUR = 60 * 60 * 1000;
 
@@ -16,7 +16,7 @@ export function getEffectiveDashboardTtlMs(plan: BillingPlanId): number {
       return 6 * MS_HOUR;
     case "growth":
       return 3 * MS_HOUR;
-    case "agency":
+    case "scale":
       return 15 * 60 * 1000;
     default:
       return 3 * MS_HOUR;
@@ -43,7 +43,10 @@ export async function buildDashboardFreshnessPayload(
 
   let plan: BillingPlanId = "growth";
   if (opts.accessSource === "user" && opts.userId) {
-    plan = await resolveBillingPlanForUser(admin, opts.userId, opts.userEmail);
+    let organizationId: string | null = null;
+    const { data: proj } = await admin.from("projects").select("organization_id").eq("id", projectId).maybeSingle();
+    if (proj?.organization_id) organizationId = String(proj.organization_id);
+    plan = await resolveBillingPlanForUserWithOrg(admin, opts.userId, opts.userEmail, organizationId);
   }
 
   const effective_ttl_ms = getEffectiveDashboardTtlMs(plan);

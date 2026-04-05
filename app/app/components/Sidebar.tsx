@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { setActiveProjectId } from "@/app/lib/activeProjectClient";
 import SalesPlanModal, { type MonthlyPlan } from "./SalesPlanModal";
 import {
@@ -322,6 +323,7 @@ export default function Sidebar() {
   const { resolvedUi } = useBillingBootstrap();
 
   const [todayOpen, setTodayOpen] = useState(false);
+  const [todayMetricsFrameOpen, setTodayMetricsFrameOpen] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [todaySpend, setTodaySpend] = useState<number | null>(null);
   const [projects, setProjects] = useState<ProjectItem[]>([]);
@@ -859,7 +861,26 @@ export default function Sidebar() {
   const sidebarBackground =
     "radial-gradient(800px 260px at 30% 0%, rgba(120,120,255,0.16), transparent 60%), linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01))";
 
+  useEffect(() => {
+    if (!todayMetricsFrameOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setTodayMetricsFrameOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [todayMetricsFrameOpen]);
+
+  useEffect(() => {
+    if (!todayMetricsFrameOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [todayMetricsFrameOpen]);
+
   return (
+    <>
     <div
       style={{
         display: "flex",
@@ -1221,9 +1242,55 @@ export default function Sidebar() {
               {extendedMetrics.map((m) => (
                 <MetricRow key={m.key} m={m} currency={projectCurrency} usdToKztRate={usdToKztRate} />
               ))}
+              <button
+                type="button"
+                onClick={() => setTodayMetricsFrameOpen(true)}
+                style={{
+                  width: "100%",
+                  margin: "4px 0 0",
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px dashed rgba(255,255,255,0.14)",
+                  background: "transparent",
+                  color: "rgba(255,255,255,0.55)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  textAlign: "center",
+                }}
+              >
+                Открыть на весь экран
+              </button>
             </div>
           ) : (
-            <div style={{ opacity: 0.55, fontSize: 12 }}>Показать ROAS / CAC / CPR</div>
+            <button
+              type="button"
+              onClick={() => setTodayMetricsFrameOpen(true)}
+              style={{
+                width: "100%",
+                margin: 0,
+                padding: "10px 12px",
+                borderRadius: 12,
+                border: "1px solid rgba(255,255,255,0.10)",
+                background: "rgba(255,255,255,0.04)",
+                color: "rgba(255,255,255,0.72)",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+                textAlign: "center",
+                transition: "background 0.15s ease, border-color 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(255,255,255,0.08)";
+                e.currentTarget.style.borderColor = "rgba(255,255,255,0.16)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                e.currentTarget.style.borderColor = "rgba(255,255,255,0.10)";
+              }}
+            >
+              Показать ROAS / CAC / CPR
+            </button>
           )}
         </div>
       </div>
@@ -1287,7 +1354,25 @@ export default function Sidebar() {
         </Link>
       </div>
 
-      <div style={{ marginTop: "auto", fontSize: 12, color: "rgba(255,255,255,0.45)" }}>v1.0 beta</div>
+      <div style={{ marginTop: "auto", paddingTop: 14 }}>
+        <div
+          style={{
+            height: 1,
+            background: "rgba(255,255,255,0.10)",
+            opacity: 0.45,
+            margin: "0 2px 12px",
+          }}
+        />
+        <div
+          style={{
+            fontSize: 12,
+            color: "rgba(255,255,255,0.45)",
+            textAlign: "center",
+          }}
+        >
+          v2.1 Production
+        </div>
+      </div>
 
       {projectId ? (
         <SalesPlanModal
@@ -1309,5 +1394,112 @@ export default function Sidebar() {
       ) : null}
     </aside>
     </div>
+    {todayMetricsFrameOpen && typeof document !== "undefined"
+      ? createPortal(
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="sidebar-today-metrics-title"
+            style={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 4000,
+              background: "rgba(8,8,12,0.88)",
+              backdropFilter: "blur(8px)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 20,
+              boxSizing: "border-box",
+            }}
+            onClick={() => setTodayMetricsFrameOpen(false)}
+          >
+            <div
+              style={{
+                position: "relative",
+                maxWidth: 440,
+                width: "100%",
+                maxHeight: "min(92vh, 640px)",
+                overflowY: "auto",
+                borderRadius: 20,
+                border: "1px solid rgba(255,255,255,0.12)",
+                background: "rgba(18,18,26,0.98)",
+                padding: "26px 24px 24px",
+                boxShadow: "0 24px 80px rgba(0,0,0,0.65)",
+                boxSizing: "border-box",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                  marginBottom: 4,
+                  minHeight: 40,
+                }}
+              >
+                <div style={{ width: 40, flexShrink: 0 }} aria-hidden />
+                <h2
+                  id="sidebar-today-metrics-title"
+                  style={{
+                    margin: 0,
+                    flex: 1,
+                    fontSize: 22,
+                    fontWeight: 900,
+                    lineHeight: 1.2,
+                    color: "white",
+                    textAlign: "center",
+                  }}
+                >
+                  ROAS, CAC, CPR
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setTodayMetricsFrameOpen(false)}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    flexShrink: 0,
+                    margin: 0,
+                    padding: 0,
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background: "rgba(255,255,255,0.06)",
+                    color: "white",
+                    borderRadius: 10,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    lineHeight: 0,
+                  }}
+                  aria-label="Закрыть"
+                >
+                  <span style={{ fontSize: 18, lineHeight: 1, display: "block" }}>✕</span>
+                </button>
+              </div>
+              <p
+                style={{
+                  margin: "6px 0 0",
+                  fontSize: 13,
+                  lineHeight: 1.45,
+                  color: "rgba(255,255,255,0.55)",
+                  textAlign: "center",
+                }}
+              >
+                Показатели на сегодня и отклонение от дневного плана
+              </p>
+              <div style={{ display: "grid", gap: 12, marginTop: 22, minWidth: 0 }}>
+                {extendedMetrics.map((m) => (
+                  <MetricRow key={m.key} m={m} currency={projectCurrency} usdToKztRate={usdToKztRate} />
+                ))}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )
+      : null}
+    </>
   );
 }

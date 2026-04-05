@@ -11,7 +11,7 @@
 - **P0-CON-02** — клиент: `isBootstrapResponseValid` расширен (`pending_plan_change`, `intended_route`); несовпадение `version` по-прежнему даёт reject JSON → fallback/retry.
 - **P0-CON-03** — убран `rawResolvedUi` из контекста; shell потребляет только `resolvedUi`; комментарий в типе контекста.
 - **P0-LOG-01** — `billingHeavySyncGateBeforeProject` / `billingAnalyticsReadGateBeforeProject`; применён на перечисленных маршрутах **до** проверки project (кроме internal, где pre-check пропускается); комментарий в `billingShellResolver`.
-- **P0-UX-01** — Topbar: тариф из `plan_feature_matrix` при наличии; `isMaxPlan` только при agency + безлимиты в матрице (источник с сервера).
+- **P0-UX-01** — Topbar: тариф из `plan_feature_matrix` при наличии; `isMaxPlan` только при плане `scale` + безлимиты в матрице (источник с сервера).
 - **P0-RUN-01** — `capResolvedUiNeverExpand` для last-known при ошибке bootstrap; исправлена логика stabilization (не понижать `blocking_level` при новом fetch); при использовании last-known включается `clientSafeMode`.
 
 ## 2. Изменённые файлы

@@ -3,6 +3,8 @@
 import { Suspense, useEffect, useState } from "react";
 import DevAbortRejectionSuppressor from "../components/DevAbortRejectionSuppressor";
 import { BillingBootstrapProvider } from "../components/BillingBootstrapProvider";
+import { BillingPricingModalProvider } from "../components/BillingPricingModalProvider";
+import { BillingShellGate } from "../components/BillingShellGate";
 import Topbar from "../components/Topbar";
 import { supabase } from "../../lib/supabaseClient";
 
@@ -38,22 +40,26 @@ export default function NoSidebarLayout({ children }: { children: React.ReactNod
 
   return (
     <BillingBootstrapProvider>
-      <div
-        style={{
-          minHeight: "100vh",
-          background: "#0b0b10",
-          display: "grid",
-          gridTemplateRows: "64px 1fr",
-        }}
-      >
-        <DevAbortRejectionSuppressor />
-        <div style={{ height: 64 }}>
-          <Suspense fallback={<TopbarFallback />}>
-            <Topbar email={email} />
-          </Suspense>
+      <BillingPricingModalProvider>
+        <div
+          style={{
+            minHeight: "100vh",
+            background: "#0b0b10",
+            display: "grid",
+            gridTemplateRows: "64px 1fr",
+          }}
+        >
+          <DevAbortRejectionSuppressor />
+          <div style={{ height: 64 }}>
+            <Suspense fallback={<TopbarFallback />}>
+              <Topbar email={email} />
+            </Suspense>
+          </div>
+          <main style={{ minHeight: 0 }}>
+            <BillingShellGate>{children}</BillingShellGate>
+          </main>
         </div>
-        <main style={{ minHeight: 0 }}>{children}</main>
-      </div>
+      </BillingPricingModalProvider>
     </BillingBootstrapProvider>
   );
 }

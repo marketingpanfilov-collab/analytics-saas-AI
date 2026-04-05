@@ -19,7 +19,8 @@ export function isInternalSyncRequest(request: Request): boolean {
 
 export type ProjectAccessCheckResult =
   | { allowed: true; source: "internal" }
-  | { allowed: true; source: "user"; userId: string }
+  /** projectId задан при проверке конкретного проекта; без поля — только user-id контекст (например pre-project gate). */
+  | { allowed: true; source: "user"; userId: string; projectId?: string }
   | { allowed: false; status: 401 | 403; body: { success: false; error: string } };
 
 export type RequireProjectAccessOptions = {
@@ -76,7 +77,7 @@ export async function requireProjectAccessOrInternal(
     };
   }
 
-  return { allowed: true, source: "user", userId: user.id };
+  return { allowed: true, source: "user", userId: user.id, projectId };
 }
 
 /** Header to send when calling sync from server (e.g. backfill). Only use in server-side code. */

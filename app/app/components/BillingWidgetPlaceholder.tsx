@@ -7,7 +7,49 @@ type Props = {
   minHeight?: number;
 };
 
+function WidgetSkeleton({ minHeight }: { minHeight: number }) {
+  const bar = (w: string) => (
+    <div
+      style={{
+        height: 12,
+        width: w,
+        borderRadius: 8,
+        background: "rgba(255,255,255,0.08)",
+        animation: "billing-widget-pulse 1.2s ease-in-out infinite",
+      }}
+    />
+  );
+  return (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label="Загрузка"
+      style={{
+        minHeight,
+        borderRadius: 16,
+        border: "1px solid rgba(255,255,255,0.08)",
+        background: "rgba(255,255,255,0.03)",
+        padding: 20,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        gap: 14,
+        boxSizing: "border-box",
+      }}
+    >
+      <style>{`@keyframes billing-widget-pulse { 0%,100%{opacity:1} 50%{opacity:0.45} }`}</style>
+      {bar("42%")}
+      {bar("78%")}
+      {bar("56%")}
+    </div>
+  );
+}
+
 export default function BillingWidgetPlaceholder({ pack, minHeight = 200 }: Props) {
+  if (pack.state === "LOADING") {
+    return <WidgetSkeleton minHeight={minHeight} />;
+  }
+
   if (pack.state === "EMPTY" && !pack.title) return null;
 
   const border =
@@ -45,9 +87,6 @@ export default function BillingWidgetPlaceholder({ pack, minHeight = 200 }: Prop
       {pack.hint ? (
         <div style={{ fontSize: 13, lineHeight: 1.45, color: "rgba(255,255,255,0.72)" }}>{pack.hint}</div>
       ) : null}
-      <div style={{ fontSize: 11, opacity: 0.45, color: "rgba(255,255,255,0.8)" }}>
-        {pack.reasonCode ? `reason: ${pack.reasonCode}` : null}
-      </div>
     </div>
   );
 }

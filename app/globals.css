@@ -86,6 +86,12 @@ h3 {
   }
 }
 
+@keyframes billing-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Лендинг: плавная смена сумм при переключении Мес / Год */
 @keyframes pricing-billing-enter {
   from {
@@ -1394,4 +1400,58 @@ button:not([class]):hover {
 .settings-subtab-btn[data-active="true"] {
   border-color: rgba(255, 255, 255, 0.18);
   background: rgba(255, 255, 255, 0.08);
+}
+
+/* Печать / PDF: многостраничный поток, полная ширина листа (без колонки сайдбара) */
+@media print {
+  html,
+  body {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    overflow-x: visible !important;
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  #__next {
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 0 !important;
+  }
+
+  .app-shell-grid {
+    display: block !important;
+    min-height: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  .app-shell-sidebar {
+    display: none !important;
+  }
+
+  .app-shell-main-stack {
+    display: block !important;
+    min-height: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  .app-shell-banners,
+  .app-shell-topbar {
+    display: none !important;
+  }
+
+  .app-shell-main {
+    overflow: visible !important;
+    overflow-x: visible !important;
+    overflow-y: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    position: static !important;
+  }
 }

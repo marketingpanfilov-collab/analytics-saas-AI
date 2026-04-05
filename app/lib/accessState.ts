@@ -15,7 +15,7 @@ export type AccessState =
   | "expired"
   | "refunded";
 
-export type EffectivePlan = "starter" | "growth" | "agency" | null;
+export type EffectivePlan = "starter" | "growth" | "scale" | null;
 
 export type SubscriptionLike = {
   status: string;
@@ -84,7 +84,8 @@ export function resolveAccessState(
 
 export function resolveEffectivePlan(plan: string | null | undefined): EffectivePlan {
   const p = String(plan ?? "").toLowerCase();
-  if (p === "starter" || p === "growth" || p === "agency") return p;
+  if (p === "agency") return "scale";
+  if (p === "starter" || p === "growth" || p === "scale") return p;
   return null;
 }
 

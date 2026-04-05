@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUserContext } from "@/app/lib/auth/getCurrentUserContext";
+import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { getPlanMaxProjectsForUser } from "@/app/lib/projectPlanLimit";
 import ProjectsListClient from "../../components/projects/ProjectsListClient";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +23,17 @@ export default async function ProjectsPage() {
     context.memberships.length > 0 &&
     ORG_ROLES_CAN_CREATE.includes(context.memberships[0]!.role);
 
+  let planMaxProjects: number | null = null;
+  if (context.organizationId) {
+    const admin = supabaseAdmin();
+    planMaxProjects = await getPlanMaxProjectsForUser(
+      admin,
+      context.user.id,
+      context.user.email ?? null,
+      context.organizationId
+    );
+  }
+
   return (
     <ProjectsListClient
       projects={context.projects}
@@ -33,6 +46,7 @@ export default async function ProjectsPage() {
       canTransferOwnership={context.canTransferOwnership}
       organizationId={context.organizationId}
       organizationName={context.organizationName}
+      planMaxProjects={planMaxProjects}
     />
   );
 }

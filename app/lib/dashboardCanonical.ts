@@ -176,6 +176,33 @@ export async function resolveEnabledAdAccountIdsForProject(
   return list.map((a) => a.id);
 }
 
+/** Enabled canonical ad_accounts.id по всем неархивным проектам организации (как дашборд / accounts). */
+export async function collectEnabledAdAccountIdsForOrganization(
+  admin: SupabaseClient,
+  organizationId: string
+): Promise<Set<string>> {
+  const { data: projects } = await admin
+    .from("projects")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("archived", false);
+  const pids = (projects ?? []).map((p: { id: string }) => String(p.id));
+  const enabled = new Set<string>();
+  for (const pid of pids) {
+    const acc = await resolveEnabledAdAccountIdsForProject(admin, pid);
+    for (const a of acc) enabled.add(a);
+  }
+  return enabled;
+}
+
+export async function countEnabledAdAccountsForOrganization(
+  admin: SupabaseClient,
+  organizationId: string
+): Promise<number> {
+  const s = await collectEnabledAdAccountIdsForOrganization(admin, organizationId);
+  return s.size;
+}
+
 type RawMetricRow = {
   ad_account_id: string;
   date: string;

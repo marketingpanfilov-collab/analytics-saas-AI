@@ -1242,6 +1242,9 @@ export default function ReportsPageClient() {
   const loadMarketingSummary = useCallback(
     async (signal?: AbortSignal) => {
       if (!projectId) return;
+      if (reportsPack.state === "LOADING") {
+        return;
+      }
       if (reportsPack.state === "BLOCKED") {
         setLoading(false);
         setData(null);
@@ -1251,7 +1254,7 @@ export default function ReportsPageClient() {
       if (!billingActionAllowed(resolvedUi, ActionId.navigate_app)) {
         setLoading(false);
         setData(null);
-        setError("Отчёт недоступен в текущем режиме доступа (нет navigate_app).");
+        setError("Отчёт временно недоступен. Обновите страницу или откройте проект из списка.");
         return;
       }
       const start = appliedDateFrom;
@@ -1915,6 +1918,10 @@ export default function ReportsPageClient() {
         </p>
       </div>
     );
+  }
+
+  if (reportsPack.state === "LOADING") {
+    return <ReportsPageSkeleton />;
   }
 
   if (reportsPack.state === "BLOCKED") {

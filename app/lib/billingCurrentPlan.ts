@@ -3,8 +3,17 @@
  */
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { detectPlanFromPriceId } from "@/app/lib/billingPlan";
-import type { BillingPlanId } from "@/app/lib/billingPlan";
+import { detectPlanFromPriceId } from "@/app/lib/billingPlanPriceDetect";
+import type { BillingPlanId } from "@/app/lib/billingPlanPriceDetect";
+import {
+  getAccessibleProjectIds,
+  getBillingPayerUserForOrganization,
+  resolveBillingOrganizationId,
+} from "@/app/lib/billingOrganizationContext";
+import {
+  collectPaddleCustomerIdsForBillingContext,
+  resolveActiveEntitlementForBillingContext,
+} from "@/app/lib/orgBillingState";
 import {
   type AccessState,
   type EffectivePlan,
@@ -13,7 +22,20 @@ import {
 } from "@/app/lib/accessState";
 import { resolveBillingShell, type InvitePendingShell } from "@/app/lib/billingShellResolver";
 import { isCompleteResolvedUiStateV1, type ResolvedUiStateV1 } from "@/app/lib/billingUiContract";
-import { getPlanFeatureMatrix, type PlanFeatureMatrix } from "@/app/lib/planConfig";
+import {
+  getPlanFeatureMatrix,
+  normalizeMaxSeatsForEnforcement,
+  type PlanFeatureMatrix,
+} from "@/app/lib/planConfig";
+import { countEnabledAdAccountsForOrganization } from "@/app/lib/dashboardCanonical";
+import { getBillableSeatsBreakdownForOrganization } from "@/app/lib/orgSeatPlanLimit";
+
+export {
+  getAccessibleProjectIds,
+  getBillingPayerUserForOrganization,
+  getPrimaryOwnerOrgId,
+  resolveBillingOrganizationId,
+} from "@/app/lib/billingOrganizationContext";
 
 const ACTIVE_STATUSES = new Set(["active", "trialing", "past_due"]);
 
@@ -56,6 +78,8 @@ export type BillingCurrentPlanPayload = {
   has_org_membership: boolean;
   onboarding_progress: OnboardingProgress | null;
   plan_feature_matrix: PlanFeatureMatrix;
+  /** Сколько рекламных аккаунтов включено в организации (каноническая семантика дашборда). */
+  org_enabled_ad_accounts: number | null;
   feature_flags: BillingFeatureFlagsPayload;
   resolved_ui_state: ResolvedUiStateV1;
 };
@@ -64,39 +88,9 @@ export type BillingCurrentPlanError = { success: false; error: string };
 
 export type LoadBillingCurrentPlanOptions = {
   requestId?: string;
+  /** Открытый проект: биллинг организации этого проекта (invited / project-only). */
+  projectId?: string | null;
 };
-
-async function collectPaddleCustomerIds(
-  admin: SupabaseClient,
-  userId: string,
-  email: string | null
-): Promise<string[]> {
-  const customerIds = new Set<string>();
-  const { data: byUser } = await admin
-    .from("billing_customer_map")
-    .select("provider_customer_id")
-    .eq("provider", "paddle")
-    .eq("user_id", userId)
-    .order("updated_at", { ascending: false })
-    .limit(5);
-  for (const r of byUser ?? []) {
-    if (r.provider_customer_id) customerIds.add(String(r.provider_customer_id));
-  }
-  const em = (email ?? "").trim().toLowerCase();
-  if (customerIds.size === 0 && em) {
-    const { data: byEmail } = await admin
-      .from("billing_customer_map")
-      .select("provider_customer_id")
-      .eq("provider", "paddle")
-      .eq("email", em)
-      .order("updated_at", { ascending: false })
-      .limit(5);
-    for (const r of byEmail ?? []) {
-      if (r.provider_customer_id) customerIds.add(String(r.provider_customer_id));
-    }
-  }
-  return Array.from(customerIds);
-}
 
 async function fetchPendingPlanChangeForCustomers(
   admin: SupabaseClient,
@@ -146,45 +140,6 @@ function pickTopSubscription(list: SubRow[]): SubRow | null {
     return bTs - aTs;
   });
   return activeFirst[0] ?? null;
-}
-
-export async function getAccessibleProjectIds(admin: SupabaseClient, userId: string): Promise<Set<string>> {
-  const ids = new Set<string>();
-  const { data: om } = await admin
-    .from("organization_members")
-    .select("organization_id, role")
-    .eq("user_id", userId);
-  for (const m of om ?? []) {
-    const role = String(m.role ?? "member");
-    if (role === "owner" || role === "admin" || role === "agency") {
-      const { data: projs } = await admin
-        .from("projects")
-        .select("id")
-        .eq("organization_id", m.organization_id)
-        .eq("archived", false);
-      for (const p of projs ?? []) ids.add(String(p.id));
-    }
-  }
-  const { data: pms } = await admin.from("project_members").select("project_id").eq("user_id", userId);
-  const pids = [...new Set((pms ?? []).map((p) => p.project_id).filter(Boolean))] as string[];
-  if (pids.length) {
-    const { data: projs } = await admin.from("projects").select("id").in("id", pids).eq("archived", false);
-    for (const p of projs ?? []) ids.add(String(p.id));
-  }
-  return ids;
-}
-
-export async function getPrimaryOwnerOrgId(admin: SupabaseClient, userId: string): Promise<string | null> {
-  const { data: rows } = await admin
-    .from("organization_members")
-    .select("organization_id, role, created_at")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: true });
-  const list = rows ?? [];
-  const owner = list.find((r) => String(r.role) === "owner");
-  if (owner?.organization_id) return String(owner.organization_id);
-  if (list[0]?.organization_id) return String(list[0].organization_id);
-  return null;
 }
 
 export async function isCompanyProfileCompleteForOrg(
@@ -266,10 +221,13 @@ const INVITE_SHELL_TIMEOUT_MS = 7000;
 async function computeInvitePendingState(
   admin: SupabaseClient,
   userId: string,
-  email: string | null
+  email: string | null,
+  hasAnyAccessibleProject: boolean
 ): Promise<InvitePendingShell> {
   const em = (email ?? "").trim().toLowerCase();
   if (!em) return "none";
+  // Уже есть проект — не блокировать шеллом из‑за старых pending invites на тот же email.
+  if (hasAnyAccessibleProject) return "none";
   const nowIso = new Date().toISOString();
   const { data: invites } = await admin
     .from("project_invites")
@@ -296,25 +254,6 @@ async function computeInvitePendingState(
   return hasFreshWait ? "waiting" : "none";
 }
 
-async function countEnabledAdAccountsForOrg(admin: SupabaseClient, organizationId: string): Promise<number> {
-  const { data: projects } = await admin
-    .from("projects")
-    .select("id")
-    .eq("organization_id", organizationId)
-    .eq("archived", false);
-  const pids = (projects ?? []).map((p) => String(p.id));
-  if (!pids.length) return 0;
-  const { data: integrations } = await admin.from("integrations").select("id").in("project_id", pids);
-  const iids = (integrations ?? []).map((i) => String(i.id));
-  if (!iids.length) return 0;
-  const { count } = await admin
-    .from("ad_accounts")
-    .select("id", { count: "exact", head: true })
-    .in("integration_id", iids)
-    .eq("is_enabled", true);
-  return count ?? 0;
-}
-
 async function computeOverLimitViolations(
   admin: SupabaseClient,
   organizationId: string,
@@ -330,16 +269,31 @@ async function computeOverLimitViolations(
     const c = count ?? 0;
     if (c > matrix.max_projects) out.push({ type: "projects", current: c, limit: matrix.max_projects });
   }
-  if (matrix.max_seats != null) {
-    const { count } = await admin
-      .from("organization_members")
-      .select("id", { count: "exact", head: true })
-      .eq("organization_id", organizationId);
-    const c = count ?? 0;
-    if (c > matrix.max_seats) out.push({ type: "seats", current: c, limit: matrix.max_seats });
+  const seatLimit = normalizeMaxSeatsForEnforcement(matrix.max_seats);
+  if (seatLimit != null) {
+    try {
+      const breakdown = await getBillableSeatsBreakdownForOrganization(admin, organizationId);
+      const c = breakdown.distinct_union_user_ids.length;
+      if (c > seatLimit) {
+        if (process.env.NODE_ENV === "development") {
+          console.log("[billing][seats_over_limit]", {
+            organizationId,
+            limit: seatLimit,
+            current: c,
+            organization_member_user_ids: breakdown.organization_member_user_ids,
+            project_member_distinct_user_ids: breakdown.project_member_distinct_user_ids,
+            seat_holders_without_org_row: breakdown.seat_holders_without_org_membership_row,
+            project_only_seat_details: breakdown.project_only_seat_details,
+          });
+        }
+        out.push({ type: "seats", current: c, limit: seatLimit });
+      }
+    } catch {
+      /* совпадает с прежним поведением при ошибке count: не добавлять seats violation */
+    }
   }
   if (matrix.max_ad_accounts != null) {
-    const n = await countEnabledAdAccountsForOrg(admin, organizationId);
+    const n = await countEnabledAdAccountsForOrganization(admin, organizationId);
     if (n > matrix.max_ad_accounts) out.push({ type: "ad_accounts", current: n, limit: matrix.max_ad_accounts });
   }
   return out;
@@ -351,14 +305,20 @@ async function buildShellEnrichment(
   email: string | null,
   orgId: string | null,
   access_state: AccessState,
-  effective_plan: EffectivePlan
+  effective_plan: EffectivePlan,
+  hasAnyAccessibleProject: boolean
 ): Promise<{
   invite_pending: InvitePendingShell;
   over_limit_violations: NonNullable<ResolvedUiStateV1["over_limit_details"]>;
 }> {
-  const invite_pending = await computeInvitePendingState(admin, userId, email);
+  const invite_pending = await computeInvitePendingState(
+    admin,
+    userId,
+    email,
+    hasAnyAccessibleProject
+  );
   const matrixPlan: BillingPlanId =
-    effective_plan === "starter" || effective_plan === "growth" || effective_plan === "agency"
+    effective_plan === "starter" || effective_plan === "growth" || effective_plan === "scale"
       ? effective_plan
       : "unknown";
   const matrix = getPlanFeatureMatrix(matrixPlan);
@@ -382,6 +342,7 @@ function assembleBillingPayload(
     has_org_membership: boolean;
     pending_plan_change_db: boolean;
     primary_org_id: string | null;
+    org_enabled_ad_accounts: number | null;
     invite_pending: InvitePendingShell;
     over_limit_violations: NonNullable<ResolvedUiStateV1["over_limit_details"]>;
   },
@@ -407,7 +368,7 @@ function assembleBillingPayload(
   const matrixPlan: BillingPlanId =
     input.effective_plan === "starter" ||
     input.effective_plan === "growth" ||
-    input.effective_plan === "agency"
+    input.effective_plan === "scale"
       ? input.effective_plan
       : "unknown";
   const plan_feature_matrix = getPlanFeatureMatrix(matrixPlan);
@@ -431,6 +392,7 @@ function assembleBillingPayload(
     has_any_accessible_project: input.has_any_accessible_project,
     has_org_membership: input.has_org_membership,
     plan_feature_matrix,
+    org_enabled_ad_accounts: input.org_enabled_ad_accounts,
     onboarding_progress,
     feature_flags: getBillingFeatureFlagsPayload(),
     resolved_ui_state: resolvedWithRid,
@@ -449,30 +411,38 @@ export async function loadBillingCurrentPlan(
   const has_org_membership = await hasOrgMembership(admin, userId);
   const projectIds = await getAccessibleProjectIds(admin, userId);
   const has_any_accessible_project = projectIds.size > 0;
-  const orgId = await getPrimaryOwnerOrgId(admin, userId);
-  const company_profile_completed = orgId ? await isCompanyProfileCompleteForOrg(admin, orgId) : false;
+  const billingOrgId = await resolveBillingOrganizationId(
+    admin,
+    userId,
+    options?.projectId ?? null,
+    projectIds
+  );
+  const company_profile_completed = billingOrgId
+    ? await isCompanyProfileCompleteForOrg(admin, billingOrgId)
+    : false;
+  let org_enabled_ad_accounts: number | null = null;
+  if (billingOrgId) {
+    try {
+      org_enabled_ad_accounts = await countEnabledAdAccountsForOrganization(admin, billingOrgId);
+    } catch {
+      org_enabled_ad_accounts = null;
+    }
+  }
 
-  const { data: entitlements } = await admin
-    .from("billing_entitlements")
-    .select("id, plan_override, status, starts_at, ends_at, source, reason, updated_at")
-    .eq("user_id", userId)
-    .eq("status", "active")
-    .order("updated_at", { ascending: false })
-    .limit(10);
+  const payer = billingOrgId ? await getBillingPayerUserForOrganization(admin, billingOrgId) : null;
+  const billingUserId = payer?.userId ?? userId;
+  const billingEmail = payer?.email ?? email;
 
-  const activeEntitlement = (entitlements ?? []).find((e) => {
-    const startsAt = e.starts_at ? Date.parse(String(e.starts_at)) : 0;
-    const endsAt = e.ends_at ? Date.parse(String(e.ends_at)) : null;
-    const nowTs = Date.parse(nowIso);
-    if (Number.isFinite(startsAt) && nowTs < startsAt) return false;
-    if (endsAt != null && Number.isFinite(endsAt) && nowTs > endsAt) return false;
-    return true;
-  });
+  const activeEntitlement = await resolveActiveEntitlementForBillingContext(admin, nowIso, billingOrgId);
 
   if (activeEntitlement?.plan_override) {
     const plan = String(activeEntitlement.plan_override).toLowerCase();
     const normalizedPlan =
-      plan === "starter" || plan === "growth" || plan === "agency" ? plan : "unknown";
+      plan === "agency"
+        ? "scale"
+        : plan === "starter" || plan === "growth" || plan === "scale"
+          ? plan
+          : "unknown";
     const subscription: CurrentPlanSubscription = {
       provider: "entitlement",
       plan: normalizedPlan,
@@ -494,7 +464,15 @@ export async function loadBillingCurrentPlan(
     const requires_post_checkout_onboarding = false;
     let onboarding_state = "ok";
     if (!has_any_accessible_project) onboarding_state = "paid_but_no_project";
-    const shell = await buildShellEnrichment(admin, userId, email, orgId, access_state, effective_plan);
+    const shell = await buildShellEnrichment(
+      admin,
+      userId,
+      email,
+      billingOrgId,
+      access_state,
+      effective_plan,
+      has_any_accessible_project
+    );
     return assembleBillingPayload(
       {
         subscription,
@@ -507,7 +485,8 @@ export async function loadBillingCurrentPlan(
         has_any_accessible_project,
         has_org_membership,
         pending_plan_change_db: false,
-        primary_org_id: orgId,
+        primary_org_id: billingOrgId,
+        org_enabled_ad_accounts,
         invite_pending: shell.invite_pending,
         over_limit_violations: shell.over_limit_violations,
       },
@@ -515,12 +494,20 @@ export async function loadBillingCurrentPlan(
     );
   }
 
-  const customerIds = await collectPaddleCustomerIds(admin, userId, email);
+  const customerIds = await collectPaddleCustomerIdsForBillingContext(admin, billingOrgId);
   const pending_plan_change_db = await fetchPendingPlanChangeForCustomers(admin, customerIds);
 
   if (customerIds.length === 0) {
     const access_state: AccessState = "no_subscription";
-    const shell = await buildShellEnrichment(admin, userId, email, orgId, access_state, null);
+    const shell = await buildShellEnrichment(
+      admin,
+      userId,
+      email,
+      billingOrgId,
+      access_state,
+      null,
+      has_any_accessible_project
+    );
     return assembleBillingPayload(
       {
         subscription: null,
@@ -533,7 +520,8 @@ export async function loadBillingCurrentPlan(
         has_any_accessible_project,
         has_org_membership,
         pending_plan_change_db: false,
-        primary_org_id: orgId,
+        primary_org_id: billingOrgId,
+        org_enabled_ad_accounts,
         invite_pending: shell.invite_pending,
         over_limit_violations: shell.over_limit_violations,
       },
@@ -558,7 +546,15 @@ export async function loadBillingCurrentPlan(
   const list = (subs ?? []) as SubRow[];
   if (!list.length) {
     const access_state: AccessState = "no_subscription";
-    const shell = await buildShellEnrichment(admin, userId, email, orgId, access_state, null);
+    const shell = await buildShellEnrichment(
+      admin,
+      userId,
+      email,
+      billingOrgId,
+      access_state,
+      null,
+      has_any_accessible_project
+    );
     return assembleBillingPayload(
       {
         subscription: null,
@@ -571,7 +567,8 @@ export async function loadBillingCurrentPlan(
         has_any_accessible_project,
         has_org_membership,
         pending_plan_change_db: false,
-        primary_org_id: orgId,
+        primary_org_id: billingOrgId,
+        org_enabled_ad_accounts,
         invite_pending: shell.invite_pending,
         over_limit_violations: shell.over_limit_violations,
       },
@@ -624,7 +621,11 @@ export async function loadBillingCurrentPlan(
 
   const paddlePaid =
     (displayStatus === "active" || displayStatus === "trialing") && !isExpiredByDate;
-  await ensurePostCheckoutRowForNewPayer(admin, userId, paddlePaid);
+  await ensurePostCheckoutRowForNewPayer(
+    admin,
+    userId,
+    paddlePaid && billingUserId === userId
+  );
 
   const { data: pcRow } = await admin
     .from("user_post_checkout_onboarding")
@@ -645,7 +646,15 @@ export async function loadBillingCurrentPlan(
   else if (paddlePaid && !has_any_accessible_project) onboarding_state = "paid_but_no_project";
   else if (!paddlePaid && access_state === "no_subscription") onboarding_state = "no_subscription";
 
-  const shell = await buildShellEnrichment(admin, userId, email, orgId, access_state, effective_plan);
+  const shell = await buildShellEnrichment(
+    admin,
+    userId,
+    email,
+    billingOrgId,
+    access_state,
+    effective_plan,
+    has_any_accessible_project
+  );
   return assembleBillingPayload(
     {
       subscription,
@@ -658,7 +667,8 @@ export async function loadBillingCurrentPlan(
       has_any_accessible_project,
       has_org_membership,
       pending_plan_change_db,
-      primary_org_id: orgId,
+      primary_org_id: billingOrgId,
+      org_enabled_ad_accounts,
       invite_pending: shell.invite_pending,
       over_limit_violations: shell.over_limit_violations,
     },
@@ -669,10 +679,12 @@ export async function loadBillingCurrentPlan(
 export async function resolveBillingGateContext(
   admin: SupabaseClient,
   userId: string,
-  email: string | null
+  email: string | null,
+  opts?: { projectId?: string | null }
 ): Promise<{ access_state: AccessState; effective_plan: EffectivePlan }> {
   const r = await loadBillingCurrentPlan(admin, userId, email, {
     requestId: `gate-${randomUUID()}`,
+    projectId: opts?.projectId ?? null,
   });
   if (!r.success) return { access_state: "no_subscription", effective_plan: null };
   return { access_state: r.access_state, effective_plan: r.effective_plan };
