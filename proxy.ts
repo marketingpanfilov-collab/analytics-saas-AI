@@ -1,23 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-
-/**
- * Разрешить только внутренние пути под `/app` (без open-redirect).
- * Возвращает `pathname + search` для параметра `next` или редиректа.
- */
-function safeAppNextTarget(raw: string | null, origin: string): string | null {
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return null;
-  try {
-    const base = new URL(origin);
-    const resolved = new URL(raw, base);
-    if (resolved.origin !== base.origin) return null;
-    const p = resolved.pathname;
-    if (p !== "/app" && !p.startsWith("/app/")) return null;
-    return `${resolved.pathname}${resolved.search}`;
-  } catch {
-    return null;
-  }
-}
+import { safeAppNextTarget } from "@/app/lib/auth/safeAppNextTarget";
 
 /** Публичные шаги передачи организации по ссылке из письма (гость без сессии). */
 function isOrgTransferPublicPath(pathname: string): boolean {

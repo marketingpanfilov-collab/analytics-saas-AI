@@ -33,6 +33,24 @@ import { addPaddleEventListener, getPaddle } from "../lib/paddle";
 import { getPaddlePriceId, getPaddleProductId, type BillingPeriod } from "../lib/paddlePriceMap";
 import { supabase } from "../lib/supabaseClient";
 
+/** Абсолютный URL для письма подтверждения (Supabase redirect allow-list). */
+function buildEmailConfirmRedirectUrl(): string {
+  const origin =
+    typeof window !== "undefined"
+      ? window.location.origin
+      : (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
+  const next = encodeURIComponent("/app/projects");
+  return `${origin.replace(/\/$/, "")}/auth/callback?next=${next}`;
+}
+
+function buildPasswordResetRedirectUrl(): string {
+  const origin =
+    typeof window !== "undefined"
+      ? window.location.origin
+      : (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
+  return `${origin.replace(/\/$/, "")}/reset`;
+}
+
 type Mode = "login" | "signup";
 
 export default function LoginPageClient() {
@@ -64,6 +82,21 @@ export default function LoginPageClient() {
       }
     }
     return path;
+  }, [searchParams]);
+
+  const authCallbackHint = useMemo(() => {
+    const err = searchParams.get("auth_error");
+    const hint = searchParams.get("auth_hint");
+    if (hint === "missing_code") {
+      return "Ссылка подтверждения недействительна или устарела. Запросите новое письмо или войдите вручную.";
+    }
+    if (err === "exchange_failed") {
+      return "Не удалось завершить подтверждение. Попробуйте войти с email и паролем.";
+    }
+    if (err) {
+      return "Подтверждение email не удалось. Попробуйте войти или запросите письмо снова.";
+    }
+    return null;
   }, [searchParams]);
 
   const [mode, setMode] = useState<Mode>("login");
@@ -179,6 +212,7 @@ export default function LoginPageClient() {
       const { error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
+        options: { emailRedirectTo: buildEmailConfirmRedirectUrl() },
       });
       if (error) {
         setMsg(error.message);
@@ -228,6 +262,7 @@ export default function LoginPageClient() {
       const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
+        options: { emailRedirectTo: buildEmailConfirmRedirectUrl() },
       });
 
       if (error) {
@@ -449,7 +484,7 @@ export default function LoginPageClient() {
     setLoading(true);
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: "http://localhost:3000/reset",
+        redirectTo: buildPasswordResetRedirectUrl(),
       });
 
       if (error) return setMsg(error.message);
@@ -543,6 +578,14 @@ export default function LoginPageClient() {
           </div>
 
           <div className="mt-6 space-y-6">
+            {authCallbackHint ? (
+              <div
+                className="rounded-xl border border-amber-400/35 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-100/95"
+                role="status"
+              >
+                {authCallbackHint}
+              </div>
+            ) : null}
             <div>
               <label htmlFor="login-email" className="block text-sm font-medium text-zinc-300">
                 Email
