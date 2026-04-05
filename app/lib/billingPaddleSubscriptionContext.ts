@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PricingPlanId } from "@/app/lib/auth/loginPurchaseUrl";
-import { detectPlanFromPriceId } from "@/app/lib/billingPlanPriceDetect";
+import { detectPlanFromPaddleSnapshot } from "@/app/lib/billingPlanPriceDetect";
+import { pickTopPaddleSubscriptionRow } from "@/app/lib/billingSubscriptionPick";
 import { getAccessibleProjectIds, resolveBillingOrganizationId } from "@/app/lib/billingOrganizationContext";
 import { collectPaddleCustomerIdsForBillingContext } from "@/app/lib/orgBillingState";
 import type { BillingPeriod } from "@/app/lib/paddlePriceMap";
@@ -11,23 +12,11 @@ type SubRow = {
   provider_subscription_id: string;
   provider_customer_id: string | null;
   provider_price_id: string | null;
+  provider_product_id: string | null;
   status: string | null;
   current_period_end: string | null;
   updated_at: string | null;
 };
-
-function pickTopSubscription(list: SubRow[]): SubRow | null {
-  if (!list.length) return null;
-  const sorted = [...list].sort((a, b) => {
-    const aActive = ACTIVE_STATUSES.has(String(a.status ?? "").toLowerCase()) ? 1 : 0;
-    const bActive = ACTIVE_STATUSES.has(String(b.status ?? "").toLowerCase()) ? 1 : 0;
-    if (aActive !== bActive) return bActive - aActive;
-    const aTs = Date.parse(String(a.current_period_end ?? a.updated_at ?? "")) || 0;
-    const bTs = Date.parse(String(b.current_period_end ?? b.updated_at ?? "")) || 0;
-    return bTs - aTs;
-  });
-  return sorted[0] ?? null;
-}
 
 export type PaddleSubscriptionUpgradeContext = {
   provider_subscription_id: string;
@@ -60,7 +49,7 @@ export async function loadPaddleSubscriptionUpgradeContext(
   const { data: subs, error } = await admin
     .from("billing_subscriptions")
     .select(
-      "provider_subscription_id, provider_customer_id, provider_price_id, status, current_period_end, updated_at"
+      "provider_subscription_id, provider_customer_id, provider_price_id, provider_product_id, status, current_period_end, updated_at"
     )
     .eq("provider", "paddle")
     .in("provider_customer_id", customerIds)
@@ -69,13 +58,16 @@ export async function loadPaddleSubscriptionUpgradeContext(
 
   if (error || !subs?.length) return null;
 
-  const top = pickTopSubscription(subs as SubRow[]);
+  const top = pickTopPaddleSubscriptionRow(subs as SubRow[]);
   if (!top?.provider_subscription_id) return null;
 
   const st = String(top.status ?? "").toLowerCase();
   if (!ACTIVE_STATUSES.has(st)) return null;
 
-  const meta = detectPlanFromPriceId(top.provider_price_id ?? null);
+  const meta = detectPlanFromPaddleSnapshot(
+    top.provider_price_id ?? null,
+    top.provider_product_id ?? null
+  );
   return {
     provider_subscription_id: top.provider_subscription_id,
     provider_customer_id: top.provider_customer_id,

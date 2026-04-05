@@ -3,6 +3,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { detectPlanFromPaddleSnapshot, type BillingPlanId } from "@/app/lib/billingPlanPriceDetect";
+import { pickTopPaddleSubscriptionRow } from "@/app/lib/billingSubscriptionPick";
 
 const ACTIVE_STATUSES = new Set(["active", "trialing", "past_due"]);
 
@@ -103,6 +104,7 @@ export async function collectPaddleCustomerIdsForBillingContext(
 }
 
 type SubPickRow = {
+  provider_subscription_id: string;
   provider_price_id: string | null;
   provider_product_id: string | null;
   status: string | null;
@@ -111,16 +113,7 @@ type SubPickRow = {
 };
 
 function pickTopSubscriptionRow(list: SubPickRow[]): SubPickRow | null {
-  if (!list.length) return null;
-  const sorted = [...list].sort((a, b) => {
-    const aActive = ACTIVE_STATUSES.has(String(a.status ?? "").toLowerCase()) ? 1 : 0;
-    const bActive = ACTIVE_STATUSES.has(String(b.status ?? "").toLowerCase()) ? 1 : 0;
-    if (aActive !== bActive) return bActive - aActive;
-    const aTs = Date.parse(String(a.current_period_end ?? a.updated_at ?? "")) || 0;
-    const bTs = Date.parse(String(b.current_period_end ?? b.updated_at ?? "")) || 0;
-    return bTs - aTs;
-  });
-  return sorted[0] ?? null;
+  return pickTopPaddleSubscriptionRow(list);
 }
 
 /** Resolve plan from Paddle subscription rows (shared by current-plan and org plan resolution). */
@@ -132,7 +125,9 @@ export async function resolveBillingPlanFromPaddleCustomerIds(
 
   const { data: subs, error: subsErr } = await admin
     .from("billing_subscriptions")
-    .select("provider_price_id, provider_product_id, status, current_period_end, updated_at")
+    .select(
+      "provider_subscription_id, provider_price_id, provider_product_id, status, current_period_end, updated_at"
+    )
     .eq("provider", "paddle")
     .in("provider_customer_id", customerIds)
     .order("updated_at", { ascending: false })

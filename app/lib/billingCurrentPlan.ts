@@ -4,6 +4,7 @@
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { detectPlanFromPaddleSnapshot } from "@/app/lib/billingPlanPriceDetect";
+import { pickTopPaddleSubscriptionRow } from "@/app/lib/billingSubscriptionPick";
 import type { BillingPlanId } from "@/app/lib/billingPlanPriceDetect";
 import {
   getAccessibleProjectIds,
@@ -131,16 +132,7 @@ type SubRow = {
 };
 
 function pickTopSubscription(list: SubRow[]): SubRow | null {
-  if (!list.length) return null;
-  const activeFirst = [...list].sort((a, b) => {
-    const aActive = ACTIVE_STATUSES.has(String(a.status ?? "").toLowerCase()) ? 1 : 0;
-    const bActive = ACTIVE_STATUSES.has(String(b.status ?? "").toLowerCase()) ? 1 : 0;
-    if (aActive !== bActive) return bActive - aActive;
-    const aTs = Date.parse(String(a.current_period_end ?? a.updated_at ?? "")) || 0;
-    const bTs = Date.parse(String(b.current_period_end ?? b.updated_at ?? "")) || 0;
-    return bTs - aTs;
-  });
-  return activeFirst[0] ?? null;
+  return pickTopPaddleSubscriptionRow(list);
 }
 
 export async function isCompanyProfileCompleteForOrg(
