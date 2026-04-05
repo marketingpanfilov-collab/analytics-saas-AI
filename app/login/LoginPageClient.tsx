@@ -28,6 +28,10 @@ import {
   postBillingReconcileLatestCheckout,
   type ReconcileLatestCheckoutJson,
 } from "../lib/billingReconcileClient";
+import {
+  clearLoginCheckoutFinalizeOrg,
+  persistLoginCheckoutFinalizeOrg,
+} from "../lib/billingLoginCheckoutClient";
 import { waitUntilPostPaymentUnblocked, fetchBillingBootstrapPack } from "../lib/billingPostPaymentPoll";
 import { addPaddleEventListener, getPaddle } from "../lib/paddle";
 import { getPaddlePriceId, getPaddleProductId, type BillingPeriod } from "../lib/paddlePriceMap";
@@ -123,7 +127,8 @@ export default function LoginPageClient() {
   const lastSignupCheckoutRef = useRef<{
     checkoutAttemptId: string;
     organizationId: string;
-    userId: string;
+    statusToken: string;
+    emailNormalized: string;
     plan: PricingPlanId;
     billing: BillingPeriod;
   } | null>(null);
@@ -200,6 +205,126 @@ export default function LoginPageClient() {
     });
   }, []);
 
+  async function waitForLoginCheckoutPaid(
+    organizationId: string,
+    emailNorm: string,
+    statusToken: string,
+    timeoutMs = 90000
+  ): Promise<boolean> {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const u = new URL("/api/billing/login-checkout-status", window.location.origin);
+      u.searchParams.set("organization_id", organizationId);
+      u.searchParams.set("email", emailNorm);
+      u.searchParams.set("status_token", statusToken);
+      const r = await fetch(u.toString(), { cache: "no-store" });
+      const j = (await r.json().catch(() => null)) as { ready?: boolean } | null;
+      if (r.ok && j?.ready) return true;
+      await new Promise((w) => setTimeout(w, 2000));
+    }
+    return false;
+  }
+
+  async function completeLoginSignupAfterPaid(args: {
+    organizationId: string;
+    checkoutAttemptId: string;
+    plan: PricingPlanId;
+    billing: BillingPeriod;
+  }) {
+    const { organizationId, checkoutAttemptId, plan: effectivePlan, billing: effectiveBilling } = args;
+    const signUpRes = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: { emailRedirectTo: buildEmailConfirmRedirectUrl() },
+    });
+    let data = signUpRes.data;
+    if (signUpRes.error) {
+      const em = signUpRes.error.message.toLowerCase();
+      if (em.includes("already") || em.includes("registered")) {
+        const inRes = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+        if (inRes.error || !inRes.data.session) {
+          setMsg("Аккаунт с этим email уже создан. Войдите с паролем, чтобы продолжить.");
+          setLoading(false);
+          return;
+        }
+        data = { user: inRes.data.user, session: inRes.data.session };
+      } else {
+        setMsg(signUpRes.error.message);
+        setLoading(false);
+        return;
+      }
+    }
+
+    let session = data.session;
+    if (!session) {
+      const { data: sessWrap } = await supabase.auth.getSession();
+      session = sessWrap.session;
+    }
+    const userId = session?.user?.id ?? data.user?.id ?? null;
+
+    if (session && userId) {
+      const fin = await fetch("/api/auth/finalize-login-checkout", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ organization_id: organizationId }),
+      });
+      if (!fin.ok) {
+        persistLoginCheckoutFinalizeOrg(organizationId);
+        const j = (await fin.json().catch(() => null)) as { error?: string } | null;
+        setMsg(j?.error ?? "Оплата получена, но не удалось привязать организацию. Обновите страницу или напишите в поддержку.");
+        setLoading(false);
+        return;
+      }
+      clearLoginCheckoutFinalizeOrg();
+    } else {
+      persistLoginCheckoutFinalizeOrg(organizationId);
+      setMsg(
+        "Оплата прошла успешно. На ваш email отправлено письмо для подтверждения — перейдите по ссылке, чтобы открыть настройку аккаунта."
+      );
+      setLoading(false);
+      return;
+    }
+
+    const pack = await waitUntilPostPaymentUnblocked({
+      reload: () => fetchBillingBootstrapPack(),
+    });
+    if (pack.bootstrap) writeLastKnownBootstrap(pack.bootstrap);
+    const target = validateBillingReturnPath(nextPath) ?? "/app/projects";
+    const stillBlocking = pack.resolved ? isBillingBlocking(pack.resolved) : true;
+    if (stillBlocking) {
+      emitBillingFunnelEvent("billing_checkout_stuck_timeout", {
+        checkout_attempt_id: checkoutAttemptId,
+        organization_id: organizationId,
+        user_id: userId,
+        plan: effectivePlan,
+        billing_period: effectiveBilling,
+        source: "login",
+      });
+      setLoginPaymentRecovery(true);
+      setMsg(`${BILLING_SOFT_PAYMENT_HEADLINE}. ${BILLING_SOFT_PAYMENT_DETAIL}`);
+    } else {
+      emitBillingFunnelEvent("billing_access_unblocked", {
+        checkout_attempt_id: checkoutAttemptId,
+        organization_id: organizationId,
+        user_id: userId,
+        plan: effectivePlan,
+        billing_period: effectiveBilling,
+        source: "login",
+      });
+      setMsg("");
+      setLoginPaymentRecovery(false);
+      clearBillingRouteStorage();
+      clearPaymentWebhookGrace();
+      clearCheckoutAttemptSession();
+    }
+    router.replace(target);
+    setLoading(false);
+  }
+
   const inviteOnlySignup = async () => {
     if (!email.trim()) return setMsg("Введите email");
     if (!password.trim()) return setMsg("Введите пароль");
@@ -258,51 +383,27 @@ export default function LoginPageClient() {
         return;
       }
 
-      // signup — org must exist before Paddle (org-first webhook + customer map).
-      const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-        options: { emailRedirectTo: buildEmailConfirmRedirectUrl() },
-      });
-
-      if (error) {
-        setMsg(error.message);
-        setLoading(false);
-        return;
-      }
-
-      let session = data.session;
-      if (!session) {
-        const { data: sessWrap } = await supabase.auth.getSession();
-        session = sessWrap.session;
-      }
-      const userId = session?.user?.id ?? data.user?.id ?? null;
-      if (!userId || !session) {
-        setMsg(
-          "Аккаунт создан. Подтвердите email по ссылке из письма, затем войдите и завершите оплату из приложения или с этой страницы."
-        );
-        setLoading(false);
-        return;
-      }
-
-      const provRes = await fetch("/api/billing/provision-checkout-organization", {
+      // signup — оплата до Auth: org из prepare, signUp и письмо только после webhook подписки.
+      const prepRes = await fetch("/api/billing/login-signup-checkout-prepare", {
         method: "POST",
-        credentials: "include",
+        credentials: "omit",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
       });
-      const provBody = (await provRes.json().catch(() => null)) as {
+      const prepBody = (await prepRes.json().catch(() => null)) as {
         success?: boolean;
         organization_id?: string;
+        status_token?: string;
         error?: string;
       } | null;
-      if (!provRes.ok || !provBody?.success || !provBody.organization_id) {
-        setMsg(
-          provBody?.error ??
-            "Не удалось подготовить организацию для оплаты. Войдите и оформите подписку из приложения."
-        );
+      if (!prepRes.ok || !prepBody?.success || !prepBody.organization_id || !prepBody.status_token) {
+        setMsg(prepBody?.error ?? "Не удалось подготовить оплату. Попробуйте снова.");
         setLoading(false);
         return;
       }
-      const organizationId = String(provBody.organization_id).trim();
+      const organizationId = String(prepBody.organization_id).trim();
+      const statusToken = String(prepBody.status_token).trim();
+      const emailNormalized = email.trim().toLowerCase();
 
       const priceId = getPaddlePriceId(effectivePlan, effectiveBilling);
       if (!priceId) {
@@ -325,7 +426,8 @@ export default function LoginPageClient() {
       lastSignupCheckoutRef.current = {
         checkoutAttemptId,
         organizationId,
-        userId,
+        statusToken,
+        emailNormalized,
         plan: effectivePlan,
         billing: effectiveBilling,
       };
@@ -341,46 +443,33 @@ export default function LoginPageClient() {
             emitBillingFunnelEvent("billing_checkout_completed_client", {
               checkout_attempt_id: checkoutAttemptId,
               organization_id: organizationId,
-              user_id: userId,
+              user_id: null,
               plan: effectivePlan,
               billing_period: effectiveBilling,
               source: "login",
             });
             broadcastBillingBootstrapInvalidate();
-            const pack = await waitUntilPostPaymentUnblocked({
-              reload: () => fetchBillingBootstrapPack(),
-            });
-            if (pack.bootstrap) writeLastKnownBootstrap(pack.bootstrap);
-            const target = validateBillingReturnPath(nextPath) ?? "/app/projects";
-            const stillBlocking = pack.resolved ? isBillingBlocking(pack.resolved) : true;
-            if (stillBlocking) {
+            const ready = await waitForLoginCheckoutPaid(organizationId, emailNormalized, statusToken, 90000);
+            if (!ready) {
               emitBillingFunnelEvent("billing_checkout_stuck_timeout", {
                 checkout_attempt_id: checkoutAttemptId,
                 organization_id: organizationId,
-                user_id: userId,
+                user_id: null,
                 plan: effectivePlan,
                 billing_period: effectiveBilling,
                 source: "login",
               });
               setLoginPaymentRecovery(true);
               setMsg(`${BILLING_SOFT_PAYMENT_HEADLINE}. ${BILLING_SOFT_PAYMENT_DETAIL}`);
-            } else {
-              emitBillingFunnelEvent("billing_access_unblocked", {
-                checkout_attempt_id: checkoutAttemptId,
-                organization_id: organizationId,
-                user_id: userId,
-                plan: effectivePlan,
-                billing_period: effectiveBilling,
-                source: "login",
-              });
-              setMsg("");
-              setLoginPaymentRecovery(false);
-              clearBillingRouteStorage();
-              clearPaymentWebhookGrace();
-              clearCheckoutAttemptSession();
+              setLoading(false);
+              return;
             }
-            router.replace(target);
-            setLoading(false);
+            await completeLoginSignupAfterPaid({
+              organizationId,
+              checkoutAttemptId,
+              plan: effectivePlan,
+              billing: effectiveBilling,
+            });
           })();
         },
         onNotPaid: () => {
@@ -409,8 +498,7 @@ export default function LoginPageClient() {
           ...(productId ? { paddle_product_id: productId } : {}),
           plan: effectivePlan,
           billing_period: effectiveBilling,
-          app_user_id: userId,
-          app_email: email.trim().toLowerCase(),
+          app_email: emailNormalized,
           app_organization_id: organizationId,
           primary_org_id: organizationId,
           checkout_attempt_id: checkoutAttemptId,
@@ -419,7 +507,7 @@ export default function LoginPageClient() {
       emitBillingFunnelEvent("billing_checkout_opened", {
         checkout_attempt_id: checkoutAttemptId,
         organization_id: organizationId,
-        user_id: userId,
+        user_id: null,
         plan: effectivePlan,
         billing_period: effectiveBilling,
         source: "login",
@@ -673,6 +761,28 @@ export default function LoginPageClient() {
                         setLoginReconcileBusy(true);
                         setLoginReconcileHint(null);
                         try {
+                          if (snap.statusToken) {
+                            const ready = await waitForLoginCheckoutPaid(
+                              snap.organizationId,
+                              snap.emailNormalized,
+                              snap.statusToken,
+                              60000
+                            );
+                            if (!ready) {
+                              setLoginReconcileHint(
+                                "В базе пока нет записи подписки — webhook может ещё обрабатываться."
+                              );
+                              return;
+                            }
+                            setLoginPaymentRecovery(false);
+                            await completeLoginSignupAfterPaid({
+                              organizationId: snap.organizationId,
+                              checkoutAttemptId: snap.checkoutAttemptId,
+                              plan: snap.plan,
+                              billing: snap.billing,
+                            });
+                            return;
+                          }
                           const { accessReady, json } = await postBillingReconcileLatestCheckout({
                             checkoutAttemptId: snap.checkoutAttemptId,
                           });

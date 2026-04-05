@@ -411,12 +411,25 @@ export async function loadBillingCurrentPlan(
   const has_org_membership = await hasOrgMembership(admin, userId);
   const projectIds = await getAccessibleProjectIds(admin, userId);
   const has_any_accessible_project = projectIds.size > 0;
-  const billingOrgId = await resolveBillingOrganizationId(
+  let billingOrgId = await resolveBillingOrganizationId(
     admin,
     userId,
     options?.projectId ?? null,
     projectIds
   );
+  const em = (email ?? "").trim().toLowerCase();
+  if (!billingOrgId && em) {
+    const { data: mapOrg } = await admin
+      .from("billing_customer_map")
+      .select("organization_id")
+      .eq("provider", "paddle")
+      .eq("email", em)
+      .not("organization_id", "is", null)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (mapOrg?.organization_id) billingOrgId = String(mapOrg.organization_id);
+  }
   const company_profile_completed = billingOrgId
     ? await isCompanyProfileCompleteForOrg(admin, billingOrgId)
     : false;

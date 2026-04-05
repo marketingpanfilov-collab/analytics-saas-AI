@@ -38,6 +38,10 @@ import {
   writeLastKnownBootstrap,
   bumpShellRedirectDepth,
 } from "@/app/lib/billingBootstrapClient";
+import {
+  clearLoginCheckoutFinalizeOrg,
+  readLoginCheckoutFinalizeOrg,
+} from "@/app/lib/billingLoginCheckoutClient";
 import type { PlanFeatureMatrix } from "@/app/lib/planConfig";
 import { supabase } from "@/app/lib/supabaseClient";
 import type { BillingBootstrapReloadPack } from "@/app/lib/billingPostPaymentPoll";
@@ -135,6 +139,7 @@ function BillingBootstrapProviderInner({ children }: { children: ReactNode }) {
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_OUT") {
         clearBillingRouteStorage();
+        clearLoginCheckoutFinalizeOrg();
         lastAuthUserIdRef.current = null;
         setOverLimitApplyGraceUntilMs(null);
         setRelaxOverLimitForPendingWebhook(false);
@@ -313,6 +318,40 @@ function BillingBootstrapProviderInner({ children }: { children: ReactNode }) {
 
   const runBootstrapRef = useRef(runBootstrap);
   runBootstrapRef.current = runBootstrap;
+
+  useEffect(() => {
+    const tryFinalizeLoginCheckout = async () => {
+      try {
+        const orgId = readLoginCheckoutFinalizeOrg();
+        if (!orgId) return;
+        const { data } = await supabase.auth.getUser();
+        if (!data.user) return;
+        const res = await fetch("/api/auth/finalize-login-checkout", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ organization_id: orgId }),
+        });
+        if (res.status === 404) {
+          clearLoginCheckoutFinalizeOrg();
+          return;
+        }
+        if (!res.ok) return;
+        clearLoginCheckoutFinalizeOrg();
+        void runBootstrapRef.current();
+      } catch {
+        /* ignore */
+      }
+    };
+
+    void tryFinalizeLoginCheckout();
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN" || event === "INITIAL_SESSION" || event === "TOKEN_REFRESHED") {
+        void tryFinalizeLoginCheckout();
+      }
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     void runBootstrapRef.current();
