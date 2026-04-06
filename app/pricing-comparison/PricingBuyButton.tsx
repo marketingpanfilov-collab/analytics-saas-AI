@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import type { PricingPlanId } from "@/app/lib/auth/loginPurchaseUrl";
 import { broadcastBillingBootstrapInvalidate, storeOriginRoute } from "@/app/lib/billingBootstrapClient";
+import { newCheckoutAttemptId, persistCheckoutAttemptForSession } from "@/app/lib/billingCheckoutAttempt";
 import { openPaddleSubscriptionCheckout } from "@/app/lib/paddleCheckoutClient";
 import type { BillingPeriod } from "@/app/lib/paddlePriceMap";
 import { supabase } from "@/app/lib/supabaseClient";
@@ -93,6 +94,8 @@ export default function PricingBuyButton({ guestHref, planId, billing }: Props) 
           typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : pathname
         );
       }
+      const checkoutAttemptId = newCheckoutAttemptId();
+      persistCheckoutAttemptForSession(checkoutAttemptId);
       const r = await openPaddleSubscriptionCheckout({
         plan: planId,
         billing,
@@ -101,6 +104,7 @@ export default function PricingBuyButton({ guestHref, planId, billing }: Props) 
         pwCustomerId,
         primaryOrgId: bootstrapLite?.primary_org_id ?? null,
         projectId: null,
+        checkoutAttemptId,
         onCompleted: () => {
           broadcastBillingBootstrapInvalidate();
           setBusy(false);

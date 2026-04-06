@@ -74,9 +74,9 @@ function formatUsd(n: number) {
 
 export default function PricingComparisonPage() {
   const router = useRouter();
-  const [starterBilling, setStarterBilling] = useState<BillingPeriod>("monthly");
-  const [growthBilling, setGrowthBilling] = useState<BillingPeriod>("monthly");
-  const [scaleBilling, setScaleBilling] = useState<BillingPeriod>("monthly");
+  const [starterBilling, setStarterBilling] = useState<BillingPeriod>("yearly");
+  const [growthBilling, setGrowthBilling] = useState<BillingPeriod>("yearly");
+  const [scaleBilling, setScaleBilling] = useState<BillingPeriod>("yearly");
 
   const starterHref = useMemo(
     () => buildLoginPurchaseHref("starter", starterBilling),

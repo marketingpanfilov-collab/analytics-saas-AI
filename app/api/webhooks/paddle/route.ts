@@ -6,6 +6,7 @@ import {
   recordBillingWebhookFailure,
 } from "@/app/lib/billing/billingObservability";
 import { resolvePaddleWebhookOrganizationId } from "@/app/lib/billing/paddleWebhookOrgResolution";
+import { sendMetaPurchaseFromPaddleTransactionWebhook } from "@/app/lib/metaPaddleWebhookPurchase";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 
 type PaddleWebhookEvent = {
@@ -396,6 +397,18 @@ export async function POST(req: Request) {
       subscription_updated: subscriptionUpdated,
       plan: funnelPlan,
       billing_period: funnelBillingPeriod,
+    });
+  }
+
+  if (eventType === "transaction.completed") {
+    void sendMetaPurchaseFromPaddleTransactionWebhook({
+      paddleWebhookEventId: eventId,
+      eventOccurredAtIso: occurredAt,
+      data: d,
+      customData,
+      appEmail: appEmailRaw ? String(appEmailRaw).toLowerCase().trim() : null,
+      appUserId:
+        appUserIdRaw && /^[0-9a-f-]{36}$/i.test(String(appUserIdRaw)) ? String(appUserIdRaw).trim() : null,
     });
   }
 

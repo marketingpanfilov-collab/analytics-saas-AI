@@ -6,6 +6,10 @@ import type { PaddleEventData } from "@paddle/paddle-js";
 import type { PricingPlanId } from "@/app/lib/auth/loginPurchaseUrl";
 import { BILLING_CHECKOUT_MISSING_ORG_MESSAGE } from "@/app/lib/billing/billingCheckoutMessages";
 import { billingClientLog } from "@/app/lib/billing/billingClientObservability";
+import {
+  fireMetaInitiateCheckoutPixelAndCapi,
+  fireMetaPurchasePixelFromPaddleEvent,
+} from "@/app/lib/metaPixelBrowser";
 import { addPaddleEventListener, getPaddle } from "@/app/lib/paddle";
 import { getPaddlePriceId, getPaddleProductId, type BillingPeriod } from "@/app/lib/paddlePriceMap";
 
@@ -47,6 +51,7 @@ function onPaddleEvent(event: PaddleEventData) {
   if (!activeSession) return;
   const name = event?.name;
   if (name === "checkout.completed") {
+    fireMetaPurchasePixelFromPaddleEvent(event);
     activeSession.paid = true;
     const s = activeSession;
     activeSession = null;
@@ -134,6 +139,16 @@ export async function openPaddleSubscriptionCheckout(
       ...(args.projectId ? { project_id: args.projectId } : {}),
     },
   });
+
+  if (typeof window !== "undefined" && attemptId) {
+    fireMetaInitiateCheckoutPixelAndCapi({
+      checkoutAttemptId: attemptId,
+      plan: args.plan,
+      billingPeriod: args.billing,
+      email,
+      eventSourceUrl: window.location.href,
+    });
+  }
 
   return { ok: true };
 }

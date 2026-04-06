@@ -33,6 +33,10 @@ import {
   persistLoginCheckoutFinalizeOrg,
 } from "../lib/billingLoginCheckoutClient";
 import { waitUntilPostPaymentUnblocked, fetchBillingBootstrapPack } from "../lib/billingPostPaymentPoll";
+import {
+  fireMetaInitiateCheckoutPixelAndCapi,
+  fireMetaPurchasePixelFromPaddleEvent,
+} from "../lib/metaPixelBrowser";
 import { addPaddleEventListener, getPaddle } from "../lib/paddle";
 import { getPaddlePriceId, getPaddleProductId, type BillingPeriod } from "../lib/paddlePriceMap";
 import { supabase } from "../lib/supabaseClient";
@@ -209,6 +213,7 @@ export default function LoginPageClient() {
 
       const name = event?.name;
       if (name === "checkout.completed") {
+        fireMetaPurchasePixelFromPaddleEvent(event);
         if (checkoutClosedGraceTimerRef.current) {
           window.clearTimeout(checkoutClosedGraceTimerRef.current);
           checkoutClosedGraceTimerRef.current = null;
@@ -574,6 +579,15 @@ export default function LoginPageClient() {
           checkout_attempt_id: checkoutAttemptId,
         },
       });
+      if (typeof window !== "undefined") {
+        fireMetaInitiateCheckoutPixelAndCapi({
+          checkoutAttemptId,
+          plan: effectivePlan,
+          billingPeriod: effectiveBilling,
+          email: email.trim(),
+          eventSourceUrl: window.location.href,
+        });
+      }
       emitBillingFunnelEvent("billing_checkout_opened", {
         checkout_attempt_id: checkoutAttemptId,
         organization_id: organizationId,
@@ -676,12 +690,14 @@ export default function LoginPageClient() {
         <button
           type="button"
           onClick={handleBack}
-          className="mb-4 inline-flex h-11 cursor-pointer items-center self-start gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 text-[14px] font-medium text-white/75 transition hover:bg-white/[0.06] hover:text-white"
+          className="mb-4 inline-flex h-11 cursor-pointer items-center self-start rounded-xl border border-white/10 bg-white/[0.03] px-4 text-[14px] font-medium text-white/75 transition hover:bg-white/[0.06] hover:text-white"
         >
-          <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-4 w-4 shrink-0">
-            <path d="M11.5 5.5L7 10l4.5 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span className="inline-block -translate-y-[1px] leading-none">Вернуться назад</span>
+          <span className="inline-flex items-center gap-2">
+            <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-4 w-4 shrink-0">
+              <path d="M11.5 5.5L7 10l4.5 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span className="leading-none">Вернуться назад</span>
+          </span>
         </button>
 
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
+import MetaPixelRoot from "@/app/components/MetaPixelRoot";
 import "./globals.css";
 
 const jakarta = Plus_Jakarta_Sans({
@@ -69,9 +70,11 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const metaPixelId = process.env.META_PIXEL_ID?.trim() ?? "";
   return (
     <html lang="ru" className={jakarta.variable}>
       <body className="min-h-screen text-white antialiased">
+        {metaPixelId ? <MetaPixelRoot pixelId={metaPixelId} /> : null}
         {children}
       </body>
     </html>
