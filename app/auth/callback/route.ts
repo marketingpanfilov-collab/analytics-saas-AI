@@ -1,12 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { safeAppNextTarget } from "@/app/lib/auth/safeAppNextTarget";
+import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { runFinalizeLoginCheckoutCore } from "@/app/lib/auth/finalizeLoginCheckoutCore";
 
 const DEFAULT_AFTER_CONFIRM = "/app/projects/onboarding";
 
 /**
  * Email confirmation / OAuth PKCE: Supabase redirects here with ?code=...
- * Обмен кода на сессию и безопасный редирект только под /app.
+ * Обмен кода на сессию, затем при открытом login-checkout intent — серверный finalize ДО редиректа в /app
+ * (иначе новая вкладка из письма не видит sessionStorage с org_id и ловит NO_ORG_ACCESS).
  */
 export async function GET(request: NextRequest) {
   const url = request.nextUrl.clone();
@@ -31,8 +34,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(login);
   }
 
-  const redirectUrl = new URL(safeNext, url.origin);
-  let response = NextResponse.redirect(redirectUrl);
+  const pendingCookies: { name: string; value: string; options?: object }[] = [];
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -44,7 +46,7 @@ export async function GET(request: NextRequest) {
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set(name, value, options ?? {});
+            pendingCookies.push({ name, value, options });
           });
         },
       },
@@ -58,6 +60,56 @@ export async function GET(request: NextRequest) {
     login.searchParams.set("next", safeNext);
     return NextResponse.redirect(login);
   }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  let redirectPath = safeNext;
+
+  if (user?.email) {
+    const emailNorm = user.email.trim().toLowerCase();
+    const admin = supabaseAdmin();
+    const { data: openIntent } = await admin
+      .from("billing_login_checkout_intents")
+      .select("organization_id")
+      .eq("email_normalized", emailNorm)
+      .is("linked_at", null)
+      .maybeSingle();
+
+    if (openIntent?.organization_id) {
+      const fin = await runFinalizeLoginCheckoutCore(admin, {
+        userId: user.id,
+        sessionEmailNormalized: emailNorm,
+        organizationId: String(openIntent.organization_id),
+      });
+
+      if (fin.ok) {
+        redirectPath = safeNext;
+      } else if (fin.code === "subscription_not_active_yet") {
+        const recovery = new URL("/auth/finalize-signup-checkout", url.origin);
+        recovery.searchParams.set("next", safeNext);
+        redirectPath = `${recovery.pathname}${recovery.search}`;
+      } else if (fin.code === "already_finalized") {
+        redirectPath = safeNext;
+      } else {
+        const recovery = new URL("/auth/finalize-signup-checkout", url.origin);
+        recovery.searchParams.set("next", safeNext);
+        recovery.searchParams.set("finalize_error", fin.code);
+        redirectPath = `${recovery.pathname}${recovery.search}`;
+      }
+    }
+  }
+
+  const redirectUrl = new URL(redirectPath, url.origin);
+  const response = NextResponse.redirect(redirectUrl);
+  pendingCookies.forEach(({ name, value, options }) => {
+    if (options && typeof options === "object") {
+      response.cookies.set(name, value, options as Parameters<typeof response.cookies.set>[2]);
+    } else {
+      response.cookies.set(name, value);
+    }
+  });
 
   return response;
 }
