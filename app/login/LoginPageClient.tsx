@@ -62,7 +62,7 @@ export default function LoginPageClient() {
   const searchParams = useSearchParams();
   const planParam = searchParams.get("plan");
   const billingParam = searchParams.get("billing");
-  const billing: BillingPeriod = billingParam === "yearly" ? "yearly" : "monthly";
+  const billing: BillingPeriod = billingParam === "monthly" ? "monthly" : "yearly";
   const isInviteOnlySignup = searchParams.get("invite") === "1";
 
   // Post-login: project selection first; never default to /app (dashboard without project_id).
@@ -73,13 +73,15 @@ export default function LoginPageClient() {
     if (path === "/app" || path === "/app/") path = "/app/projects";
 
     const plan = searchParams.get("plan");
-    const billing = searchParams.get("billing");
+    const billingRaw = searchParams.get("billing");
     const parsedPlan = parsePricingPlanId(plan);
-    if (parsedPlan && (billing === "monthly" || billing === "yearly")) {
+    if (parsedPlan) {
+      const effectiveBilling: BillingPeriod =
+        billingRaw === "monthly" ? "monthly" : "yearly";
       try {
         const u = new URL(path.startsWith("/") ? path : `/${path}`, "http://localhost");
         u.searchParams.set("plan", parsedPlan);
-        u.searchParams.set("billing", billing);
+        u.searchParams.set("billing", effectiveBilling);
         return `${u.pathname}${u.search}`;
       } catch {
         return path;
@@ -179,8 +181,8 @@ export default function LoginPageClient() {
   }, [searchParams]);
 
   useEffect(() => {
-    if (showPlanModal) setModalBilling(billing);
-  }, [billing, showPlanModal]);
+    setModalBilling(billing);
+  }, [billing]);
 
   async function fetchLoginCheckoutReadyOnce(
     organizationId: string,
