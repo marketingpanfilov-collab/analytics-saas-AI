@@ -43,7 +43,7 @@ function buildEmailConfirmRedirectUrl(): string {
     typeof window !== "undefined"
       ? window.location.origin
       : (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
-  const next = encodeURIComponent("/app/projects/onboarding");
+  const next = encodeURIComponent("/app/projects");
   return `${origin.replace(/\/$/, "")}/auth/callback?next=${next}`;
 }
 
@@ -123,6 +123,7 @@ export default function LoginPageClient() {
     onNotPaid: () => void;
   }>(null);
   const checkoutTimeoutRef = useRef<number | null>(null);
+  const checkoutClosedGraceTimerRef = useRef<number | null>(null);
   const continueAfterPlanSelectRef = useRef(false);
   const lastSignupCheckoutRef = useRef<{
     checkoutAttemptId: string;
@@ -181,6 +182,24 @@ export default function LoginPageClient() {
     if (showPlanModal) setModalBilling(billing);
   }, [billing, showPlanModal]);
 
+  async function fetchLoginCheckoutReadyOnce(
+    organizationId: string,
+    emailNorm: string,
+    statusToken: string
+  ): Promise<boolean> {
+    const u = new URL("/api/billing/login-checkout-status", window.location.origin);
+    u.searchParams.set("organization_id", organizationId);
+    u.searchParams.set("email", emailNorm);
+    u.searchParams.set("status_token", statusToken);
+    try {
+      const r = await fetch(u.toString(), { cache: "no-store" });
+      const j = (await r.json().catch(() => null)) as { ready?: boolean } | null;
+      return !!(r.ok && j?.ready);
+    } catch {
+      return false;
+    }
+  }
+
   useEffect(() => {
     return addPaddleEventListener((event) => {
       const ctx = checkoutStateRef.current;
@@ -188,6 +207,10 @@ export default function LoginPageClient() {
 
       const name = event?.name;
       if (name === "checkout.completed") {
+        if (checkoutClosedGraceTimerRef.current) {
+          window.clearTimeout(checkoutClosedGraceTimerRef.current);
+          checkoutClosedGraceTimerRef.current = null;
+        }
         ctx.paid = true;
         checkoutStateRef.current = null;
         if (checkoutTimeoutRef.current) window.clearTimeout(checkoutTimeoutRef.current);
@@ -195,7 +218,42 @@ export default function LoginPageClient() {
         return;
       }
 
-      if (name === "checkout.closed" || name === "checkout.failed" || name === "checkout.error") {
+      if (name === "checkout.closed") {
+        if (ctx.paid) return;
+        if (checkoutClosedGraceTimerRef.current) {
+          window.clearTimeout(checkoutClosedGraceTimerRef.current);
+          checkoutClosedGraceTimerRef.current = null;
+        }
+        checkoutClosedGraceTimerRef.current = window.setTimeout(() => {
+          checkoutClosedGraceTimerRef.current = null;
+          void (async () => {
+            if (ctx.paid) return;
+            const cur = checkoutStateRef.current;
+            if (cur !== ctx) return;
+            const snap = lastSignupCheckoutRef.current;
+            const ready =
+              !!snap &&
+              (await fetchLoginCheckoutReadyOnce(snap.organizationId, snap.emailNormalized, snap.statusToken));
+            if (ready) {
+              ctx.paid = true;
+              checkoutStateRef.current = null;
+              if (checkoutTimeoutRef.current) window.clearTimeout(checkoutTimeoutRef.current);
+              ctx.onPaid();
+              return;
+            }
+            checkoutStateRef.current = null;
+            if (checkoutTimeoutRef.current) window.clearTimeout(checkoutTimeoutRef.current);
+            ctx.onNotPaid();
+          })();
+        }, 3000);
+        return;
+      }
+
+      if (name === "checkout.failed" || name === "checkout.error") {
+        if (checkoutClosedGraceTimerRef.current) {
+          window.clearTimeout(checkoutClosedGraceTimerRef.current);
+          checkoutClosedGraceTimerRef.current = null;
+        }
         if (!ctx.paid) {
           checkoutStateRef.current = null;
           if (checkoutTimeoutRef.current) window.clearTimeout(checkoutTimeoutRef.current);
@@ -213,13 +271,7 @@ export default function LoginPageClient() {
   ): Promise<boolean> {
     const started = Date.now();
     while (Date.now() - started < timeoutMs) {
-      const u = new URL("/api/billing/login-checkout-status", window.location.origin);
-      u.searchParams.set("organization_id", organizationId);
-      u.searchParams.set("email", emailNorm);
-      u.searchParams.set("status_token", statusToken);
-      const r = await fetch(u.toString(), { cache: "no-store" });
-      const j = (await r.json().catch(() => null)) as { ready?: boolean } | null;
-      if (r.ok && j?.ready) return true;
+      if (await fetchLoginCheckoutReadyOnce(organizationId, emailNorm, statusToken)) return true;
       await new Promise((w) => setTimeout(w, 2000));
     }
     return false;
@@ -479,17 +531,33 @@ export default function LoginPageClient() {
         },
       };
 
+      if (checkoutClosedGraceTimerRef.current) {
+        window.clearTimeout(checkoutClosedGraceTimerRef.current);
+        checkoutClosedGraceTimerRef.current = null;
+      }
+
       checkoutStateRef.current = ctx;
 
       if (checkoutTimeoutRef.current) window.clearTimeout(checkoutTimeoutRef.current);
       checkoutTimeoutRef.current = window.setTimeout(() => {
-        const current = checkoutStateRef.current;
-        if (!current) return;
-        if (!current.paid) {
+        void (async () => {
+          const current = checkoutStateRef.current;
+          if (!current) return;
+          if (current.paid) return;
+          const snap = lastSignupCheckoutRef.current;
+          if (
+            snap &&
+            (await fetchLoginCheckoutReadyOnce(snap.organizationId, snap.emailNormalized, snap.statusToken))
+          ) {
+            current.paid = true;
+            checkoutStateRef.current = null;
+            current.onPaid();
+            return;
+          }
           checkoutStateRef.current = null;
           current.onNotPaid();
-        }
-      }, 25000);
+        })();
+      }, 180000);
 
       paddle.Checkout.open({
         items: [{ priceId, quantity: 1 }],

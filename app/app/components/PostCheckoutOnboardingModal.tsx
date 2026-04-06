@@ -230,7 +230,6 @@ export default function PostCheckoutOnboardingModal() {
       setPlanName(resolveBootstrapPlanDisplayLabel(fresh ?? bootstrap));
       setGate("success");
       broadcastBillingBootstrapInvalidate();
-      void reloadBootstrap();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -241,10 +240,7 @@ export default function PostCheckoutOnboardingModal() {
   const exitSuccessToProduct = async (path: string) => {
     suppressBootstrapSyncRef.current = false;
     setGate("skip");
-    let pack = await reloadBootstrap();
-    if (pack.bootstrap?.requires_post_checkout_onboarding === true) {
-      pack = await reloadBootstrap();
-    }
+    await reloadBootstrap();
     void router.refresh();
     router.replace(path);
   };

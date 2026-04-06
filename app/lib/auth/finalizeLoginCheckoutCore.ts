@@ -3,9 +3,9 @@
  * Вызывается из POST /api/auth/finalize-login-checkout и из GET /auth/callback.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { subscriptionRowCountsAsPaidForLoginCheckout } from "@/app/lib/billing/loginCheckoutPaidStatuses";
 
 const UUID_RE = /^[0-9a-f-]{36}$/i;
-const PAID_STATUSES = new Set(["active", "trialing", "past_due"]);
 
 export type FinalizeLoginCheckoutCoreErrorCode =
   | "invalid_organization_id"
@@ -130,7 +130,7 @@ export async function runFinalizeLoginCheckoutCore(
     .eq("provider", "paddle")
     .limit(5);
 
-  const paid = (subs ?? []).some((s) => PAID_STATUSES.has(String(s.status ?? "").toLowerCase()));
+  const paid = (subs ?? []).some((s) => subscriptionRowCountsAsPaidForLoginCheckout(s.status));
   if (!paid) {
     return {
       ok: false,

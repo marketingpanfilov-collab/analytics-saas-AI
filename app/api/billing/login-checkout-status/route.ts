@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
+import { subscriptionRowCountsAsPaidForLoginCheckout } from "@/app/lib/billing/loginCheckoutPaidStatuses";
 import { verifyLoginCheckoutStatusToken } from "@/app/lib/billing/loginCheckoutStatusToken";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 
 const UUID_RE = /^[0-9a-f-]{36}$/i;
-const READY_STATUSES = new Set(["active", "trialing", "past_due"]);
 
 /**
  * GET /api/billing/login-checkout-status?organization_id=&email=&status_token=
@@ -37,6 +37,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ success: false, ready: false, error: "Database error" }, { status: 500 });
   }
 
-  const ready = (subs ?? []).some((r) => READY_STATUSES.has(String(r.status ?? "").toLowerCase()));
+  const ready = (subs ?? []).some((r) => subscriptionRowCountsAsPaidForLoginCheckout(r.status));
   return NextResponse.json({ success: true, ready });
 }

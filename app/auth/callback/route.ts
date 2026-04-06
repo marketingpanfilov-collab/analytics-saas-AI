@@ -4,7 +4,7 @@ import { safeAppNextTarget } from "@/app/lib/auth/safeAppNextTarget";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { runFinalizeLoginCheckoutCore } from "@/app/lib/auth/finalizeLoginCheckoutCore";
 
-const DEFAULT_AFTER_CONFIRM = "/app/projects/onboarding";
+const DEFAULT_AFTER_CONFIRM = "/app/projects";
 
 /**
  * Email confirmation / OAuth PKCE: Supabase redirects here with ?code=...
