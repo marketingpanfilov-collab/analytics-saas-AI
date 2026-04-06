@@ -517,14 +517,42 @@ export default function PostCheckoutOnboardingModal() {
                   fontSize: 14,
                   color: "rgba(255,255,255,0.82)",
                   lineHeight: 1.55,
-                  paddingLeft: 18,
                   margin: "0 0 22px",
+                  padding: 0,
+                  listStyle: "none",
+                  display: "grid",
+                  gap: 10,
                 }}
               >
-                <li>Создайте первый проект</li>
-                <li>Подключите рекламные источники (Meta, Google, TikTok)</li>
-                <li>Установите Pixel на сайт</li>
-                <li>Настройте передачу событий (регистрация, покупки)</li>
+                {[
+                  "Создайте первый проект",
+                  "Подключите рекламные источники (Meta, Google, TikTok)",
+                  "Установите Pixel на сайт",
+                  "Настройте передачу событий (регистрация, покупки)",
+                ].map((text) => (
+                  <li
+                    key={text}
+                    style={{
+                      display: "flex",
+                      gap: 10,
+                      alignItems: "flex-start",
+                      margin: 0,
+                    }}
+                  >
+                    <span
+                      aria-hidden
+                      style={{
+                        flexShrink: 0,
+                        width: 6,
+                        height: 6,
+                        marginTop: "0.45em",
+                        borderRadius: "50%",
+                        background: "rgba(255,255,255,0.55)",
+                      }}
+                    />
+                    <span style={{ flex: 1, minWidth: 0 }}>{text}</span>
+                  </li>
+                ))}
               </ul>
               {errBox}
               <div style={{ display: "flex", gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
