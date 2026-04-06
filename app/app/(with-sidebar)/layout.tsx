@@ -13,7 +13,6 @@ import {
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 import PaddleAppInit from "../components/PaddleAppInit";
-import PostCheckoutOnboardingModal from "../components/PostCheckoutOnboardingModal";
 import { AppMainPaneRefProvider } from "../components/AppMainPaneRefContext";
 import { BillingShellGate } from "../components/BillingShellGate";
 import { supabase } from "../../lib/supabaseClient";
@@ -76,7 +75,6 @@ export default function WithSidebarLayout({ children }: { children: React.ReactN
       >
         <DevAbortRejectionSuppressor />
         <PaddleAppInit />
-        <PostCheckoutOnboardingModal />
         {/* LEFT: SIDEBAR — 260px to match Sidebar component width; wrapped in Suspense because Sidebar uses useSearchParams() */}
         <div className="app-shell-sidebar" style={{ minHeight: "100vh", minWidth: 0 }}>
           <Suspense fallback={<SidebarFallback />}>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/app/lib/supabaseClient";
 import { broadcastBillingBootstrapInvalidate } from "@/app/lib/billingBootstrapClient";
 import { emitBillingFunnelEvent } from "@/app/lib/billingFunnelAnalytics";
@@ -84,7 +84,13 @@ function FieldHint({ children }: { children: string }) {
   );
 }
 
-export default function PostCheckoutOnboardingModal() {
+/** Post-checkout onboarding UI только на первом продуктовом входе (список проектов / подложка onboarding). */
+export function isPostCheckoutOnboardingModalHostPath(pathname: string | null | undefined): boolean {
+  if (!pathname) return false;
+  return pathname === "/app/projects" || pathname === "/app/projects/onboarding";
+}
+
+function PostCheckoutOnboardingModalInner() {
   const router = useRouter();
   const { bootstrap, loading: bootstrapLoading, reloadBootstrap } = useBillingBootstrap();
   const suppressBootstrapSyncRef = useRef(false);
@@ -579,4 +585,10 @@ export default function PostCheckoutOnboardingModal() {
       </div>
     </div>
   );
+}
+
+export default function PostCheckoutOnboardingModal() {
+  const pathname = usePathname();
+  if (!isPostCheckoutOnboardingModalHostPath(pathname)) return null;
+  return <PostCheckoutOnboardingModalInner />;
 }
