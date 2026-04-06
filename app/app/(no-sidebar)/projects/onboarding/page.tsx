@@ -29,9 +29,9 @@ export default function ProjectsOnboardingPage() {
         color: "rgba(245,245,250,0.92)",
       }}
     >
-      <h1 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 12px" }}>Настройка аккаунта</h1>
+      <h1 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 12px" }}>Настройка рабочего пространства</h1>
       <p style={{ fontSize: 14, lineHeight: 1.55, color: "rgba(245,245,250,0.65)", margin: 0 }}>
-        Завершите шаги в окне поверх страницы — после этого откроется доступ к проектам и аналитике.
+        Завершите шаги в окне поверх страницы — затем можно перейти к проектам.
       </p>
     </div>
   );

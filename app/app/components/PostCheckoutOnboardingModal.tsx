@@ -5,13 +5,13 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/app/lib/supabaseClient";
 import { broadcastBillingBootstrapInvalidate } from "@/app/lib/billingBootstrapClient";
 import { emitBillingFunnelEvent } from "@/app/lib/billingFunnelAnalytics";
-import { getCompanySizeSelectOptions } from "@/app/lib/companySize";
-import { getCompanySphereGroupedSelect } from "@/app/lib/companySphere";
-import {
-  resolveBootstrapPlanAnalyticsSlug,
-  resolveBootstrapPlanDisplayLabel,
-} from "@/app/lib/billingBootstrapPlanLabel";
+import { COMPANY_SIZE_VALUES, getCompanySizeSelectOptions } from "@/app/lib/companySize";
+import { COMPANY_SPHERE_KEYS, getCompanySphereGroupedSelect } from "@/app/lib/companySphere";
+import { resolveBootstrapPlanAnalyticsSlug } from "@/app/lib/billingBootstrapPlanLabel";
 import { useBillingBootstrap } from "./BillingBootstrapProvider";
+
+const DEFAULT_COMPANY_SIZE = COMPANY_SIZE_VALUES[0];
+const DEFAULT_COMPANY_SPHERE = COMPANY_SPHERE_KEYS[0] ?? "";
 
 const overlayStyle: CSSProperties = {
   position: "fixed",
@@ -48,88 +48,113 @@ const inputBase: CSSProperties = {
   boxSizing: "border-box",
 };
 
+type Gate = "boot" | "skip" | "flow" | "success";
+
+function primaryCtaStyle(loading: boolean, enabled: boolean): CSSProperties {
+  return {
+    padding: "12px 18px",
+    borderRadius: 12,
+    border: "none",
+    background: enabled && !loading ? "rgba(120,120,255,0.55)" : "rgba(120,120,255,0.28)",
+    color: "white",
+    fontWeight: 700,
+    fontSize: 14,
+    cursor: loading || !enabled ? "not-allowed" : "pointer",
+    minHeight: 44,
+  };
+}
+
+function secondaryCtaStyle(loading: boolean): CSSProperties {
+  return {
+    padding: "10px 16px",
+    borderRadius: 10,
+    border: "1px solid rgba(255,255,255,0.22)",
+    background: "transparent",
+    color: "white",
+    fontWeight: 600,
+    fontSize: 14,
+    cursor: loading ? "not-allowed" : "pointer",
+    minHeight: 44,
+  };
+}
+
+function FieldHint({ children }: { children: string }) {
+  return (
+    <span style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", fontWeight: 400 }}>{children}</span>
+  );
+}
+
 export default function PostCheckoutOnboardingModal() {
   const router = useRouter();
-  const { showPostCheckoutModal, bootstrap, loading: bootstrapLoading, reloadBootstrap } =
-    useBillingBootstrap();
+  const { bootstrap, loading: bootstrapLoading, reloadBootstrap } = useBillingBootstrap();
   const suppressBootstrapSyncRef = useRef(false);
   const postCheckoutStartedEmittedRef = useRef(false);
-  /** Уже показывали модалку пост-чекаута: не прятать её при reloadBootstrap (bootstrapLoading). */
   const postCheckoutFlowActiveRef = useRef(false);
   const postCheckoutCompleteSubmittedRef = useRef(false);
-  const [gate, setGate] = useState<"loading" | "skip" | "modal" | "success">("loading");
+  const step2SubmitLockRef = useRef(false);
+
+  const [gate, setGate] = useState<Gate>("boot");
   const [step, setStep] = useState(1);
-  const [accountEmail, setAccountEmail] = useState("");
-  const [planName, setPlanName] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const [companyName, setCompanyName] = useState("");
   const [ownerFullName, setOwnerFullName] = useState("");
   const [contactPhone, setContactPhone] = useState("");
-  const [companySphere, setCompanySphere] = useState("");
-  const [companySize, setCompanySize] = useState("");
+  const [companySphere, setCompanySphere] = useState(DEFAULT_COMPANY_SPHERE);
+  const [companySize, setCompanySize] = useState<string>(DEFAULT_COMPANY_SIZE);
 
   const companySphereGrouped = useMemo(
-    () => getCompanySphereGroupedSelect(companySphere === ""),
-    [companySphere]
+    () => getCompanySphereGroupedSelect(false),
+    []
   );
   const companySizeOptions = useMemo(() => getCompanySizeSelectOptions(false), []);
 
-  const syncFromBootstrap = useCallback(async () => {
+  const syncFromBootstrap = useCallback(() => {
     setErr(null);
-    try {
-      const { data: u } = await supabase.auth.getUser();
-      setAccountEmail(u.user?.email ?? "");
-    } catch {
-      setAccountEmail("");
-    }
-    if (suppressBootstrapSyncRef.current) {
-      return;
-    }
+    if (suppressBootstrapSyncRef.current) return;
+
     if (bootstrapLoading) {
-      if (
-        postCheckoutFlowActiveRef.current &&
-        (showPostCheckoutModal || bootstrap?.requires_post_checkout_onboarding === true)
-      ) {
-        return;
-      }
-      setGate("loading");
+      if (postCheckoutFlowActiveRef.current) return;
+      setGate("boot");
       return;
     }
-    // Сервер уже снял post-checkout, а showPostCheckoutModal может оставаться true ~450ms (stabilization окна shell).
+
     if (bootstrap?.requires_post_checkout_onboarding === false) {
       postCheckoutFlowActiveRef.current = false;
       setGate("skip");
       return;
     }
-    const wantPostCheckoutModal =
-      bootstrap?.requires_post_checkout_onboarding === true || showPostCheckoutModal;
-    if (!wantPostCheckoutModal) {
-      postCheckoutFlowActiveRef.current = false;
-      setGate("skip");
-      return;
+
+    if (bootstrap?.requires_post_checkout_onboarding === true) {
+      postCheckoutFlowActiveRef.current = true;
+      setGate((g) => (g === "success" ? g : "flow"));
+      const fromProgress = bootstrap.onboarding_progress?.step;
+      const s = Math.min(
+        3,
+        Math.max(
+          1,
+          typeof fromProgress === "number" ? fromProgress : Number(bootstrap.post_checkout_onboarding_step) || 1
+        )
+      );
+      setStep((prev) => Math.min(3, Math.max(prev, s)));
     }
-    postCheckoutFlowActiveRef.current = true;
-    setGate("modal");
-    const fromProgress = bootstrap?.onboarding_progress?.step;
-    const s = Math.min(
-      3,
-      Math.max(
-        1,
-        typeof fromProgress === "number" ? fromProgress : Number(bootstrap?.post_checkout_onboarding_step) || 1
-      )
-    );
-    setStep((prev) => Math.min(3, Math.max(prev, s)));
-    setPlanName(resolveBootstrapPlanDisplayLabel(bootstrap ?? null));
-  }, [bootstrap, bootstrapLoading, showPostCheckoutModal]);
+  }, [bootstrap, bootstrapLoading]);
 
   useEffect(() => {
-    void syncFromBootstrap();
+    syncFromBootstrap();
   }, [syncFromBootstrap]);
 
   useEffect(() => {
-    if (gate !== "modal" || !showPostCheckoutModal || postCheckoutStartedEmittedRef.current) return;
+    void supabase.auth.getUser().then(({ data: u }) => {
+      const n = u.user?.user_metadata?.full_name;
+      if (typeof n === "string" && n.trim()) setOwnerFullName((prev) => (prev.trim() ? prev : n.trim()));
+    });
+  }, []);
+
+  useEffect(() => {
+    if (gate !== "flow" || postCheckoutStartedEmittedRef.current) return;
+    if (bootstrap?.requires_post_checkout_onboarding !== true) return;
     postCheckoutStartedEmittedRef.current = true;
     const plan = resolveBootstrapPlanAnalyticsSlug(bootstrap ?? null);
     void supabase.auth.getUser().then(({ data: u }) => {
@@ -141,18 +166,10 @@ export default function PostCheckoutOnboardingModal() {
         source: "in_app",
       });
     });
-  }, [
-    gate,
-    showPostCheckoutModal,
-    bootstrap?.primary_org_id,
-    bootstrap?.effective_plan,
-    bootstrap?.plan_feature_matrix?.plan,
-    bootstrap?.subscription?.plan,
-    bootstrap?.subscription?.billing_period,
-  ]);
+  }, [gate, bootstrap]);
 
   useEffect(() => {
-    if (gate !== "modal") return;
+    if (gate !== "flow") return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -177,21 +194,14 @@ export default function PostCheckoutOnboardingModal() {
     return j;
   };
 
-  const onAdvance = async (next: number) => {
-    setSaving(true);
-    setErr(null);
-    try {
-      await postJson({ action: "advance_step", step: next });
-      setStep(next);
-      await reloadBootstrap();
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
+  const onStep1Continue = () => {
+    if (saving) return;
+    setStep(2);
   };
 
   const onSaveCompany = async () => {
+    if (saving || step2SubmitLockRef.current || !step2Valid) return;
+    step2SubmitLockRef.current = true;
     setSaving(true);
     setErr(null);
     try {
@@ -204,50 +214,63 @@ export default function PostCheckoutOnboardingModal() {
         company_size: companySize,
       });
       setStep(3);
-      await reloadBootstrap();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
+      step2SubmitLockRef.current = false;
     }
   };
 
-  const onComplete = async () => {
-    if (postCheckoutCompleteSubmittedRef.current) return;
+  const onStep3Finish = async () => {
+    if (postCheckoutCompleteSubmittedRef.current || saving) return;
+    postCheckoutCompleteSubmittedRef.current = true;
     setSaving(true);
     setErr(null);
     try {
       await postJson({ action: "complete" });
-      postCheckoutCompleteSubmittedRef.current = true;
       suppressBootstrapSyncRef.current = true;
+      let pack = await reloadBootstrap();
+      if (pack.bootstrap?.requires_post_checkout_onboarding !== false) {
+        await new Promise((r) => setTimeout(r, 450));
+        pack = await reloadBootstrap();
+      }
+      if (pack.bootstrap?.requires_post_checkout_onboarding !== false) {
+        throw new Error("Не удалось подтвердить завершение. Обновите страницу.");
+      }
       postCheckoutFlowActiveRef.current = false;
-      const pack = await reloadBootstrap();
-      const fresh = pack.bootstrap;
       const { data: u } = await supabase.auth.getUser();
-      const plan = resolveBootstrapPlanAnalyticsSlug(fresh ?? bootstrap);
+      const plan = resolveBootstrapPlanAnalyticsSlug(pack.bootstrap ?? bootstrap);
       emitBillingFunnelEvent("billing_post_checkout_onboarding_completed", {
         user_id: u.user?.id ?? null,
-        organization_id: fresh?.primary_org_id ?? bootstrap?.primary_org_id ?? null,
+        organization_id: pack.bootstrap?.primary_org_id ?? bootstrap?.primary_org_id ?? null,
         plan,
-        billing_period: fresh?.subscription?.billing_period ?? bootstrap?.subscription?.billing_period ?? null,
+        billing_period:
+          pack.bootstrap?.subscription?.billing_period ?? bootstrap?.subscription?.billing_period ?? null,
         source: "in_app",
       });
-      setPlanName(resolveBootstrapPlanDisplayLabel(fresh ?? bootstrap));
       setGate("success");
       broadcastBillingBootstrapInvalidate();
     } catch (e) {
+      postCheckoutCompleteSubmittedRef.current = false;
+      suppressBootstrapSyncRef.current = false;
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
   };
 
-  const exitSuccessToProduct = async (path: string) => {
-    suppressBootstrapSyncRef.current = false;
-    setGate("skip");
-    await reloadBootstrap();
-    void router.refresh();
-    router.replace(path);
+  const exitSuccessToProjects = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      suppressBootstrapSyncRef.current = false;
+      setGate("skip");
+      await router.refresh();
+      router.replace("/app/projects");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const step2Valid =
@@ -256,7 +279,19 @@ export default function PostCheckoutOnboardingModal() {
     companySphere.trim().length > 0 &&
     companySize.trim().length > 0;
 
-  if (gate === "skip" || gate === "loading") return null;
+  if (gate === "skip") return null;
+
+  if (gate === "boot") {
+    return (
+      <div style={overlayStyle} role="dialog" aria-modal="true" aria-busy="true" aria-label="Загрузка">
+        <div style={panelStyle}>
+          <p style={{ margin: 0, textAlign: "center", fontSize: 15, color: "rgba(255,255,255,0.75)" }}>
+            Подождите…
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (gate === "success") {
     return (
@@ -285,53 +320,52 @@ export default function PostCheckoutOnboardingModal() {
           >
             ✓
           </div>
-          <h2 id="post-checkout-success-title" style={{ fontSize: 22, fontWeight: 800, margin: "0 0 10px", textAlign: "center" }}>
+          <h2
+            id="post-checkout-success-title"
+            style={{ fontSize: 22, fontWeight: 800, margin: "0 0 10px", textAlign: "center" }}
+          >
             Готово
           </h2>
-          <p style={{ fontSize: 14, color: "rgba(255,255,255,0.78)", lineHeight: 1.55, margin: "0 0 8px", textAlign: "center" }}>
-            Подписка подключена. Организация готова к работе.
+          <p
+            style={{
+              fontSize: 14,
+              color: "rgba(255,255,255,0.78)",
+              lineHeight: 1.55,
+              margin: "0 0 24px",
+              textAlign: "center",
+            }}
+          >
+            Рабочее пространство создано. Можно переходить к настройке проекта.
           </p>
-          <p style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", lineHeight: 1.45, margin: "0 0 22px", textAlign: "center" }}>
-            Можно переходить к проектам или дашборду.
-          </p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <button
-              type="button"
-              onClick={() => void exitSuccessToProduct("/app/projects")}
-              style={{
-                padding: "12px 18px",
-                borderRadius: 12,
-                border: "none",
-                background: "linear-gradient(135deg, rgba(99,102,241,0.85), rgba(52,211,153,0.5))",
-                color: "white",
-                fontWeight: 700,
-                fontSize: 14,
-                cursor: "pointer",
-              }}
-            >
-              Открыть проекты
-            </button>
-            <button
-              type="button"
-              onClick={() => void exitSuccessToProduct("/app")}
-              style={{
-                padding: "12px 18px",
-                borderRadius: 12,
-                border: "1px solid rgba(255,255,255,0.22)",
-                background: "rgba(255,255,255,0.06)",
-                color: "white",
-                fontWeight: 600,
-                fontSize: 14,
-                cursor: "pointer",
-              }}
-            >
-              Перейти в дашборд
-            </button>
-          </div>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => void exitSuccessToProjects()}
+            style={{ ...primaryCtaStyle(saving, true), width: "100%" }}
+          >
+            {saving ? "Подождите…" : "Открыть проекты"}
+          </button>
         </div>
       </div>
     );
   }
+
+  const errBox =
+    err != null ? (
+      <div
+        style={{
+          padding: "8px 10px",
+          borderRadius: 10,
+          border: "1px solid rgba(239,68,68,0.5)",
+          background: "rgba(239,68,68,0.12)",
+          fontSize: 12,
+          color: "rgba(255,200,200,0.95)",
+          marginBottom: 12,
+        }}
+      >
+        {err}
+      </div>
+    ) : null;
 
   return (
     <div
@@ -342,260 +376,178 @@ export default function PostCheckoutOnboardingModal() {
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div style={panelStyle} onMouseDown={(e) => e.stopPropagation()}>
-        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginBottom: 8 }}>
-          Шаг {step} из 3
+        <div style={{ fontSize: 12, color: "rgba(255,255,255,0.5)", marginBottom: 10 }}>Шаг {step} из 3</div>
+
+        <div className="pco-onboarding-step" key={step}>
+          {step === 1 && (
+            <>
+              <h2 id="post-checkout-title" style={{ fontSize: 20, fontWeight: 700, margin: "0 0 12px" }}>
+                Подписка активирована
+              </h2>
+              <p style={{ fontSize: 14, color: "rgba(255,255,255,0.78)", lineHeight: 1.55, margin: "0 0 24px" }}>
+                Остался один шаг — настроим рабочее пространство под ваш бизнес.
+              </p>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={onStep1Continue}
+                style={{ ...primaryCtaStyle(saving, true), width: "100%" }}
+              >
+                {saving ? "Подождите…" : "Продолжить настройку"}
+              </button>
+            </>
+          )}
+
+          {step === 2 && (
+            <>
+              <h2 id="post-checkout-title" style={{ fontSize: 20, fontWeight: 700, margin: "0 0 12px" }}>
+                Настройка рабочего пространства
+              </h2>
+              <p style={{ fontSize: 14, color: "rgba(255,255,255,0.72)", lineHeight: 1.55, margin: "0 0 18px" }}>
+                Эти данные помогут корректно настроить аналитику и структуру проектов.
+              </p>
+
+              <label style={{ display: "grid", gap: 4, fontSize: 13, marginBottom: 14 }}>
+                <span style={{ color: "rgba(255,255,255,0.88)", fontWeight: 600 }}>Название компании</span>
+                <FieldHint>Как будет отображаться в системе</FieldHint>
+                <input
+                  type="text"
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  style={inputBase}
+                  autoComplete="organization"
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: 4, fontSize: 13, marginBottom: 14 }}>
+                <span style={{ color: "rgba(255,255,255,0.88)", fontWeight: 600 }}>Контактное лицо</span>
+                <FieldHint>Кто отвечает за работу с аналитикой</FieldHint>
+                <input
+                  type="text"
+                  value={ownerFullName}
+                  onChange={(e) => setOwnerFullName(e.target.value)}
+                  style={inputBase}
+                  autoComplete="name"
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: 4, fontSize: 13, marginBottom: 14 }}>
+                <span style={{ color: "rgba(255,255,255,0.88)", fontWeight: 600 }}>Телефон</span>
+                <FieldHint>Нужен только для связи при необходимости</FieldHint>
+                <input
+                  type="tel"
+                  value={contactPhone}
+                  onChange={(e) => setContactPhone(e.target.value)}
+                  style={inputBase}
+                  autoComplete="tel"
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: 4, fontSize: 13, marginBottom: 14 }}>
+                <span style={{ color: "rgba(255,255,255,0.88)", fontWeight: 600 }}>Сфера бизнеса</span>
+                <FieldHint>Выберите направление</FieldHint>
+                <select
+                  className="settings-page-select"
+                  value={companySphere}
+                  onChange={(e) => setCompanySphere(e.target.value)}
+                  style={{ ...inputBase, cursor: "pointer" }}
+                >
+                  {companySphereGrouped.groups.map((g) => (
+                    <optgroup key={g.label} label={g.label}>
+                      {g.options.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ display: "grid", gap: 4, fontSize: 13, marginBottom: 16 }}>
+                <span style={{ color: "rgba(255,255,255,0.88)", fontWeight: 600 }}>Размер команды</span>
+                <FieldHint>Влияет на рекомендации внутри системы</FieldHint>
+                <select
+                  className="settings-page-select"
+                  value={companySize}
+                  onChange={(e) => setCompanySize(e.target.value)}
+                  style={{ ...inputBase, cursor: "pointer" }}
+                >
+                  {companySizeOptions.map((opt) => (
+                    <option key={opt.value || "e"} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {errBox}
+
+              <div style={{ display: "flex", gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => setStep(1)}
+                  style={secondaryCtaStyle(saving)}
+                >
+                  {saving ? "Подождите…" : "Назад"}
+                </button>
+                <button
+                  type="button"
+                  disabled={saving || !step2Valid}
+                  onClick={() => void onSaveCompany()}
+                  style={primaryCtaStyle(saving, step2Valid)}
+                >
+                  {saving ? "Подождите…" : "Далее"}
+                </button>
+              </div>
+            </>
+          )}
+
+          {step === 3 && (
+            <>
+              <h2 id="post-checkout-title" style={{ fontSize: 20, fontWeight: 700, margin: "0 0 12px" }}>
+                Вы готовы к работе
+              </h2>
+              <p style={{ fontSize: 14, color: "rgba(255,255,255,0.75)", lineHeight: 1.55, margin: "0 0 14px" }}>
+                Выполните несколько шагов, чтобы запустить аналитику и получать точные данные:
+              </p>
+              <ul
+                style={{
+                  fontSize: 14,
+                  color: "rgba(255,255,255,0.82)",
+                  lineHeight: 1.55,
+                  paddingLeft: 18,
+                  margin: "0 0 22px",
+                }}
+              >
+                <li>Создайте первый проект</li>
+                <li>Подключите рекламные источники (Meta, Google, TikTok)</li>
+                <li>Установите Pixel на сайт</li>
+                <li>Настройте передачу событий (регистрация, покупки)</li>
+              </ul>
+              {errBox}
+              <div style={{ display: "flex", gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => setStep(2)}
+                  style={secondaryCtaStyle(saving)}
+                >
+                  {saving ? "Подождите…" : "Назад"}
+                </button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void onStep3Finish()}
+                  style={primaryCtaStyle(saving, true)}
+                >
+                  {saving ? "Подождите…" : "Перейти к проектам"}
+                </button>
+              </div>
+            </>
+          )}
         </div>
-
-        {step === 1 && (
-          <>
-            <h2 id="post-checkout-title" style={{ fontSize: 20, fontWeight: 700, margin: "0 0 10px" }}>
-              Спасибо, подписка оформлена
-            </h2>
-            <p style={{ fontSize: 14, color: "rgba(255,255,255,0.78)", lineHeight: 1.5, marginBottom: 14 }}>
-              Ваш тариф: <strong style={{ color: "white" }}>{planName}</strong>. Осталось несколько шагов, чтобы
-              настроить рабочее пространство.
-            </p>
-            <div
-              style={{
-                padding: "12px 14px",
-                borderRadius: 12,
-                background: "rgba(120,120,255,0.12)",
-                border: "1px solid rgba(120,120,255,0.25)",
-                fontSize: 13,
-                color: "rgba(226,232,255,0.95)",
-                marginBottom: 20,
-              }}
-            >
-              Дальше — профиль компании и краткая инструкция. Это не оплата и не ошибка доступа, а стартовая
-              настройка после покупки.
-            </div>
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => onAdvance(2)}
-                style={{
-                  padding: "10px 18px",
-                  borderRadius: 10,
-                  border: "none",
-                  background: "rgba(120,120,255,0.5)",
-                  color: "white",
-                  fontWeight: 600,
-                  cursor: saving ? "wait" : "pointer",
-                }}
-              >
-                Далее
-              </button>
-            </div>
-          </>
-        )}
-
-        {step === 2 && (
-          <>
-            <h2 id="post-checkout-title" style={{ fontSize: 20, fontWeight: 700, margin: "0 0 10px" }}>
-              Данные компании
-            </h2>
-            <p style={{ fontSize: 13, color: "rgba(255,255,255,0.65)", marginBottom: 16 }}>
-              Те же поля, что в разделе «Настройки → Компания». Email аккаунта подставляется автоматически.
-            </p>
-
-            <label style={{ display: "grid", gap: 6, fontSize: 13, marginBottom: 12 }}>
-              <span style={{ color: "rgba(255,255,255,0.85)" }}>Email</span>
-              <input type="email" value={accountEmail} readOnly disabled style={{ ...inputBase, opacity: 0.7 }} />
-            </label>
-
-            <label style={{ display: "grid", gap: 6, fontSize: 13, marginBottom: 12 }}>
-              <span style={{ color: "rgba(255,255,255,0.85)" }}>Название компании</span>
-              <input
-                type="text"
-                value={companyName}
-                onChange={(e) => setCompanyName(e.target.value)}
-                style={inputBase}
-                autoComplete="organization"
-              />
-            </label>
-
-            <label style={{ display: "grid", gap: 6, fontSize: 13, marginBottom: 12 }}>
-              <span style={{ color: "rgba(255,255,255,0.85)" }}>ФИО контактного лица</span>
-              <input
-                type="text"
-                value={ownerFullName}
-                onChange={(e) => setOwnerFullName(e.target.value)}
-                style={inputBase}
-              />
-            </label>
-
-            <label style={{ display: "grid", gap: 6, fontSize: 13, marginBottom: 12 }}>
-              <span style={{ color: "rgba(255,255,255,0.85)" }}>Телефон</span>
-              <input
-                type="tel"
-                value={contactPhone}
-                onChange={(e) => setContactPhone(e.target.value)}
-                style={inputBase}
-                autoComplete="tel"
-              />
-            </label>
-
-            <label style={{ display: "grid", gap: 6, fontSize: 13, marginBottom: 12 }}>
-              <span style={{ color: "rgba(255,255,255,0.85)" }}>Сфера компании</span>
-              <select
-                className="settings-page-select"
-                value={companySphere}
-                onChange={(e) => setCompanySphere(e.target.value)}
-                style={{ ...inputBase, cursor: "pointer" }}
-              >
-                {companySphereGrouped.includeUnset && <option value="">Выберите…</option>}
-                {companySphereGrouped.groups.map((g) => (
-                  <optgroup key={g.label} label={g.label}>
-                    {g.options.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </label>
-
-            <label style={{ display: "grid", gap: 6, fontSize: 13, marginBottom: 16 }}>
-              <span style={{ color: "rgba(255,255,255,0.85)" }}>Количество сотрудников</span>
-              <select
-                className="settings-page-select"
-                value={companySize}
-                onChange={(e) => setCompanySize(e.target.value)}
-                style={{ ...inputBase, cursor: "pointer" }}
-              >
-                {companySizeOptions.map((opt) => (
-                  <option key={opt.value || "e"} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            {err && (
-              <div
-                style={{
-                  padding: "8px 10px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(239,68,68,0.5)",
-                  background: "rgba(239,68,68,0.12)",
-                  fontSize: 12,
-                  color: "rgba(255,200,200,0.95)",
-                  marginBottom: 12,
-                }}
-              >
-                {err}
-              </div>
-            )}
-
-            <div style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => onAdvance(1)}
-                style={{
-                  padding: "10px 16px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,0.2)",
-                  background: "transparent",
-                  color: "white",
-                  cursor: saving ? "wait" : "pointer",
-                }}
-              >
-                Назад
-              </button>
-              <button
-                type="button"
-                disabled={saving || !step2Valid}
-                onClick={() => void onSaveCompany()}
-                style={{
-                  padding: "10px 18px",
-                  borderRadius: 10,
-                  border: "none",
-                  background: !step2Valid ? "rgba(120,120,255,0.25)" : "rgba(120,120,255,0.5)",
-                  color: "white",
-                  fontWeight: 600,
-                  cursor: saving || !step2Valid ? "not-allowed" : "pointer",
-                }}
-              >
-                Далее
-              </button>
-            </div>
-          </>
-        )}
-
-        {step === 3 && (
-          <>
-            <h2 id="post-checkout-title" style={{ fontSize: 20, fontWeight: 700, margin: "0 0 10px" }}>
-              Как начать
-            </h2>
-            <ul
-              style={{
-                fontSize: 14,
-                color: "rgba(255,255,255,0.78)",
-                lineHeight: 1.55,
-                paddingLeft: 18,
-                margin: "0 0 16px",
-              }}
-            >
-              <li>Создайте первый проект и выберите его в интерфейсе.</li>
-              <li>Подключите рекламные кабинеты (Meta, Google, TikTok) в настройках интеграций.</li>
-              <li>Нажмите обновление данных на дашборде, чтобы подтянуть статистику.</li>
-            </ul>
-            <p style={{ fontSize: 13, color: "rgba(255,255,255,0.55)", marginBottom: 18 }}>
-              Полный гид по продукту можно добавить позже на странице помощи — здесь главное, с чего начать.
-            </p>
-            {err && (
-              <div
-                style={{
-                  padding: "8px 10px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(239,68,68,0.5)",
-                  background: "rgba(239,68,68,0.12)",
-                  fontSize: 12,
-                  color: "rgba(255,200,200,0.95)",
-                  marginBottom: 12,
-                }}
-              >
-                {err}
-              </div>
-            )}
-            <div style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => void onAdvance(2)}
-                style={{
-                  padding: "10px 16px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,0.2)",
-                  background: "transparent",
-                  color: "white",
-                  cursor: saving ? "wait" : "pointer",
-                }}
-              >
-                Назад
-              </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => void onComplete()}
-                style={{
-                  padding: "10px 18px",
-                  borderRadius: 10,
-                  border: "none",
-                  background: "rgba(34,197,94,0.45)",
-                  color: "white",
-                  fontWeight: 600,
-                  cursor: saving ? "wait" : "pointer",
-                }}
-              >
-                Перейти в продукт
-              </button>
-            </div>
-          </>
-        )}
       </div>
     </div>
   );

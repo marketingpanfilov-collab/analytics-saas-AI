@@ -1455,3 +1455,18 @@ button:not([class]):hover {
     position: static !important;
   }
 }
+
+@keyframes pco-onboarding-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pco-onboarding-step {
+  animation: pco-onboarding-step-in 0.24s ease-out;
+}
