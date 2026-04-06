@@ -35,6 +35,7 @@ import {
 import { waitUntilPostPaymentUnblocked, fetchBillingBootstrapPack } from "../lib/billingPostPaymentPoll";
 import { subscribeMetaInitiateCheckoutWhenCheckoutLoaded } from "../lib/metaInitiateCheckoutSchedule";
 import { fireMetaPurchasePixelFromPaddleEvent } from "../lib/metaPixelBrowser";
+import { warnPaddleCheckoutCatalogIds } from "../lib/paddleCheckoutConfigDiagnostics";
 import { addPaddleEventListener, getPaddle } from "../lib/paddle";
 import { getPaddlePriceId, getPaddleProductId, type BillingPeriod } from "../lib/paddlePriceMap";
 import { supabase } from "../lib/supabaseClient";
@@ -478,6 +479,7 @@ export default function LoginPageClient() {
       }
 
       const productId = getPaddleProductId(effectivePlan, effectiveBilling);
+      warnPaddleCheckoutCatalogIds({ priceId, productId, source: "LoginPageClient" });
 
       const paddle = await getPaddle();
       if (!paddle) {

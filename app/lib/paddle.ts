@@ -1,4 +1,5 @@
 import { initializePaddle, type Paddle, type PaddleEventData } from "@paddle/paddle-js";
+import { logPaddleClientEnvMismatchOnce } from "@/app/lib/paddleCheckoutConfigDiagnostics";
 
 /**
  * Ops note: Paddle may decline $0-today checkouts with a heavy promo (e.g. 100% off). That is usually
@@ -57,6 +58,7 @@ export async function getPaddle(options?: GetPaddleOptions) {
       );
       paddlePromise = Promise.resolve(undefined);
     } else {
+      logPaddleClientEnvMismatchOnce();
       if (process.env.NODE_ENV === "development" && token.length < 20) {
         console.warn(
           "[paddle] Client-side token выглядит слишком коротким; проверьте, что скопировали полностью из Paddle → Developer tools → Authentication."

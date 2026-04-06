@@ -8,6 +8,7 @@ import { BILLING_CHECKOUT_MISSING_ORG_MESSAGE } from "@/app/lib/billing/billingC
 import { billingClientLog } from "@/app/lib/billing/billingClientObservability";
 import { subscribeMetaInitiateCheckoutWhenCheckoutLoaded } from "@/app/lib/metaInitiateCheckoutSchedule";
 import { fireMetaPurchasePixelFromPaddleEvent } from "@/app/lib/metaPixelBrowser";
+import { warnPaddleCheckoutCatalogIds } from "@/app/lib/paddleCheckoutConfigDiagnostics";
 import { addPaddleEventListener, getPaddle } from "@/app/lib/paddle";
 import { getPaddlePriceId, getPaddleProductId, type BillingPeriod } from "@/app/lib/paddlePriceMap";
 
@@ -92,6 +93,7 @@ export async function openPaddleSubscriptionCheckout(
     return { ok: false, error: "Цена тарифа не настроена (env NEXT_PUBLIC_PADDLE_PRICE_*)." };
   }
   const productId = getPaddleProductId(args.plan, args.billing);
+  warnPaddleCheckoutCatalogIds({ priceId, productId, source: "paddleCheckoutClient" });
   const paddle = await getPaddle({ pwCustomerId: args.pwCustomerId ?? null });
   if (!paddle?.Checkout?.open) {
     return { ok: false, error: "Не удалось инициализировать оплату. Попробуйте позже." };
