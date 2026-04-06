@@ -456,8 +456,9 @@ function BillingBootstrapProviderInner({ children }: { children: ReactNode }) {
       clientSafeMode,
       reloadBootstrap,
       showPostCheckoutModal:
-        displayedResolved?.screen === ScreenId.POST_CHECKOUT_MODAL &&
-        displayedResolved?.reason === ReasonCode.POST_CHECKOUT_REQUIRED,
+        (displayedResolved?.screen === ScreenId.POST_CHECKOUT_MODAL &&
+          displayedResolved?.reason === ReasonCode.POST_CHECKOUT_REQUIRED) ||
+        bootstrap?.requires_post_checkout_onboarding === true,
       planFeatureMatrix: bootstrap?.plan_feature_matrix,
       overLimitApplyGraceUntilMs,
       setOverLimitApplyGraceUntilMs,

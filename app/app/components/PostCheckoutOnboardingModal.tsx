@@ -88,7 +88,10 @@ export default function PostCheckoutOnboardingModal() {
       return;
     }
     if (bootstrapLoading) {
-      if (showPostCheckoutModal && postCheckoutFlowActiveRef.current) {
+      if (
+        postCheckoutFlowActiveRef.current &&
+        (showPostCheckoutModal || bootstrap?.requires_post_checkout_onboarding === true)
+      ) {
         return;
       }
       setGate("loading");
@@ -100,7 +103,9 @@ export default function PostCheckoutOnboardingModal() {
       setGate("skip");
       return;
     }
-    if (!showPostCheckoutModal) {
+    const wantPostCheckoutModal =
+      bootstrap?.requires_post_checkout_onboarding === true || showPostCheckoutModal;
+    if (!wantPostCheckoutModal) {
       postCheckoutFlowActiveRef.current = false;
       setGate("skip");
       return;

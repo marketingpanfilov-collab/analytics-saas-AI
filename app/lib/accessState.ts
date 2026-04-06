@@ -60,6 +60,9 @@ export function resolveAccessState(
     /** Paddle/webhook иногда отдаёт `completed` для подписки после оплаты — не смешивать с «нет подписки». */
     case "completed":
       return "active";
+    /** Некоторые события Paddle пишут `paid` в строку подписки — трактуем как оплаченный доступ. */
+    case "paid":
+      return "active";
     case "past_due": {
       const gu = subscription.grace_until ? Date.parse(String(subscription.grace_until)) : NaN;
       if (Number.isFinite(gu) && Date.now() < gu) return "grace_past_due";

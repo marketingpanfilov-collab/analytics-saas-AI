@@ -1,7 +1,5 @@
-import { randomUUID } from "node:crypto";
 import { redirect } from "next/navigation";
 import { getCurrentUserContext } from "@/app/lib/auth/getCurrentUserContext";
-import { loadBillingCurrentPlan } from "@/app/lib/billingCurrentPlan";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { getPlanMaxProjectsForUser } from "@/app/lib/projectPlanLimit";
 import ProjectsListClient from "../../components/projects/ProjectsListClient";
@@ -18,12 +16,6 @@ export default async function ProjectsPage() {
   }
 
   const admin = supabaseAdmin();
-  const billingSnap = await loadBillingCurrentPlan(admin, context.user.id, context.user.email ?? null, {
-    requestId: randomUUID(),
-  });
-  if (billingSnap.success && billingSnap.requires_post_checkout_onboarding) {
-    redirect("/app/projects/onboarding");
-  }
 
   const canCreate =
     context.memberships.length > 0 &&

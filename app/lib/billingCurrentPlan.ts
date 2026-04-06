@@ -28,6 +28,7 @@ import {
   normalizeMaxSeatsForEnforcement,
   type PlanFeatureMatrix,
 } from "@/app/lib/planConfig";
+import { subscriptionRowCountsAsPaidForLoginCheckout } from "@/app/lib/billing/loginCheckoutPaidStatuses";
 import { countEnabledAdAccountsForOrganization } from "@/app/lib/dashboardCanonical";
 import { getBillableSeatsBreakdownForOrganization } from "@/app/lib/orgSeatPlanLimit";
 
@@ -629,7 +630,7 @@ export async function loadBillingCurrentPlan(
   const effective_plan = resolveEffectivePlan(planMeta.plan === "unknown" ? null : planMeta.plan);
 
   const paddlePaid =
-    (displayStatus === "active" || displayStatus === "trialing") && !isExpiredByDate;
+    !isExpiredByDate && subscriptionRowCountsAsPaidForLoginCheckout(displayStatus);
   await ensurePostCheckoutRowForNewPayer(
     admin,
     userId,
