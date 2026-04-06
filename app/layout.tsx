@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import MetaPixelRoot from "@/app/components/MetaPixelRoot";
+import { getMetaPixelIdFromEnv } from "@/app/lib/metaPixelEnv";
 import "./globals.css";
 
 const jakarta = Plus_Jakarta_Sans({
@@ -70,7 +71,12 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const metaPixelId = process.env.META_PIXEL_ID?.trim() ?? "";
+  const metaPixelId = getMetaPixelIdFromEnv();
+  if (process.env.NODE_ENV === "development" && !metaPixelId) {
+    console.warn(
+      "[BoardIQ] Meta Pixel выключен: задайте META_PIXEL_ID или NEXT_PUBLIC_META_PIXEL_ID в .env.local и перезапустите dev-сервер."
+    );
+  }
   return (
     <html lang="ru" className={jakarta.variable}>
       <body className="min-h-screen text-white antialiased">

@@ -6,10 +6,8 @@ import type { PaddleEventData } from "@paddle/paddle-js";
 import type { PricingPlanId } from "@/app/lib/auth/loginPurchaseUrl";
 import { BILLING_CHECKOUT_MISSING_ORG_MESSAGE } from "@/app/lib/billing/billingCheckoutMessages";
 import { billingClientLog } from "@/app/lib/billing/billingClientObservability";
-import {
-  fireMetaInitiateCheckoutPixelAndCapi,
-  fireMetaPurchasePixelFromPaddleEvent,
-} from "@/app/lib/metaPixelBrowser";
+import { subscribeMetaInitiateCheckoutWhenCheckoutLoaded } from "@/app/lib/metaInitiateCheckoutSchedule";
+import { fireMetaPurchasePixelFromPaddleEvent } from "@/app/lib/metaPixelBrowser";
 import { addPaddleEventListener, getPaddle } from "@/app/lib/paddle";
 import { getPaddlePriceId, getPaddleProductId, type BillingPeriod } from "@/app/lib/paddlePriceMap";
 
@@ -124,30 +122,38 @@ export async function openPaddleSubscriptionCheckout(
   }
 
   const attemptId = args.checkoutAttemptId?.trim() ?? "";
-  paddle.Checkout.open({
-    items: [{ priceId, quantity: 1 }],
-    customer: { email },
-    customData: {
-      ...(productId ? { paddle_product_id: productId } : {}),
-      plan: args.plan,
-      billing_period: args.billing,
-      app_user_id: args.userId,
-      app_email: email.toLowerCase(),
-      app_organization_id: orgId,
-      primary_org_id: orgId,
-      ...(attemptId ? { checkout_attempt_id: attemptId } : {}),
-      ...(args.projectId ? { project_id: args.projectId } : {}),
-    },
-  });
-
+  let cancelMeta: (() => void) | null = null;
   if (typeof window !== "undefined" && attemptId) {
-    fireMetaInitiateCheckoutPixelAndCapi({
-      checkoutAttemptId: attemptId,
+    cancelMeta = subscribeMetaInitiateCheckoutWhenCheckoutLoaded(attemptId, {
       plan: args.plan,
       billingPeriod: args.billing,
       email,
-      eventSourceUrl: window.location.href,
+      appUserId: args.userId,
     });
+  }
+
+  try {
+    paddle.Checkout.open({
+      items: [{ priceId, quantity: 1 }],
+      customer: { email },
+      customData: {
+        ...(productId ? { paddle_product_id: productId } : {}),
+        plan: args.plan,
+        billing_period: args.billing,
+        app_user_id: args.userId,
+        app_email: email.toLowerCase(),
+        app_organization_id: orgId,
+        primary_org_id: orgId,
+        ...(attemptId ? { checkout_attempt_id: attemptId } : {}),
+        ...(args.projectId ? { project_id: args.projectId } : {}),
+      },
+    });
+  } catch (e) {
+    cancelMeta?.();
+    activeSession = null;
+    clearCheckoutTimer();
+    billingClientLog("warn", "checkout", "CHECKOUT_OPEN_FAILED", { plan: args.plan, billing: args.billing });
+    return { ok: false, error: "Не удалось открыть окно оплаты. Попробуйте позже." };
   }
 
   return { ok: true };

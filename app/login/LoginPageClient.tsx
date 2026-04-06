@@ -33,10 +33,8 @@ import {
   persistLoginCheckoutFinalizeOrg,
 } from "../lib/billingLoginCheckoutClient";
 import { waitUntilPostPaymentUnblocked, fetchBillingBootstrapPack } from "../lib/billingPostPaymentPoll";
-import {
-  fireMetaInitiateCheckoutPixelAndCapi,
-  fireMetaPurchasePixelFromPaddleEvent,
-} from "../lib/metaPixelBrowser";
+import { subscribeMetaInitiateCheckoutWhenCheckoutLoaded } from "../lib/metaInitiateCheckoutSchedule";
+import { fireMetaPurchasePixelFromPaddleEvent } from "../lib/metaPixelBrowser";
 import { addPaddleEventListener, getPaddle } from "../lib/paddle";
 import { getPaddlePriceId, getPaddleProductId, type BillingPeriod } from "../lib/paddlePriceMap";
 import { supabase } from "../lib/supabaseClient";
@@ -566,27 +564,32 @@ export default function LoginPageClient() {
         })();
       }, 180000);
 
-      paddle.Checkout.open({
-        items: [{ priceId, quantity: 1 }],
-        customer: { email: email.trim() },
-        customData: {
-          ...(productId ? { paddle_product_id: productId } : {}),
-          plan: effectivePlan,
-          billing_period: effectiveBilling,
-          app_email: emailNormalized,
-          app_organization_id: organizationId,
-          primary_org_id: organizationId,
-          checkout_attempt_id: checkoutAttemptId,
-        },
-      });
+      let cancelMeta: (() => void) | null = null;
       if (typeof window !== "undefined") {
-        fireMetaInitiateCheckoutPixelAndCapi({
-          checkoutAttemptId,
+        cancelMeta = subscribeMetaInitiateCheckoutWhenCheckoutLoaded(checkoutAttemptId, {
           plan: effectivePlan,
           billingPeriod: effectiveBilling,
           email: email.trim(),
-          eventSourceUrl: window.location.href,
+          appUserId: null,
         });
+      }
+      try {
+        paddle.Checkout.open({
+          items: [{ priceId, quantity: 1 }],
+          customer: { email: email.trim() },
+          customData: {
+            ...(productId ? { paddle_product_id: productId } : {}),
+            plan: effectivePlan,
+            billing_period: effectiveBilling,
+            app_email: emailNormalized,
+            app_organization_id: organizationId,
+            primary_org_id: organizationId,
+            checkout_attempt_id: checkoutAttemptId,
+          },
+        });
+      } catch (openErr) {
+        cancelMeta?.();
+        throw openErr;
       }
       emitBillingFunnelEvent("billing_checkout_opened", {
         checkout_attempt_id: checkoutAttemptId,

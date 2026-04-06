@@ -19,10 +19,15 @@ export async function upsertMetaCheckoutCapiContext(
     fbc: string | null;
   }
 ): Promise<void> {
+  const existing = await getMetaCheckoutCapiContext(admin, row.checkout_attempt_id);
+  const incomingUa = row.client_user_agent?.trim() || null;
+  const existingUa = existing?.client_user_agent?.trim() || null;
+  const client_user_agent = incomingUa || existingUa || null;
+
   const { error } = await admin.from("meta_checkout_capi_context").upsert(
     {
       checkout_attempt_id: row.checkout_attempt_id,
-      client_user_agent: row.client_user_agent,
+      client_user_agent,
       event_source_url: row.event_source_url,
       client_ip: row.client_ip,
       fbp: row.fbp,

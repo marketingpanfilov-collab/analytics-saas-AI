@@ -32,7 +32,10 @@ export async function POST(req: Request) {
     const eventSourceUrl = typeof body.event_source_url === "string" ? body.event_source_url.trim() : null;
     const fbp = typeof body.fbp === "string" ? body.fbp.trim() : null;
     const fbc = typeof body.fbc === "string" ? body.fbc.trim() : null;
-    const userAgent = typeof body.user_agent === "string" ? body.user_agent.trim() : null;
+    const bodyUa = typeof body.user_agent === "string" ? body.user_agent.trim() : "";
+    const headerUa = req.headers.get("user-agent")?.trim() ?? "";
+    const appUserIdRaw = typeof body.app_user_id === "string" ? body.app_user_id.trim() : "";
+    const externalId = /^[0-9a-f-]{36}$/i.test(appUserIdRaw) ? appUserIdRaw : null;
 
     if (!checkoutAttemptId || !plan || !billingPeriod || !email) {
       return NextResponse.json({ ok: false, error: "missing_fields" }, { status: 400 });
@@ -56,7 +59,7 @@ export async function POST(req: Request) {
     }
 
     const clientIp = clientIpFromRequest(req);
-    const ua = userAgent || req.headers.get("user-agent");
+    const ua = bodyUa || headerUa || null;
     const appBase = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "";
     const eventSourceUrlResolved =
       (eventSourceUrl && eventSourceUrl.length > 0 ? eventSourceUrl : null) ||
@@ -77,7 +80,7 @@ export async function POST(req: Request) {
       eventTimeSeconds: Math.floor(Date.now() / 1000),
       eventSourceUrl: eventSourceUrlResolved,
       email,
-      externalId: null,
+      externalId,
       clientIp,
       userAgent: ua,
       fbp: fbp || null,

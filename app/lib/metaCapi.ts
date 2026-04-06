@@ -1,9 +1,10 @@
 import { hashMetaCountryIso2, normalizeAndHashMetaUserData } from "@/app/lib/metaUserDataHash";
+import { getMetaPixelIdFromEnv } from "@/app/lib/metaPixelEnv";
 import { tryClaimMetaMarketingDispatch } from "@/app/lib/metaDispatch";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 
 function getMetaConfig(): { pixelId: string; accessToken: string; apiVersion: string } | null {
-  const pixelId = process.env.META_PIXEL_ID?.trim() ?? "";
+  const pixelId = getMetaPixelIdFromEnv();
   const accessToken = process.env.META_CAPI_ACCESS_TOKEN?.trim() ?? "";
   const rawVer = process.env.META_API_VERSION?.trim() || "v21.0";
   const apiVersion = rawVer.startsWith("v") ? rawVer : `v${rawVer}`;
@@ -45,12 +46,16 @@ async function postMetaEvents(payload: { data: unknown[] }): Promise<void> {
     console.warn("[meta_capi] META_PIXEL_ID or META_CAPI_ACCESS_TOKEN missing, skip");
     return;
   }
+  const testCode = process.env.META_CAPI_TEST_EVENT_CODE?.trim();
+  const body: Record<string, unknown> = { data: payload.data };
+  if (testCode) body.test_event_code = testCode;
+
   const url = new URL(`https://graph.facebook.com/${cfg.apiVersion}/${cfg.pixelId}/events`);
   url.searchParams.set("access_token", cfg.accessToken);
   const res = await fetch(url.toString(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const t = await res.text().catch(() => "");
@@ -103,6 +108,7 @@ export async function sendMetaInitiateCheckout(args: {
           event_source_url: args.eventSourceUrl ?? undefined,
           user_data,
           custom_data: {
+            num_items: 1,
             ...args.customData,
           },
         },
@@ -114,7 +120,6 @@ export async function sendMetaInitiateCheckout(args: {
 }
 
 export async function sendMetaPurchase(args: {
-  idempotencyKey: string;
   eventId: string;
   eventTimeSeconds: number;
   eventSourceUrl: string | null;
@@ -137,8 +142,18 @@ export async function sendMetaPurchase(args: {
   };
 }): Promise<void> {
   try {
+    const txnId = args.customData.transaction_id?.trim();
+    if (!txnId) {
+      console.warn("[meta_capi] Purchase skipped: missing transaction_id");
+      return;
+    }
+    if (!Number.isFinite(args.customData.value) || args.customData.value < 0) {
+      console.warn("[meta_capi] Purchase skipped: invalid value");
+      return;
+    }
+
     const admin = supabaseAdmin();
-    const claimed = await tryClaimMetaMarketingDispatch(admin, args.idempotencyKey, "Purchase");
+    const claimed = await tryClaimMetaMarketingDispatch(admin, `purchase_capi_txn:${txnId}`, "Purchase");
     if (!claimed) return;
 
     const user_data = buildCapiUserDataBlock({

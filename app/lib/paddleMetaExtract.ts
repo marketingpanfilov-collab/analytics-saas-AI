@@ -21,11 +21,16 @@ function numishToAmount(n: unknown): number | null {
 export function extractPurchaseFromPaddleCheckoutCompletedData(data: unknown): {
   transactionId: string;
   checkoutAttemptId: string | null;
+  /** Итог из payload Paddle (totals), не из UI */
   value: number | null;
   currency: string | null;
   country: string | null;
   plan: string | null;
   billingPeriod: string | null;
+  /** Paddle catalog product id (`pro_…`) из custom_data, только если прислан при открытии checkout */
+  paddleProductId: string | null;
+  /** app_user_id из custom_data, только UUID */
+  appUserId: string | null;
 } | null {
   if (!data || typeof data !== "object") return null;
   const d = data as Record<string, unknown>;
@@ -40,6 +45,12 @@ export function extractPurchaseFromPaddleCheckoutCompletedData(data: unknown): {
   const checkoutAttemptId = extractCheckoutAttemptIdFromCustomData(custom ?? null);
   const plan = custom && typeof custom.plan === "string" ? custom.plan : null;
   const billingPeriod = custom && typeof custom.billing_period === "string" ? custom.billing_period : null;
+  const paddleProductRaw =
+    custom && typeof custom.paddle_product_id === "string" ? custom.paddle_product_id.trim() : "";
+  const paddleProductId =
+    paddleProductRaw.startsWith("pro_") && paddleProductRaw.length > 4 ? paddleProductRaw : null;
+  const appUserRaw = custom && typeof custom.app_user_id === "string" ? custom.app_user_id.trim() : "";
+  const appUserId = /^[0-9a-f-]{36}$/i.test(appUserRaw) ? appUserRaw : null;
 
   const customer = d.customer as Record<string, unknown> | undefined;
   const address = customer?.address as Record<string, unknown> | undefined;
@@ -56,6 +67,8 @@ export function extractPurchaseFromPaddleCheckoutCompletedData(data: unknown): {
     country,
     plan,
     billingPeriod,
+    paddleProductId,
+    appUserId,
   };
 }
 
@@ -82,6 +95,7 @@ export function extractPurchaseFromPaddleTransactionWebhookData(
 
   const details = d.details as Record<string, unknown> | undefined;
   const totals = details?.totals as Record<string, unknown> | undefined;
+  /** Финальные суммы из объекта транзакции Paddle (webhook), не из UI */
   const grand = totals?.grand_total as Record<string, unknown> | string | undefined;
   let value: number | null = null;
   let currency: string | null =

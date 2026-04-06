@@ -1,31 +1,18 @@
-/** Meta event_id: alphanumeric, underscore, hyphen; max 64 (Graph API). */
+/** Meta event_id: max 64 (Graph API). Без случайных суффиксов — связка IC ↔ Purchase по checkout_attempt_id. */
 
 const MAX_LEN = 64;
+const PURCHASE_SUFFIX = "_purchase";
 
-export function sanitizeMetaEventIdSegment(raw: string): string {
-  return String(raw).replace(/[^a-zA-Z0-9_-]/g, "_");
-}
-
-export function buildMetaEventId(parts: string[]): string {
-  const joined = parts.map(sanitizeMetaEventIdSegment).join("_");
-  return joined.length <= MAX_LEN ? joined : joined.slice(0, MAX_LEN);
-}
-
-/** Дедуп Pixel + CAPI для InitiateCheckout; основа — checkout_attempt_id. */
+/** InitiateCheckout: event_id = checkout_attempt_id (обрезка только если > 64). */
 export function metaInitiateCheckoutEventId(checkoutAttemptId: string): string {
-  return buildMetaEventId(["ic", checkoutAttemptId]);
+  const t = String(checkoutAttemptId).trim();
+  return t.length > MAX_LEN ? t.slice(0, MAX_LEN) : t;
 }
 
-/**
- * Дедуп Pixel + CAPI для Purchase; стабильно для одной пары (ca, tx).
- * Укладываемся в 64 символа без обрезки UUID attempt (36) + хвост transaction_id.
- */
-export function metaPurchaseEventId(checkoutAttemptId: string, transactionId: string): string {
-  const caC = sanitizeMetaEventIdSegment(checkoutAttemptId);
-  const txC = sanitizeMetaEventIdSegment(transactionId);
-  const prefix = `p_${caC}_`;
-  const budget = MAX_LEN - prefix.length;
-  if (budget < 6) return buildMetaEventId(["p", caC, txC]);
-  const txPart = txC.length <= budget ? txC : txC.slice(-budget);
-  return `${prefix}${txPart}`;
+/** Purchase: event_id = checkout_attempt_id + "_purchase" (в пределах 64 символов). */
+export function metaPurchaseEventId(checkoutAttemptId: string): string {
+  const base = String(checkoutAttemptId).trim();
+  const maxBase = MAX_LEN - PURCHASE_SUFFIX.length;
+  const b = base.length <= maxBase ? base : base.slice(0, Math.max(1, maxBase));
+  return `${b}${PURCHASE_SUFFIX}`;
 }

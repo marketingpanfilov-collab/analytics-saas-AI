@@ -22,7 +22,7 @@ export async function sendMetaPurchaseFromPaddleTransactionWebhook(args: {
     return;
   }
 
-  const eventId = metaPurchaseEventId(extracted.checkoutAttemptId, extracted.transactionId);
+  const eventId = metaPurchaseEventId(extracted.checkoutAttemptId);
   const externalId =
     args.appUserId && /^[0-9a-f-]{36}$/i.test(args.appUserId.trim()) ? args.appUserId.trim() : null;
 
@@ -48,7 +48,6 @@ export async function sendMetaPurchaseFromPaddleTransactionWebhook(args: {
   }
 
   await sendMetaPurchase({
-    idempotencyKey: `purchase_capi:${args.paddleWebhookEventId}`,
     eventId,
     eventTimeSeconds,
     eventSourceUrl,
