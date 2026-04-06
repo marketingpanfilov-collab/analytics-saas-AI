@@ -1,5 +1,11 @@
 import { initializePaddle, type Paddle, type PaddleEventData } from "@paddle/paddle-js";
 
+/**
+ * Ops note: Paddle may decline $0-today checkouts with a heavy promo (e.g. 100% off). That is usually
+ * account/card/3DS or Paddle-side rules — not fixed by changing checkout.open. Align NEXT_PUBLIC_PADDLE_ENV
+ * with the dashboard (live vs sandbox), client token, and price IDs; contact Paddle support if it persists.
+ */
+
 type PaddleEnv = "production" | "sandbox";
 
 function paddleEnvironmentFromEnv(): PaddleEnv {

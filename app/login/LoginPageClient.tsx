@@ -189,12 +189,14 @@ export default function LoginPageClient() {
   async function fetchLoginCheckoutReadyOnce(
     organizationId: string,
     emailNorm: string,
-    statusToken: string
+    statusToken: string,
+    checkoutAttemptId: string
   ): Promise<boolean> {
     const u = new URL("/api/billing/login-checkout-status", window.location.origin);
     u.searchParams.set("organization_id", organizationId);
     u.searchParams.set("email", emailNorm);
     u.searchParams.set("status_token", statusToken);
+    u.searchParams.set("checkout_attempt_id", checkoutAttemptId);
     try {
       const r = await fetch(u.toString(), { cache: "no-store" });
       const j = (await r.json().catch(() => null)) as { ready?: boolean } | null;
@@ -238,7 +240,12 @@ export default function LoginPageClient() {
             const snap = lastSignupCheckoutRef.current;
             const ready =
               !!snap &&
-              (await fetchLoginCheckoutReadyOnce(snap.organizationId, snap.emailNormalized, snap.statusToken));
+              (await fetchLoginCheckoutReadyOnce(
+                snap.organizationId,
+                snap.emailNormalized,
+                snap.statusToken,
+                snap.checkoutAttemptId
+              ));
             if (ready) {
               ctx.paid = true;
               checkoutStateRef.current = null;
@@ -272,11 +279,12 @@ export default function LoginPageClient() {
     organizationId: string,
     emailNorm: string,
     statusToken: string,
+    checkoutAttemptId: string,
     timeoutMs = 90000
   ): Promise<boolean> {
     const started = Date.now();
     while (Date.now() - started < timeoutMs) {
-      if (await fetchLoginCheckoutReadyOnce(organizationId, emailNorm, statusToken)) return true;
+      if (await fetchLoginCheckoutReadyOnce(organizationId, emailNorm, statusToken, checkoutAttemptId)) return true;
       await new Promise((w) => setTimeout(w, 2000));
     }
     return false;
@@ -340,7 +348,7 @@ export default function LoginPageClient() {
     } else {
       persistLoginCheckoutFinalizeOrg(organizationId);
       setMsg(
-        "Оплата прошла успешно. На ваш email отправлено письмо для подтверждения — перейдите по ссылке, чтобы открыть настройку аккаунта."
+        "✅ Оплата прошла успешно. На ваш email отправлено письмо для подтверждения — перейдите по ссылке, чтобы открыть настройку аккаунта."
       );
       setLoading(false);
       return;
@@ -489,6 +497,28 @@ export default function LoginPageClient() {
         billing: effectiveBilling,
       };
 
+      const bindRes = await fetch("/api/billing/login-checkout-bind-attempt", {
+        method: "POST",
+        credentials: "omit",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          organization_id: organizationId,
+          email: emailNormalized,
+          status_token: statusToken,
+          checkout_attempt_id: checkoutAttemptId,
+        }),
+      });
+      const bindBody = (await bindRes.json().catch(() => null)) as { error?: string } | null;
+      if (!bindRes.ok) {
+        setMsg(
+          bindBody?.error === "Already finalized"
+            ? "Регистрация для этого email уже завершена. Войдите."
+            : "Не удалось начать оплату. Обновите страницу и попробуйте снова."
+        );
+        setLoading(false);
+        return;
+      }
+
       const ctx = {
         paid: false,
         onPaid: () => {
@@ -506,7 +536,13 @@ export default function LoginPageClient() {
               source: "login",
             });
             broadcastBillingBootstrapInvalidate();
-            const ready = await waitForLoginCheckoutPaid(organizationId, emailNormalized, statusToken, 90000);
+            const ready = await waitForLoginCheckoutPaid(
+              organizationId,
+              emailNormalized,
+              statusToken,
+              checkoutAttemptId,
+              90000
+            );
             if (!ready) {
               emitBillingFunnelEvent("billing_checkout_stuck_timeout", {
                 checkout_attempt_id: checkoutAttemptId,
@@ -552,7 +588,12 @@ export default function LoginPageClient() {
           const snap = lastSignupCheckoutRef.current;
           if (
             snap &&
-            (await fetchLoginCheckoutReadyOnce(snap.organizationId, snap.emailNormalized, snap.statusToken))
+            (await fetchLoginCheckoutReadyOnce(
+              snap.organizationId,
+              snap.emailNormalized,
+              snap.statusToken,
+              snap.checkoutAttemptId
+            ))
           ) {
             current.paid = true;
             checkoutStateRef.current = null;
@@ -859,6 +900,7 @@ export default function LoginPageClient() {
                               snap.organizationId,
                               snap.emailNormalized,
                               snap.statusToken,
+                              snap.checkoutAttemptId,
                               60000
                             );
                             if (!ready) {

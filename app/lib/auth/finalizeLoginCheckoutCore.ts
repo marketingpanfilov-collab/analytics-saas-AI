@@ -67,7 +67,7 @@ export async function runFinalizeLoginCheckoutCore(
 
   const { data: intent, error: intentErr } = await admin
     .from("billing_login_checkout_intents")
-    .select("email_normalized, linked_at")
+    .select("email_normalized, linked_at, checkout_attempt_id")
     .eq("email_normalized", sessionEmail)
     .eq("organization_id", organizationId)
     .maybeSingle();
@@ -125,12 +125,19 @@ export async function runFinalizeLoginCheckoutCore(
 
   const { data: subs } = await admin
     .from("billing_subscriptions")
-    .select("id, status")
+    .select("id, status, checkout_attempt_id")
     .eq("organization_id", organizationId)
     .eq("provider", "paddle")
     .limit(5);
 
-  const paid = (subs ?? []).some((s) => subscriptionRowCountsAsPaidForLoginCheckout(s.status));
+  const intentAttempt = String(intent.checkout_attempt_id ?? "").trim();
+  const paid = (subs ?? []).some((s) => {
+    if (!subscriptionRowCountsAsPaidForLoginCheckout(s.status)) return false;
+    if (!intentAttempt) {
+      return true;
+    }
+    return String(s.checkout_attempt_id ?? "").trim() === intentAttempt;
+  });
   if (!paid) {
     return {
       ok: false,

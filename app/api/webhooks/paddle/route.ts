@@ -359,6 +359,7 @@ export async function POST(req: Request) {
         last_event_type: eventType,
         last_event_at: occurredAt,
         updated_at: new Date().toISOString(),
+        ...(checkoutAttemptId ? { checkout_attempt_id: checkoutAttemptId } : {}),
       };
 
       const { error: upsertError } = await admin
