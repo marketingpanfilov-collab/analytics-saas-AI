@@ -195,6 +195,15 @@ function BillingBootstrapProviderInner({ children }: { children: ReactNode }) {
         prevFetchFpRef.current = fingerprintResolvedUi(incoming);
         return incoming;
       }
+      // POST_CHECKOUT (hard + пустые actions): после complete сервер отдаёт PAID_NO_PROJECT / DASHBOARD (soft|none).
+      // Иначе гард incR < curR навсегда сохраняет старый шелл — «Создать проект» остаётся выключенным.
+      if (
+        current.reason === ReasonCode.POST_CHECKOUT_REQUIRED &&
+        incoming.reason !== ReasonCode.POST_CHECKOUT_REQUIRED
+      ) {
+        prevFetchFpRef.current = fingerprintResolvedUi(incoming);
+        return incoming;
+      }
       const incR = blockingLevelRank(incoming.blocking_level);
       const curR = blockingLevelRank(current.blocking_level);
       if (incR < curR) {
