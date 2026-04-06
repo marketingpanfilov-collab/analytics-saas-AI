@@ -1,0 +1,39 @@
+Почему приходит «старое» письмо (Confirm Your Signup, белый фон)
+================================================================
+
+Supabase Cloud НЕ берёт HTML из GitHub/Vercel. Шаблоны писем хранятся
+только в проекте Supabase (Dashboard), пока вы их туда не вставите.
+
+Что сделать для production (boardiq.kz)
+-----------------------------------------
+
+1. Откройте Supabase Dashboard → нужный проект (тот, чей URL в NEXT_PUBLIC_SUPABASE_URL).
+
+2. Authentication → Email Templates.
+
+3. В списке слева выберите именно «Confirm signup» (не Magic Link, не Recovery).
+
+4. Поле Subject: замените на, например:
+   Подтвердите email — BoardIQ
+
+5. Поле Body: удалите всё и вставьте СОДЕРЖИМОЕ файла:
+   supabase/templates/confirm_signup.html
+   (весь файл целиком, переменная {{ .ConfirmationURL }} должна остаться как есть)
+
+6. Нажмите Save.
+
+7. Отправьте тестовую регистрацию снова (старое письмо могло уйти до сохранения).
+
+Проверьте
+---------
+- Не тот проект Supabase (staging vs production).
+- Шаблон сохранён без ошибок (иногда Dashboard не сохраняет при уходе со страницы).
+
+Локальная разработка (supabase start)
+-------------------------------------
+В репозитории уже указано в supabase/config.toml:
+[auth.email.template.confirmation]
+content_path = "./supabase/templates/confirm_signup.html"
+
+После изменения шаблона: supabase stop && supabase start.
+Письма смотрите в Inbucket (порт см. в выводе supabase start).
