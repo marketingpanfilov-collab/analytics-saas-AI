@@ -1,5 +1,12 @@
 import { initializePaddle, type Paddle, type PaddleEventData } from "@paddle/paddle-js";
 
+type PaddleEnv = "production" | "sandbox";
+
+function paddleEnvironmentFromEnv(): PaddleEnv {
+  const raw = process.env.NEXT_PUBLIC_PADDLE_ENV?.trim().toLowerCase();
+  return raw === "sandbox" ? "sandbox" : "production";
+}
+
 let paddlePromise: Promise<Paddle | undefined> | null = null;
 let eventHandler: ((event: PaddleEventData) => void) | null = null;
 const extraEventListeners = new Set<(event: PaddleEventData) => void>();
@@ -37,15 +44,29 @@ async function syncPwCustomer(paddle: Paddle | undefined, pwCustomerId: string |
 export async function getPaddle(options?: GetPaddleOptions) {
   const nextPwCustomerId = options?.pwCustomerId ?? null;
   if (!paddlePromise) {
-    initializedPwCustomerId = nextPwCustomerId && nextPwCustomerId.startsWith("ctm_") ? nextPwCustomerId : null;
-    paddlePromise = initializePaddle({
-      environment: "production",
-      token: process.env.NEXT_PUBLIC_PADDLE_CLIENT_TOKEN!,
-      ...(initializedPwCustomerId ? { pwCustomer: { id: initializedPwCustomerId } } : {}),
-      eventCallback: (event) => {
-        dispatchPaddleEvent(event as PaddleEventData);
-      },
-    });
+    const token = process.env.NEXT_PUBLIC_PADDLE_CLIENT_TOKEN?.trim() ?? "";
+    if (!token) {
+      console.error(
+        "[paddle] NEXT_PUBLIC_PADDLE_CLIENT_TOKEN пустой — checkout не сможет авторизоваться (в т.ч. 401 на /pay)."
+      );
+      paddlePromise = Promise.resolve(undefined);
+    } else {
+      if (process.env.NODE_ENV === "development" && token.length < 20) {
+        console.warn(
+          "[paddle] Client-side token выглядит слишком коротким; проверьте, что скопировали полностью из Paddle → Developer tools → Authentication."
+        );
+      }
+      initializedPwCustomerId = nextPwCustomerId && nextPwCustomerId.startsWith("ctm_") ? nextPwCustomerId : null;
+      const environment = paddleEnvironmentFromEnv();
+      paddlePromise = initializePaddle({
+        environment,
+        token,
+        ...(initializedPwCustomerId ? { pwCustomer: { id: initializedPwCustomerId } } : {}),
+        eventCallback: (event) => {
+          dispatchPaddleEvent(event as PaddleEventData);
+        },
+      });
+    }
   }
   const paddle = await paddlePromise;
   await syncPwCustomer(paddle, nextPwCustomerId);
