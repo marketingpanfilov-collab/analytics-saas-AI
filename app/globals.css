@@ -20,6 +20,11 @@ html {
   scroll-behavior: smooth;
 }
 
+/* /login: полоса прокрутки не забирает ширину у центрированного блока при появлении длинного статуса */
+html:has([data-login-page]) {
+  scrollbar-gutter: stable;
+}
+
 body {
   background:
     radial-gradient(1200px 600px at 20% 10%, rgba(90, 120, 255, 0.22), transparent 60%),

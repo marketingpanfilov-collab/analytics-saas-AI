@@ -72,11 +72,11 @@ export async function sendOrganizationTransferInviteEmail(
   ].join("\n");
 
   const bodyHtml = `
-    <p style="color:#a1a1aa;font-size:14px;line-height:1.6;margin:0 0 12px;">
+    <p style="color:#d4d4d8 !important;-webkit-text-fill-color:#d4d4d8 !important;font-size:14px;line-height:1.6;margin:0 0 12px;">
       Вам выдан доступ к организации или проекту.
     </p>
-    <p style="color:#a1a1aa;font-size:14px;line-height:1.6;margin:0 0 20px;">
-      Организация: <span style="color:#e4e4e7;">${safeOrg}</span>
+    <p style="color:#d4d4d8 !important;-webkit-text-fill-color:#d4d4d8 !important;font-size:14px;line-height:1.6;margin:0 0 20px;">
+      Организация: <span style="color:#f4f4f5 !important;-webkit-text-fill-color:#f4f4f5 !important;">${safeOrg}</span>
     </p>`;
 
   const html = buildBoardiqTransactionalEmailHtml({
@@ -148,13 +148,13 @@ export async function sendOrganizationTransferCompletedEmail(
   ].join("\n");
 
   const bodyHtml = `
-    <p style="color:#a1a1aa;font-size:14px;line-height:1.6;margin:0 0 12px;">
-      Вы успешно передали управление организацией <span style="color:#e4e4e7;">${safeOrg}</span>
-      пользователю <span style="color:#e4e4e7;">${safeNew}</span>.
+    <p style="color:#d4d4d8 !important;-webkit-text-fill-color:#d4d4d8 !important;font-size:14px;line-height:1.6;margin:0 0 12px;">
+      Вы успешно передали управление организацией <span style="color:#f4f4f5 !important;-webkit-text-fill-color:#f4f4f5 !important;">${safeOrg}</span>
+      пользователю <span style="color:#f4f4f5 !important;-webkit-text-fill-color:#f4f4f5 !important;">${safeNew}</span>.
     </p>
-    <p style="color:#a1a1aa;font-size:14px;line-height:1.6;margin:0 0 20px;">
-      Ваш доступ к этой организации и её проектам <span style="color:#e4e4e7;">завершён</span>.<br/>
-      Дата передачи: <span style="color:#e4e4e7;">${safeDate}</span>
+    <p style="color:#d4d4d8 !important;-webkit-text-fill-color:#d4d4d8 !important;font-size:14px;line-height:1.6;margin:0 0 20px;">
+      Ваш доступ к этой организации и её проектам <span style="color:#f4f4f5 !important;-webkit-text-fill-color:#f4f4f5 !important;">завершён</span>.<br/>
+      Дата передачи: <span style="color:#f4f4f5 !important;-webkit-text-fill-color:#f4f4f5 !important;">${safeDate}</span>
     </p>`;
 
   const html = buildBoardiqTransactionalEmailHtml({

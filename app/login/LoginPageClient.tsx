@@ -665,8 +665,12 @@ export default function LoginPageClient() {
   };
 
   return (
-    <main className="min-h-screen bg-[#0b0b10] text-white">
-      <div className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center px-6 py-10">
+    <main className="min-h-screen bg-[#0b0b10] text-white" data-login-page>
+      {/*
+        Без justify-center: при появлении статуса высота карточки растёт и flex перецентрирует колонку — визуальный «прыжок» вверх.
+        Отступ сверху от vh, не от контента — положение стабильно при смене msg / оплаты.
+      */}
+      <div className="mx-auto flex min-h-screen max-w-2xl flex-col px-6 pb-12 pt-[clamp(2rem,10vh,5.5rem)] sm:pt-[clamp(2.5rem,12vh,6rem)]">
         <button
           type="button"
           onClick={handleBack}

@@ -94,16 +94,16 @@ export async function sendProjectInviteEmail(
   ].join("\n");
 
   const bodyHtml = `
-    <p style="color:#a1a1aa;font-size:14px;line-height:1.6;margin:0 0 16px;">
+    <p style="color:#d4d4d8 !important;-webkit-text-fill-color:#d4d4d8 !important;font-size:14px;line-height:1.6;margin:0 0 16px;">
       Вас пригласили присоединиться к команде в BoardIQ.
     </p>
-    <p style="color:#a1a1aa;font-size:14px;line-height:1.6;margin:0 0 8px;">
-      Проект: <span style="color:#e4e4e7;">${safeProject}</span>
+    <p style="color:#d4d4d8 !important;-webkit-text-fill-color:#d4d4d8 !important;font-size:14px;line-height:1.6;margin:0 0 8px;">
+      Проект: <span style="color:#f4f4f5 !important;-webkit-text-fill-color:#f4f4f5 !important;">${safeProject}</span>
     </p>
-    <p style="color:#a1a1aa;font-size:14px;line-height:1.6;margin:0 0 20px;">
-      Организация: <span style="color:#e4e4e7;">${safeOrg}</span><br/>
-      Роль: <span style="color:#e4e4e7;">${safeRole}</span><br/>
-      Пригласил(а): <span style="color:#e4e4e7;">${safeInviter}</span>
+    <p style="color:#d4d4d8 !important;-webkit-text-fill-color:#d4d4d8 !important;font-size:14px;line-height:1.6;margin:0 0 20px;">
+      Организация: <span style="color:#f4f4f5 !important;-webkit-text-fill-color:#f4f4f5 !important;">${safeOrg}</span><br/>
+      Роль: <span style="color:#f4f4f5 !important;-webkit-text-fill-color:#f4f4f5 !important;">${safeRole}</span><br/>
+      Пригласил(а): <span style="color:#f4f4f5 !important;-webkit-text-fill-color:#f4f4f5 !important;">${safeInviter}</span>
     </p>`;
 
   const html = buildBoardiqTransactionalEmailHtml({
