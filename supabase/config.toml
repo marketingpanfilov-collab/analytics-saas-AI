@@ -233,21 +233,42 @@ otp_expiry = 3600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
-# Uncomment to customize email template
-# [auth.email.template.invite]
-# subject = "You have been invited"
-# content_path = "./supabase/templates/invite.html"
+# Шаблоны auth (локально + пути для копирования в Dashboard). Эталон визуала: confirm_signup.html — не менять.
+[auth.email.template.recovery]
+subject = "Восстановление доступа — BoardIQ"
+content_path = "./supabase/templates/recovery.html"
+
+[auth.email.template.magic_link]
+subject = "Вам предоставлен доступ — BoardIQ"
+content_path = "./supabase/templates/magic_link.html"
+
+[auth.email.template.invite]
+subject = "Вас пригласили в BoardIQ"
+content_path = "./supabase/templates/invite.html"
+
+[auth.email.template.email_change]
+subject = "Подтвердите смену email — BoardIQ"
+content_path = "./supabase/templates/email_change.html"
+
+[auth.email.template.reauthentication]
+subject = "Код подтверждения — BoardIQ"
+content_path = "./supabase/templates/reauthentication.html"
 
 # Confirm signup (репозиторий → локальный supabase start; облако — вручную в Dashboard, см. docs/email-templates/SUPABASE_CONFIRM_SIGNUP_SETUP.txt)
 [auth.email.template.confirmation]
 subject = "Подтвердите email — BoardIQ"
 content_path = "./supabase/templates/confirm_signup.html"
 
-# Uncomment to customize notification email template
-# [auth.email.notification.password_changed]
-# enabled = true
-# subject = "Your password has been changed"
-# content_path = "./templates/password_changed_notification.html"
+# Уведомления безопасности (по умолчанию выкл.; включите в Dashboard или здесь при необходимости)
+[auth.email.notification.password_changed]
+enabled = false
+subject = "Пароль изменён — BoardIQ"
+content_path = "./supabase/templates/password_changed_notification.html"
+
+[auth.email.notification.email_changed]
+enabled = false
+subject = "Email изменён — BoardIQ"
+content_path = "./supabase/templates/email_changed_notification.html"
 
 [auth.sms]
 # Allow/disallow new user signups via SMS to your project.

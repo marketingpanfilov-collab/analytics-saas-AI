@@ -1,0 +1,59 @@
+<div style="background:#0b0b0f;padding:40px 20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+  <div style="max-width:520px;margin:0 auto;background:linear-gradient(180deg,#141420,#0f0f17);border-radius:16px;padding:32px;border:1px solid rgba(255,255,255,0.06);">
+
+    <div style="margin-bottom:28px;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;mso-table-lspace:0;mso-table-rspace:0;">
+        <tr>
+          <td style="vertical-align:middle;padding:0 12px 0 0;">
+            <div style="width:40px;height:40px;border-radius:12px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.06);line-height:40px;text-align:center;font-size:13px;font-weight:900;color:#f5f5f5;font-family:Arial,Helvetica,sans-serif;">
+              BIQ
+            </div>
+          </td>
+          <td style="vertical-align:middle;padding:0;">
+            <div style="color:#f5f5f5;font-size:14px;font-weight:800;line-height:1.25;margin:0;">BoardIQ</div>
+            <div style="color:rgba(255,255,255,0.5);font-size:12px;line-height:1.25;margin:0;">analytics</div>
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <h1 style="color:#ffffff;font-size:22px;margin:0 0 16px;">
+      Код подтверждения
+    </h1>
+
+    <p style="color:#a1a1aa;font-size:14px;line-height:1.6;margin:0 0 16px;">
+      Введите этот код для подтверждения действия:
+    </p>
+
+    <p style="color:#ffffff;font-size:28px;font-weight:700;letter-spacing:0.2em;margin:0 0 24px;font-family:ui-monospace,monospace;">
+      {{ .Token }}
+    </p>
+
+    <a href="{{ .ConfirmationURL }}"
+       style="display:block;text-align:center;background:linear-gradient(90deg,#6366f1,#22c55e);color:#ffffff;text-decoration:none;padding:14px 20px;border-radius:10px;font-weight:500;margin-bottom:24px;">
+      Продолжить по ссылке
+    </a>
+
+    <p style="color:#6b7280;font-size:12px;margin:0 0 8px;">
+      Если кнопка не работает, откройте ссылку:
+    </p>
+
+    <p style="word-break:break-all;color:#6b7280;font-size:12px;margin:0 0 24px;">
+      {{ .ConfirmationURL }}
+    </p>
+
+    <div style="height:1px;background:rgba(255,255,255,0.06);margin:24px 0;"></div>
+
+    <p style="color:#6b7280;font-size:12px;line-height:1.6;margin:0 0 16px;">
+      Если вы не инициировали этот запрос, смените пароль и свяжитесь с поддержкой.
+    </p>
+
+    <p style="color:#6b7280;font-size:11px;line-height:1.6;margin:0;">
+      Продолжая использование сервиса, вы соглашаетесь с
+      <a href="https://boardiq.kz/terms" style="color:#9ca3af;text-decoration:underline;">пользовательским соглашением</a>
+      и
+      <a href="https://boardiq.kz/privacy" style="color:#9ca3af;text-decoration:underline;">политикой обработки данных</a>.
+    </p>
+
+  </div>
+</div>
