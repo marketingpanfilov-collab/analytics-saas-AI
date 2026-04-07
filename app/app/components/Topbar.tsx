@@ -123,11 +123,7 @@ export default function Topbar({ email }: { email?: string }) {
 
   const { bootstrap, resolvedUi, loading: billingUiLoading } = useBillingBootstrap();
   const matrix = bootstrap?.plan_feature_matrix;
-  const isMaxPlan =
-    matrix?.plan === "scale" &&
-    matrix.max_projects == null &&
-    matrix.max_seats == null &&
-    matrix.max_ad_accounts == null;
+  const isMaxPlan = resolveBootstrapPlanTier(bootstrap ?? null) === "scale";
 
   const { currentPlan, currentPlanStatus, currentPlanUntil, neutralPaidPlan } = useMemo(() => {
     const sub = bootstrap?.subscription;

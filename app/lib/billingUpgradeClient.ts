@@ -15,6 +15,25 @@ export type PaddleUpgradeSource = {
   billing: BillingPeriod;
 };
 
+/** Plan + billing from bootstrap when upgrade rules apply, without requiring Paddle `sub_` id. */
+export type SubscriptionUpgradeSlice = {
+  plan: PricingPlanId;
+  billing: BillingPeriod;
+};
+
+const UPGRADE_ELIGIBLE_STATUSES = new Set(["active", "trialing", "past_due"]);
+const UI_VISIBLE_SUBSCRIPTION_STATUSES = new Set([
+  "active",
+  "trialing",
+  "past_due",
+  "paused",
+  "grace_past_due",
+  "expired",
+  "canceled",
+  "cancelled",
+  "inactive",
+]);
+
 export function readPaddleUpgradeSource(
   sub: BillingBootstrapApiOk["subscription"]
 ): PaddleUpgradeSource | null {
@@ -27,6 +46,49 @@ export function readPaddleUpgradeSource(
   const billing = parseBootstrapBillingPeriod((sub as { billing_period?: string }).billing_period);
   if (plan === "unknown" || billing === "unknown") return null;
   return { subscriptionId: id, plan, billing };
+}
+
+/**
+ * Active subscription with known plan + billing (same status gate as `readPaddleUpgradeSource`),
+ * but does not require Paddle customer id / `sub_` — used for UI blocks when `readPaddleUpgradeSource` is null.
+ */
+export function readSubscriptionUpgradeSlice(
+  sub: BillingBootstrapApiOk["subscription"]
+): SubscriptionUpgradeSlice | null {
+  if (!sub) return null;
+  const st = String(sub.status ?? "").toLowerCase();
+  if (!UPGRADE_ELIGIBLE_STATUSES.has(st)) return null;
+  const plan = parseBootstrapPlanId(sub.plan);
+  const billing = parseBootstrapBillingPeriod((sub as { billing_period?: string }).billing_period);
+  if (plan === "unknown" || billing === "unknown") return null;
+  return { plan, billing };
+}
+
+/**
+ * Plan/billing for UI state (current card + disabled downgrade CTA), including non-active
+ * statuses that still represent an existing subscription in shell/paywall screens.
+ */
+export function readSubscriptionUiSlice(
+  sub: BillingBootstrapApiOk["subscription"]
+): SubscriptionUpgradeSlice | null {
+  if (!sub) return null;
+  const st = String(sub.status ?? "").toLowerCase();
+  if (!UI_VISIBLE_SUBSCRIPTION_STATUSES.has(st)) return null;
+  const plan = parseBootstrapPlanId(sub.plan);
+  const billing = parseBootstrapBillingPeriod((sub as { billing_period?: string }).billing_period);
+  if (plan === "unknown" || billing === "unknown") return null;
+  return { plan, billing };
+}
+
+export function canUpgradeFromSlice(
+  slice: SubscriptionUpgradeSlice,
+  targetPlan: PricingPlanId,
+  targetBilling: BillingPeriod
+): boolean {
+  return isSubscriptionUpgradeAllowed(
+    { plan: slice.plan, billing: slice.billing },
+    { plan: targetPlan, billing: targetBilling }
+  ).ok;
 }
 
 export function canUpgradeTo(

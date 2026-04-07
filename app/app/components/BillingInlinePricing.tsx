@@ -48,7 +48,13 @@ import {
   billingPayloadFromResolved,
   emitBillingCjmEvent,
 } from "@/app/lib/billingCjmAnalytics";
-import { canUpgradeTo, readPaddleUpgradeSource } from "@/app/lib/billingUpgradeClient";
+import {
+  canUpgradeFromSlice,
+  canUpgradeTo,
+  readPaddleUpgradeSource,
+  readSubscriptionUiSlice,
+  readSubscriptionUpgradeSlice,
+} from "@/app/lib/billingUpgradeClient";
 import { BILLING_CHECKOUT_MISSING_ORG_MESSAGE } from "@/app/lib/billing/billingCheckoutMessages";
 import { openPaddleSubscriptionCheckout } from "@/app/lib/paddleCheckoutClient";
 import type { BillingPeriod } from "@/app/lib/paddlePriceMap";
@@ -339,9 +345,23 @@ export default function BillingInlinePricing({
     [subscriptionForUi]
   );
 
+  const subscriptionUpgradeSlice = useMemo(
+    () => readSubscriptionUpgradeSlice(subscriptionForUi ?? null),
+    [subscriptionForUi]
+  );
+
+  const subscriptionUiSlice = useMemo(
+    () => readSubscriptionUiSlice(subscriptionForUi ?? null),
+    [subscriptionForUi]
+  );
+
   const upgradePayBlocked = useCallback(
-    (planId: PricingPlanId) => Boolean(paddleSrc && !canUpgradeTo(paddleSrc, planId, billing)),
-    [paddleSrc, billing]
+    (planId: PricingPlanId) => {
+      if (paddleSrc) return !canUpgradeTo(paddleSrc, planId, billing);
+      if (subscriptionUiSlice) return !canUpgradeFromSlice(subscriptionUiSlice, planId, billing);
+      return false;
+    },
+    [paddleSrc, subscriptionUiSlice, billing]
   );
 
   useEffect(() => {
@@ -587,6 +607,16 @@ export default function BillingInlinePricing({
         setCheckoutError(`${BILLING_CHECKOUT_MISSING_ORG_MESSAGE} Попробуйте обновить страницу.`);
         return;
       }
+      if (!paddleSrc && subscriptionUpgradeSlice) {
+        if (!canUpgradeFromSlice(subscriptionUpgradeSlice, plan, billing)) {
+          setCheckoutError("Этот переход недоступен для текущей подписки.");
+          return;
+        }
+        setCheckoutError(
+          "Не удалось определить подписку Paddle для апгрейда. Обновите страницу или обратитесь в поддержку."
+        );
+        return;
+      }
       if (paddleSrc && canUpgradeTo(paddleSrc, plan, billing)) {
         postPaymentGenRef.current += 1;
         postPaymentStartedRef.current = false;
@@ -755,6 +785,7 @@ export default function BillingInlinePricing({
       pathname,
       runPostPaymentPollingLoop,
       paddleSrc,
+      subscriptionUpgradeSlice,
     ]
   );
 
@@ -1436,10 +1467,13 @@ export default function BillingInlinePricing({
                 </div>
               </div>
               <div className="min-h-0 flex-1 basis-0" aria-hidden />
-              {paddleSrc &&
-              billing === "yearly" &&
-              canUpgradeTo(paddleSrc, currentPlanId, "yearly") &&
-              paddleSrc.billing === "monthly" ? (
+              {billing === "yearly" &&
+              (paddleSrc
+                ? canUpgradeTo(paddleSrc, currentPlanId, "yearly") && paddleSrc.billing === "monthly"
+                : subscriptionUiSlice
+                  ? canUpgradeFromSlice(subscriptionUiSlice, currentPlanId, "yearly") &&
+                    subscriptionUiSlice.billing === "monthly"
+                  : false) ? (
                 <button
                   type="button"
                   className="mt-4 w-full shrink-0"
@@ -1727,15 +1761,14 @@ export default function BillingInlinePricing({
           })
         ) : useWideDefaultGrid ? (
           PRICING_PLAN_IDS.map((id) => {
-            const isCurrent = paddleSrc != null && paddleSrc.plan === id;
+            const isCurrent =
+              (paddleSrc
+                ? paddleSrc.plan === id && paddleSrc.billing === billing
+                : subscriptionUiSlice
+                  ? subscriptionUiSlice.plan === id && subscriptionUiSlice.billing === billing
+                  : false);
             const tierBlocked = upgradePayBlocked(id);
             const payLocked = disabled || checkoutBusy || !sessionEmail || postPaymentPolling;
-            const showYearSwitch =
-              paddleSrc != null &&
-              isCurrent &&
-              billing === "yearly" &&
-              canUpgradeTo(paddleSrc, id, "yearly") &&
-              paddleSrc.billing === "monthly";
 
             if (isCurrent) {
               return (
@@ -1801,57 +1834,26 @@ export default function BillingInlinePricing({
                     {renderModalWidePlanTaglines(id)}
                   </div>
                   <div className="min-h-0 flex-1 basis-0" aria-hidden />
-                  {showYearSwitch ? (
-                    <button
-                      type="button"
-                      className={`${widePayBtnMt} w-full shrink-0`}
-                      disabled={payLocked}
-                      onClick={() => {
-                        setSelectedPlan(id);
-                        void startCheckoutForPlan(id);
-                      }}
-                      style={{
-                        minHeight: overLimitPaySlotMinPx,
-                        padding: widePayBtnPad,
-                        borderRadius: 10,
-                        border: "none",
-                        background: payLocked ? "rgba(255,255,255,0.12)" : "rgba(52,211,153,0.92)",
-                        color: payLocked ? "rgba(255,255,255,0.4)" : "#0b0b10",
-                        fontWeight: 800,
-                        fontSize: compact ? 12 : fsModal ? 14 : 13,
-                        cursor: payLocked ? "not-allowed" : "pointer",
-                        flexShrink: 0,
-                        boxSizing: "border-box",
-                      }}
-                    >
-                      {preparingCheckout
-                        ? "Подготовка…"
-                        : checkoutBusy && !preparingCheckout
-                          ? "Обработка…"
-                          : "Перейти на год"}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className={`${widePayBtnMt} w-full shrink-0`}
-                      disabled
-                      style={{
-                        minHeight: overLimitPaySlotMinPx,
-                        padding: widePayBtnPad,
-                        borderRadius: 10,
-                        border: "none",
-                        background: "rgba(255,255,255,0.12)",
-                        color: "rgba(255,255,255,0.4)",
-                        fontWeight: 800,
-                        fontSize: compact ? 12 : fsModal ? 14 : 13,
-                        cursor: "not-allowed",
-                        flexShrink: 0,
-                        boxSizing: "border-box",
-                      }}
-                    >
-                      Текущий тариф
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className={`${widePayBtnMt} w-full shrink-0`}
+                    disabled
+                    style={{
+                      minHeight: overLimitPaySlotMinPx,
+                      padding: widePayBtnPad,
+                      borderRadius: 10,
+                      border: "none",
+                      background: "rgba(255,255,255,0.12)",
+                      color: "rgba(255,255,255,0.4)",
+                      fontWeight: 800,
+                      fontSize: compact ? 12 : fsModal ? 14 : 13,
+                      cursor: "not-allowed",
+                      flexShrink: 0,
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    Текущий тариф
+                  </button>
                   {renderDueTodayUnderPlan(id)}
                 </div>
               );
@@ -2102,7 +2104,7 @@ export default function BillingInlinePricing({
             disabled ||
             checkoutBusy ||
             !sessionEmail ||
-            (Boolean(paddleSrc) && upgradePayBlocked(selectedPlan))
+            upgradePayBlocked(selectedPlan)
           }
           onClick={() => void startCheckout()}
           style={{
