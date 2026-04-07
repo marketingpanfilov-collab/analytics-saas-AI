@@ -1,4 +1,5 @@
 import type { PricingPlanId } from "@/app/lib/auth/loginPurchaseUrl";
+import { detectPlanFromPriceId, detectPlanFromPaddleSnapshot } from "@/app/lib/billingPlanPriceDetect";
 import { getPaddlePriceId, type BillingPeriod } from "@/app/lib/paddlePriceMap";
 import {
   paddleBillingRequest,
@@ -10,11 +11,23 @@ import {
   type CurrentSubscriptionSlice,
 } from "@/app/lib/subscriptionUpgradeEligibility";
 
-type PaddleSubscriptionItem = { price_id?: string; quantity?: number };
+export type PaddleSubscriptionItem = {
+  price_id?: string;
+  /** pro_* из ответа Paddle — сопоставляется с NEXT_PUBLIC_PADDLE_PRODUCT_* при несовпадении pri_. */
+  product_id?: string | null;
+  quantity?: number;
+};
 
 type PaddleSubscriptionEntity = {
   id?: string;
-  items?: Array<{ price_id?: string; quantity?: number; price?: { id?: string } }>;
+  items?: Array<{
+    price_id?: string;
+    quantity?: number;
+    price?: {
+      id?: string;
+      product_id?: string;
+    };
+  }>;
   billing_cycle?: { interval?: string } | null;
 };
 
@@ -27,18 +40,40 @@ function paddleErrorMessage(err: { text: string; json?: PaddleApiErrorBody }): s
 export async function fetchPaddleSubscriptionItems(
   subscriptionId: string
 ): Promise<
-  { ok: true; items: PaddleSubscriptionItem[]; billing_interval?: string | null } | { ok: false; error: string }
+  | {
+      ok: true;
+      items: PaddleSubscriptionItem[];
+      billing_interval?: string | null;
+    }
+  | { ok: false; error: string }
 > {
   const r = await paddleBillingRequest<PaddleSubscriptionEntity>("GET", `/subscriptions/${subscriptionId}`);
   if (!r.ok) return { ok: false, error: paddleErrorMessage(r) };
   const items = (r.data.items ?? []).map((it) => ({
     price_id: it.price?.id ?? it.price_id,
+    product_id: it.price?.product_id != null ? String(it.price.product_id) : null,
     quantity: it.quantity ?? 1,
   }));
   const normalized = items.filter((x) => x.price_id);
   if (!normalized.length) return { ok: false, error: "Подписка без позиций в Paddle." };
-  const billing_interval = r.data.billing_cycle?.interval ?? null;
+  const rootInterval = r.data.billing_cycle?.interval ?? null;
+  const firstPriceInterval = (r.data.items?.[0]?.price as { billing_cycle?: { interval?: string } } | undefined)
+    ?.billing_cycle?.interval;
+  const billing_interval = rootInterval ?? firstPriceInterval ?? null;
   return { ok: true, items: normalized, billing_interval };
+}
+
+/** План/период по live-подписке Paddle (price + product, как в webhook snapshot). */
+export function inferPlanBillingFromPaddleItems(items: PaddleSubscriptionItem[]): {
+  plan: PricingPlanId | "unknown";
+  billing: BillingPeriod | "unknown";
+} {
+  const first = items[0];
+  if (!first?.price_id) return { plan: "unknown", billing: "unknown" };
+  const fromPrice = detectPlanFromPriceId(first.price_id);
+  if (fromPrice.plan !== "unknown") return { plan: fromPrice.plan, billing: fromPrice.billing };
+  const snap = detectPlanFromPaddleSnapshot(first.price_id, first.product_id ?? null);
+  return { plan: snap.plan, billing: snap.billing };
 }
 
 function buildUpgradeRequestBody(

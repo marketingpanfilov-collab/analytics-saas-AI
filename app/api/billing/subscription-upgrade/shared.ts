@@ -16,6 +16,8 @@ export type UpgradeBody = {
   project_id?: string | null;
   /** Как `primary_org_id` в bootstrap, если нет `project_id` в URL (должна совпадать с подпиской). */
   primary_org_id?: string | null;
+  /** `sub_*` из bootstrap — не зависит от совпадения email сессии с Paddle. */
+  provider_subscription_id?: string | null;
 };
 
 const UUID_V4_RE =
@@ -58,7 +60,8 @@ export function parseUpgradeBody(body: UpgradeBody | null): {
 
 export async function requirePaddleUpgradeActor(
   projectId?: string | null,
-  primaryOrgId?: string | null
+  primaryOrgId?: string | null,
+  providerSubscriptionId?: string | null
 ): Promise<
   | {
       ok: true;
@@ -81,6 +84,8 @@ export async function requirePaddleUpgradeActor(
   const ctx = await loadPaddleSubscriptionUpgradeContext(admin, user.id, email, {
     projectId: projectId && projectId.trim() ? projectId.trim() : null,
     primaryOrgId: primaryOrgId && primaryOrgId.trim() ? primaryOrgId.trim() : null,
+    providerSubscriptionId:
+      providerSubscriptionId && providerSubscriptionId.trim() ? providerSubscriptionId.trim() : null,
   });
   if (!ctx) {
     return {

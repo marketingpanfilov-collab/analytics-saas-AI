@@ -639,6 +639,13 @@ export default function BillingInlinePricing({
               ...(bootstrap?.primary_org_id
                 ? { primary_org_id: bootstrap.primary_org_id }
                 : {}),
+              ...(bootstrap?.subscription?.provider_subscription_id
+                ? {
+                    provider_subscription_id: String(
+                      bootstrap.subscription.provider_subscription_id
+                    ),
+                  }
+                : {}),
             }),
           });
           const j = (await res.json()) as {
@@ -789,6 +796,7 @@ export default function BillingInlinePricing({
       pwCustomerId,
       resolvedUi,
       bootstrap?.primary_org_id,
+      bootstrap?.subscription?.provider_subscription_id,
       reloadBootstrap,
       projectId,
       currentAppPath,
@@ -831,6 +839,13 @@ export default function BillingInlinePricing({
             ...(projectId ? { project_id: projectId } : {}),
             ...(bootstrap?.primary_org_id
               ? { primary_org_id: bootstrap.primary_org_id }
+              : {}),
+            ...(bootstrap?.subscription?.provider_subscription_id
+              ? {
+                  provider_subscription_id: String(
+                    bootstrap.subscription.provider_subscription_id
+                  ),
+                }
               : {}),
           }),
         });
@@ -915,6 +930,7 @@ export default function BillingInlinePricing({
     subscriptionUpgradeSlice,
     projectId,
     bootstrap?.primary_org_id,
+    bootstrap?.subscription?.provider_subscription_id,
     resolvedUi,
     sessionUserId,
     runPostPaymentPollingLoop,

@@ -21,7 +21,11 @@ export async function POST(req: Request) {
   const projectId = typeof body.project_id === "string" ? body.project_id.trim() || null : null;
   const primaryOrgId =
     typeof body.primary_org_id === "string" ? body.primary_org_id.trim() || null : null;
-  const actor = await requirePaddleUpgradeActor(projectId, primaryOrgId);
+  const providerSubscriptionId =
+    typeof body.provider_subscription_id === "string"
+      ? body.provider_subscription_id.trim() || null
+      : null;
+  const actor = await requirePaddleUpgradeActor(projectId, primaryOrgId, providerSubscriptionId);
   if (!actor.ok) return actor.response;
 
   const parsed = parseUpgradeBody(body);
