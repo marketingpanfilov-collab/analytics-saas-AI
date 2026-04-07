@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { parseBearerToken } from "@/app/lib/auth/parseBearerAuth";
+import { getPaddleBillingApiSecret } from "@/app/lib/paddleBillingServer";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 
 function authorizeCron(req: Request): boolean {
@@ -34,7 +35,7 @@ export async function GET(req: Request) {
     .select("id", { count: "exact", head: true })
     .gte("received_at", since);
 
-  const paddleKey = Boolean(process.env.PADDLE_SERVER_API_KEY?.trim());
+  const paddleKey = Boolean(getPaddleBillingApiSecret());
 
   if (subErr || evErr) {
     return NextResponse.json(
@@ -54,6 +55,6 @@ export async function GET(req: Request) {
     paddle_server_api_configured: paddleKey,
     hint: paddleKey
       ? "Next: implement subscription list fetch vs DB diff and upsert missing rows."
-      : "Set PADDLE_SERVER_API_KEY and extend this job to pull subscriptions from Paddle Billing API.",
+      : "Set PADDLE_SERVER_API_KEY or PADDLE_API_KEY and extend this job to pull subscriptions from Paddle Billing API.",
   });
 }

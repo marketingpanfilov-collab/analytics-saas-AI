@@ -12,15 +12,33 @@ function getPaddleBillingApiBase(): string {
 
 export type PaddleApiErrorBody = { error?: { type?: string; detail?: string; code?: string } };
 
+/**
+ * Paddle Billing API (Bearer). Prefer `PADDLE_SERVER_API_KEY`; `PADDLE_API_KEY` is the same secret
+ * and is accepted so existing deployments (see docs/production-env-checklist.md) work without renaming.
+ */
+export function getPaddleBillingApiSecret(): string | undefined {
+  const explicit = process.env.PADDLE_SERVER_API_KEY?.trim();
+  if (explicit) return explicit;
+  return process.env.PADDLE_API_KEY?.trim() || undefined;
+}
+
 export async function paddleBillingRequest<T = unknown>(
   method: "GET" | "PATCH",
   path: string,
   jsonBody?: unknown,
   options?: { idempotencyKey?: string }
 ): Promise<{ ok: true; data: T } | { ok: false; status: number; text: string; json?: PaddleApiErrorBody }> {
-  const key = process.env.PADDLE_SERVER_API_KEY?.trim();
+  const key = getPaddleBillingApiSecret();
   if (!key) {
-    return { ok: false, status: 500, text: "PADDLE_SERVER_API_KEY is not configured" };
+    console.error(
+      "[paddle_billing] No Billing API key — set PADDLE_SERVER_API_KEY or PADDLE_API_KEY (subscription preview/apply disabled)."
+    );
+    return {
+      ok: false,
+      status: 503,
+      text:
+        "Смена тарифа сейчас недоступна: платёжный сервис на сервере не настроен. Обратитесь в поддержку или попробуйте позже.",
+    };
   }
   const base = getPaddleBillingApiBase();
   const url = `${base}${path.startsWith("/") ? path : `/${path}`}`;

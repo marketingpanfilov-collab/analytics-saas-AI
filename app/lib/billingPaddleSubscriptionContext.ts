@@ -94,7 +94,7 @@ async function enrichUpgradeContext(
           billing = "yearly";
       }
     } else if (billing === "unknown" && plan !== "unknown") {
-      /** Нет PADDLE_SERVER_API_KEY / ошибка API — правила апгрейда всё равно нужен период. */
+      /** Нет Billing API ключа / ошибка Paddle API — правила апгрейда всё равно нужен период. */
       billing = "monthly";
     }
   }
