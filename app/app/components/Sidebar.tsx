@@ -324,7 +324,8 @@ export default function Sidebar() {
 
   const [todayOpen, setTodayOpen] = useState(false);
   const [todayMetricsFrameOpen, setTodayMetricsFrameOpen] = useState(false);
-  const [projectId, setProjectId] = useState<string | null>(null);
+  /** Сразу из query, чтобы первый fetch (план месяца и т.д.) не шёл с null на /app/settings?project_id=… */
+  const [projectId, setProjectId] = useState<string | null>(() => searchParams.get("project_id")?.trim() ?? null);
   const [todaySpend, setTodaySpend] = useState<number | null>(null);
   const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);

@@ -1,9 +1,22 @@
 /**
  * Server-side Paddle Billing API (Bearer). Used for subscription preview/update — not Paddle.js checkout.
+ *
+ * Live vs sandbox: keys are `pdl_live_apikey_*` vs `pdl_sdbx_apikey_*`. If `NEXT_PUBLIC_PADDLE_ENV` is wrong
+ * but the key matches the subscription’s environment, we still call the correct host (avoids 404 invalid_url).
  */
-function getPaddleBillingApiBase(): string {
+function inferBillingEnvFromApiKey(apiKey: string): "live" | "sandbox" | null {
+  const k = apiKey.trim().toLowerCase();
+  if (k.startsWith("pdl_live")) return "live";
+  if (k.startsWith("pdl_sdbx")) return "sandbox";
+  return null;
+}
+
+function resolvePaddleBillingApiBase(apiKey: string): string {
   const explicit = process.env.PADDLE_API_BASE_URL?.trim();
   if (explicit) return explicit.replace(/\/$/, "");
+  const inferred = inferBillingEnvFromApiKey(apiKey);
+  if (inferred === "live") return "https://api.paddle.com";
+  if (inferred === "sandbox") return "https://sandbox-api.paddle.com";
   if (process.env.PADDLE_BILLING_ENV === "sandbox" || process.env.NEXT_PUBLIC_PADDLE_ENV === "sandbox") {
     return "https://sandbox-api.paddle.com";
   }
@@ -40,7 +53,7 @@ export async function paddleBillingRequest<T = unknown>(
         "Смена тарифа сейчас недоступна: платёжный сервис на сервере не настроен. Обратитесь в поддержку или попробуйте позже.",
     };
   }
-  const base = getPaddleBillingApiBase();
+  const base = resolvePaddleBillingApiBase(key);
   const url = `${base}${path.startsWith("/") ? path : `/${path}`}`;
   const idem = options?.idempotencyKey?.trim();
   const init: RequestInit = {

@@ -12,6 +12,8 @@ import {
 } from "@/app/lib/subscriptionUpgradeEligibility";
 
 export type PaddleSubscriptionItem = {
+  /** `subi_…` — нужен Paddle при смене price_id на существующей позиции. */
+  subscription_item_id?: string | null;
   price_id?: string;
   /** pro_* из ответа Paddle — сопоставляется с NEXT_PUBLIC_PADDLE_PRODUCT_* при несовпадении pri_. */
   product_id?: string | null;
@@ -21,6 +23,7 @@ export type PaddleSubscriptionItem = {
 type PaddleSubscriptionEntity = {
   id?: string;
   items?: Array<{
+    id?: string;
     price_id?: string;
     quantity?: number;
     price?: {
@@ -32,7 +35,18 @@ type PaddleSubscriptionEntity = {
 };
 
 function paddleErrorMessage(err: { text: string; json?: PaddleApiErrorBody }): string {
-  const d = err.json?.error?.detail ?? err.json?.error?.code;
+  const code = err.json?.error?.code;
+  const detail = err.json?.error?.detail;
+  if (
+    code === "invalid_url" ||
+    (typeof detail === "string" && /URL called is invalid/i.test(detail))
+  ) {
+    return (
+      "Подписка не найдена в Paddle (часто несовпадение sandbox/live или неверный sub_ id). " +
+      "Проверьте, что ключ API и окружение совпадают с тем, где создана подписка."
+    );
+  }
+  const d = detail ?? code;
   if (d && typeof d === "string") return d;
   return err.text.slice(0, 400) || "Paddle request failed";
 }
@@ -50,6 +64,7 @@ export async function fetchPaddleSubscriptionItems(
   const r = await paddleBillingRequest<PaddleSubscriptionEntity>("GET", `/subscriptions/${subscriptionId}`);
   if (!r.ok) return { ok: false, error: paddleErrorMessage(r) };
   const items = (r.data.items ?? []).map((it) => ({
+    subscription_item_id: it.id != null && String(it.id).trim() ? String(it.id).trim() : null,
     price_id: it.price?.id ?? it.price_id,
     product_id: it.price?.product_id != null ? String(it.price.product_id) : null,
     quantity: it.quantity ?? 1,
@@ -89,12 +104,17 @@ function buildUpgradeRequestBody(
   if (!first?.price_id) {
     throw new Error("Первая позиция подписки без price_id.");
   }
-  const items = [
-    { price_id: targetPriceId, quantity: first.quantity ?? 1 },
-    ...rest.map((i) => ({
-      price_id: i.price_id as string,
+  const line = (i: PaddleSubscriptionItem, priceId: string) => {
+    const sid = i.subscription_item_id?.trim();
+    return {
+      ...(sid ? { id: sid } : {}),
+      price_id: priceId,
       quantity: i.quantity ?? 1,
-    })),
+    };
+  };
+  const items = [
+    line(first, targetPriceId),
+    ...rest.map((i) => line(i, i.price_id as string)),
   ];
   return {
     items,
@@ -138,7 +158,7 @@ export async function previewSubscriptionUpgrade(
   targetBilling: BillingPeriod
 ): Promise<
   | { ok: true; paddle: unknown; requestBody: ReturnType<typeof buildUpgradeRequestBody> }
-  | { ok: false; error: string }
+  | { ok: false; error: string; paddle_code?: string }
 > {
   const targetPriceId = getPaddlePriceId(targetPlan, targetBilling);
   if (!targetPriceId) {
@@ -149,7 +169,14 @@ export async function previewSubscriptionUpgrade(
   try {
     const body = buildUpgradeRequestBody(subscriptionId, targetPriceId, itemsR.items);
     const r = await paddleBillingRequest("PATCH", `/subscriptions/${subscriptionId}/preview`, body);
-    if (!r.ok) return { ok: false, error: paddleErrorMessage(r) };
+    if (!r.ok) {
+      const code = r.json?.error?.code;
+      return {
+        ok: false,
+        error: paddleErrorMessage(r),
+        ...(typeof code === "string" && code ? { paddle_code: code } : {}),
+      };
+    }
     return { ok: true, paddle: r.data, requestBody: body };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };

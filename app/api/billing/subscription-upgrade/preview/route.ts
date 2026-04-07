@@ -46,8 +46,16 @@ export async function POST(req: Request) {
     console.error("[billing_upgrade] preview_failed", {
       subscription_id: subId,
       error: r.error.slice(0, 500),
+      paddle_code: "paddle_code" in r ? r.paddle_code : undefined,
     });
-    return NextResponse.json({ success: false, error: r.error }, { status: 422 });
+    return NextResponse.json(
+      {
+        success: false,
+        error: r.error,
+        ...("paddle_code" in r && r.paddle_code ? { paddle_code: r.paddle_code } : {}),
+      },
+      { status: 422 }
+    );
   }
 
   const ui = shapeUpgradePreviewForUi(
