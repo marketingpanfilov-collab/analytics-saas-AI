@@ -81,6 +81,65 @@ export async function resolveBillingOrganizationId(
   return sorted[0] ?? null;
 }
 
+/**
+ * Как `resolveBillingOrganizationId`, плюс org из `billing_customer_map` по email (последняя запись по `updated_at`).
+ * Для однозначного тарифа при нескольких org на email передавайте `project_id` в bootstrap / preview / apply.
+ */
+export async function resolveBillingOrganizationIdWithPaddleEmailFallback(
+  admin: SupabaseClient,
+  userId: string,
+  email: string | null,
+  projectId: string | null | undefined,
+  accessibleProjectIds: Set<string>
+): Promise<string | null> {
+  let billingOrgId = await resolveBillingOrganizationId(admin, userId, projectId, accessibleProjectIds);
+  const em = (email ?? "").trim().toLowerCase();
+  if (!billingOrgId && em) {
+    const { data: mapOrg } = await admin
+      .from("billing_customer_map")
+      .select("organization_id")
+      .eq("provider", "paddle")
+      .eq("email", em)
+      .not("organization_id", "is", null)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (mapOrg?.organization_id) billingOrgId = String(mapOrg.organization_id);
+  }
+  return billingOrgId;
+}
+
+const BILLING_ORG_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** Доступ к org для upgrade/preview: membership или проект пользователя в этой org. */
+export async function userHasAccessToBillingOrganization(
+  admin: SupabaseClient,
+  userId: string,
+  organizationId: string,
+  accessibleProjectIds: Set<string>
+): Promise<boolean> {
+  const oid = organizationId.trim();
+  if (!BILLING_ORG_UUID_RE.test(oid)) return false;
+  const { data: om } = await admin
+    .from("organization_members")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("organization_id", oid)
+    .limit(1)
+    .maybeSingle();
+  if (om) return true;
+  const ids = [...accessibleProjectIds].filter(Boolean);
+  if (!ids.length) return false;
+  const { data: projs } = await admin
+    .from("projects")
+    .select("id")
+    .in("id", ids)
+    .eq("organization_id", oid)
+    .limit(1);
+  return Boolean(projs?.length);
+}
+
 /** Плательщик по организации: owner → admin → agency → member. */
 export async function getBillingPayerUserForOrganization(
   admin: SupabaseClient,

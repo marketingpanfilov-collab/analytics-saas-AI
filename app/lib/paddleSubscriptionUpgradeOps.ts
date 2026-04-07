@@ -15,6 +15,7 @@ type PaddleSubscriptionItem = { price_id?: string; quantity?: number };
 type PaddleSubscriptionEntity = {
   id?: string;
   items?: Array<{ price_id?: string; quantity?: number; price?: { id?: string } }>;
+  billing_cycle?: { interval?: string } | null;
 };
 
 function paddleErrorMessage(err: { text: string; json?: PaddleApiErrorBody }): string {
@@ -25,7 +26,9 @@ function paddleErrorMessage(err: { text: string; json?: PaddleApiErrorBody }): s
 
 export async function fetchPaddleSubscriptionItems(
   subscriptionId: string
-): Promise<{ ok: true; items: PaddleSubscriptionItem[] } | { ok: false; error: string }> {
+): Promise<
+  { ok: true; items: PaddleSubscriptionItem[]; billing_interval?: string | null } | { ok: false; error: string }
+> {
   const r = await paddleBillingRequest<PaddleSubscriptionEntity>("GET", `/subscriptions/${subscriptionId}`);
   if (!r.ok) return { ok: false, error: paddleErrorMessage(r) };
   const items = (r.data.items ?? []).map((it) => ({
@@ -34,7 +37,8 @@ export async function fetchPaddleSubscriptionItems(
   }));
   const normalized = items.filter((x) => x.price_id);
   if (!normalized.length) return { ok: false, error: "Подписка без позиций в Paddle." };
-  return { ok: true, items: normalized };
+  const billing_interval = r.data.billing_cycle?.interval ?? null;
+  return { ok: true, items: normalized, billing_interval };
 }
 
 function buildUpgradeRequestBody(

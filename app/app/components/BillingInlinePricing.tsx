@@ -293,11 +293,31 @@ export default function BillingInlinePricing({
     };
   }, [bootstrap?.subscription, optimisticSubscription]);
 
-  /** Фактический период подписки (bootstrap / optimistic), не путать с `billing` (toggle витрины). */
+  const paddleSrc = useMemo(
+    () => readPaddleUpgradeSource(subscriptionForUi ?? null, bootstrap, billing),
+    [subscriptionForUi, bootstrap, billing]
+  );
+
+  const subscriptionUpgradeSlice = useMemo(
+    () => readSubscriptionUpgradeSlice(subscriptionForUi ?? null, bootstrap, billing),
+    [subscriptionForUi, bootstrap, billing]
+  );
+
+  const subscriptionUiSlice = useMemo(
+    () => readSubscriptionUiSlice(subscriptionForUi ?? null, bootstrap, billing),
+    [subscriptionForUi, bootstrap, billing]
+  );
+
+  /**
+   * Период оплаты по подписке: с сервера; если интервал unknown — тот же источник, что и «текущая» карточка
+   * (включая подстановку из тоггла), чтобы не было «Год на витрине» и «Оплата: раз в месяц» одновременно.
+   */
   const realBilling: BillingPeriod = useMemo(() => {
     const bp = parseBootstrapBillingPeriod(subscriptionForUi?.billing_period);
-    return bp === "yearly" ? "yearly" : "monthly";
-  }, [subscriptionForUi?.billing_period]);
+    if (bp === "monthly" || bp === "yearly") return bp;
+    if (subscriptionUiSlice) return subscriptionUiSlice.billing;
+    return billing;
+  }, [subscriptionForUi?.billing_period, subscriptionUiSlice, billing]);
 
   /** Режим отображения цен на карточках тарифов (Месяц / Год). */
   const displayBilling = billing;
@@ -339,21 +359,6 @@ export default function BillingInlinePricing({
     const t = planTier(currentPlanId);
     return PRICING_PLAN_IDS.filter((id) => planTier(id) > t);
   }, [currentPlanId]);
-
-  const paddleSrc = useMemo(
-    () => readPaddleUpgradeSource(subscriptionForUi ?? null),
-    [subscriptionForUi]
-  );
-
-  const subscriptionUpgradeSlice = useMemo(
-    () => readSubscriptionUpgradeSlice(subscriptionForUi ?? null),
-    [subscriptionForUi]
-  );
-
-  const subscriptionUiSlice = useMemo(
-    () => readSubscriptionUiSlice(subscriptionForUi ?? null),
-    [subscriptionForUi]
-  );
 
   const upgradePayBlocked = useCallback(
     (planId: PricingPlanId) => {
@@ -607,17 +612,13 @@ export default function BillingInlinePricing({
         setCheckoutError(`${BILLING_CHECKOUT_MISSING_ORG_MESSAGE} Попробуйте обновить страницу.`);
         return;
       }
-      if (!paddleSrc && subscriptionUpgradeSlice) {
-        if (!canUpgradeFromSlice(subscriptionUpgradeSlice, plan, billing)) {
-          setCheckoutError("Этот переход недоступен для текущей подписки.");
-          return;
-        }
-        setCheckoutError(
-          "Не удалось определить подписку Paddle для апгрейда. Обновите страницу или обратитесь в поддержку."
+      const canOpenPaddlePreview =
+        (paddleSrc && canUpgradeTo(paddleSrc, plan, billing)) ||
+        Boolean(
+          subscriptionUpgradeSlice && canUpgradeFromSlice(subscriptionUpgradeSlice, plan, billing)
         );
-        return;
-      }
-      if (paddleSrc && canUpgradeTo(paddleSrc, plan, billing)) {
+
+      if (canOpenPaddlePreview) {
         postPaymentGenRef.current += 1;
         postPaymentStartedRef.current = false;
         setPostPaymentPolling(false);
@@ -631,7 +632,14 @@ export default function BillingInlinePricing({
             method: "POST",
             credentials: "include",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ target_plan: plan, target_billing: billing }),
+            body: JSON.stringify({
+              target_plan: plan,
+              target_billing: billing,
+              ...(projectId ? { project_id: projectId } : {}),
+              ...(bootstrap?.primary_org_id
+                ? { primary_org_id: bootstrap.primary_org_id }
+                : {}),
+            }),
           });
           const j = (await res.json()) as {
             success?: boolean;
@@ -658,7 +666,9 @@ export default function BillingInlinePricing({
           setUpgradeDraft({
             targetPlan: plan,
             targetBilling: billing,
-            sourceMonthly: paddleSrc?.billing === "monthly",
+            sourceMonthly:
+              paddleSrc?.billing === "monthly" ||
+              (!paddleSrc && subscriptionUpgradeSlice?.billing === "monthly"),
             api: {
               preview: {
                 ...pv,
@@ -818,6 +828,10 @@ export default function BillingInlinePricing({
             target_plan: upgradeDraft.targetPlan,
             target_billing: upgradeDraft.targetBilling,
             idempotency_key: idempotencyKey,
+            ...(projectId ? { project_id: projectId } : {}),
+            ...(bootstrap?.primary_org_id
+              ? { primary_org_id: bootstrap.primary_org_id }
+              : {}),
           }),
         });
         j = (await res.json()) as typeof j;
@@ -856,7 +870,9 @@ export default function BillingInlinePricing({
       billingUpgradeClientLog("apply_ok", { plan: upgradeDraft.targetPlan });
       preApplyPaddleRef.current = paddleSrc
         ? { plan: paddleSrc.plan, billing: paddleSrc.billing }
-        : null;
+        : subscriptionUpgradeSlice
+          ? { plan: subscriptionUpgradeSlice.plan, billing: subscriptionUpgradeSlice.billing }
+          : null;
       const appliedPlan = upgradeDraft.targetPlan;
       const graceUntil = Date.now() + BILLING_OVER_LIMIT_UPGRADE_GRACE_MS;
       setOverLimitApplyGraceUntilMs(graceUntil);
@@ -896,6 +912,9 @@ export default function BillingInlinePricing({
     disabled,
     subscriptionUpgradeApplying,
     paddleSrc,
+    subscriptionUpgradeSlice,
+    projectId,
+    bootstrap?.primary_org_id,
     resolvedUi,
     sessionUserId,
     runPostPaymentPollingLoop,

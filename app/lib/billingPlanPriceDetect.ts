@@ -2,26 +2,31 @@
 
 export type BillingPlanId = "starter" | "growth" | "scale" | "unknown";
 
+function normId(s: string | null | undefined): string {
+  return String(s ?? "").trim();
+}
+
 export function detectPlanFromPriceId(priceId: string | null): {
   plan: BillingPlanId;
   billing: "monthly" | "yearly" | "unknown";
 } {
   if (!priceId) return { plan: "unknown", billing: "unknown" };
-  const id = priceId.trim();
-  const m = {
-    starterMonthly: process.env.NEXT_PUBLIC_PADDLE_PRICE_STARTER,
-    starterYearly: process.env.NEXT_PUBLIC_PADDLE_PRICE_STARTER_YEARLY,
-    growthMonthly: process.env.NEXT_PUBLIC_PADDLE_PRICE_GROWTH,
-    growthYearly: process.env.NEXT_PUBLIC_PADDLE_PRICE_GROWTH_YEARLY,
-    agencyMonthly: process.env.NEXT_PUBLIC_PADDLE_PRICE_AGENCY,
-    agencyYearly: process.env.NEXT_PUBLIC_PADDLE_PRICE_AGENCY_YEARLY,
-  };
-  if (id === m.starterMonthly) return { plan: "starter", billing: "monthly" };
-  if (id === m.starterYearly) return { plan: "starter", billing: "yearly" };
-  if (id === m.growthMonthly) return { plan: "growth", billing: "monthly" };
-  if (id === m.growthYearly) return { plan: "growth", billing: "yearly" };
-  if (id === m.agencyMonthly) return { plan: "scale", billing: "monthly" };
-  if (id === m.agencyYearly) return { plan: "scale", billing: "yearly" };
+  const id = normId(priceId);
+  if (!id) return { plan: "unknown", billing: "unknown" };
+  const pairs: { env: string | undefined; plan: BillingPlanId; billing: "monthly" | "yearly" }[] = [
+    { env: process.env.NEXT_PUBLIC_PADDLE_PRICE_STARTER, plan: "starter", billing: "monthly" },
+    { env: process.env.NEXT_PUBLIC_PADDLE_PRICE_STARTER_YEARLY, plan: "starter", billing: "yearly" },
+    { env: process.env.NEXT_PUBLIC_PADDLE_PRICE_GROWTH, plan: "growth", billing: "monthly" },
+    { env: process.env.NEXT_PUBLIC_PADDLE_PRICE_GROWTH_YEARLY, plan: "growth", billing: "yearly" },
+    { env: process.env.NEXT_PUBLIC_PADDLE_PRICE_AGENCY, plan: "scale", billing: "monthly" },
+    { env: process.env.NEXT_PUBLIC_PADDLE_PRICE_AGENCY_YEARLY, plan: "scale", billing: "yearly" },
+  ];
+  const idLower = id.toLowerCase();
+  for (const { env, plan, billing } of pairs) {
+    const e = normId(env);
+    if (!e) continue;
+    if (id === e || idLower === e.toLowerCase()) return { plan, billing };
+  }
   return { plan: "unknown", billing: "unknown" };
 }
 
@@ -38,7 +43,7 @@ export function detectPlanFromPaddleSnapshot(
 } {
   const fromPrice = detectPlanFromPriceId(priceId);
   if (fromPrice.plan !== "unknown") return fromPrice;
-  const pid = (productId ?? "").trim();
+  const pid = normId(productId);
   if (!pid) return fromPrice;
   const pairs: { plan: BillingPlanId; monthly?: string; yearly?: string }[] = [
     {
@@ -57,9 +62,12 @@ export function detectPlanFromPaddleSnapshot(
       yearly: process.env.NEXT_PUBLIC_PADDLE_PRODUCT_AGENCY_YEARLY,
     },
   ];
+  const pidLower = pid.toLowerCase();
   for (const row of pairs) {
-    if (pid === (row.monthly ?? "").trim()) return { plan: row.plan, billing: "monthly" };
-    if (pid === (row.yearly ?? "").trim()) return { plan: row.plan, billing: "yearly" };
+    const m = normId(row.monthly);
+    const y = normId(row.yearly);
+    if (m && (pid === m || pidLower === m.toLowerCase())) return { plan: row.plan, billing: "monthly" };
+    if (y && (pid === y || pidLower === y.toLowerCase())) return { plan: row.plan, billing: "yearly" };
   }
   return fromPrice;
 }

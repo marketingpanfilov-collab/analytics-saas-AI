@@ -11,15 +11,18 @@ import {
 } from "@/app/api/billing/subscription-upgrade/shared";
 
 export async function POST(req: Request) {
-  const actor = await requirePaddleUpgradeActor();
-  if (!actor.ok) return actor.response;
-
   let body: UpgradeBody;
   try {
     body = (await req.json()) as UpgradeBody;
   } catch {
     return NextResponse.json({ success: false, error: "Invalid JSON" }, { status: 400 });
   }
+
+  const projectId = typeof body.project_id === "string" ? body.project_id.trim() || null : null;
+  const primaryOrgId =
+    typeof body.primary_org_id === "string" ? body.primary_org_id.trim() || null : null;
+  const actor = await requirePaddleUpgradeActor(projectId, primaryOrgId);
+  if (!actor.ok) return actor.response;
 
   const parsed = parseUpgradeBody(body);
   if (!parsed.ok) return parsed.response;

@@ -12,6 +12,10 @@ export type UpgradeBody = {
   target_billing?: string;
   /** UUID v4: один ключ на попытку apply; повторы с тем же ключом идемпотентны. */
   idempotency_key?: string;
+  /** Как в GET /api/billing/current-plan — org биллинга от открытого проекта. */
+  project_id?: string | null;
+  /** Как `primary_org_id` в bootstrap, если нет `project_id` в URL (должна совпадать с подпиской). */
+  primary_org_id?: string | null;
 };
 
 const UUID_V4_RE =
@@ -52,7 +56,10 @@ export function parseUpgradeBody(body: UpgradeBody | null): {
   return { ok: true, targetPlan: tp, targetBilling };
 }
 
-export async function requirePaddleUpgradeActor(): Promise<
+export async function requirePaddleUpgradeActor(
+  projectId?: string | null,
+  primaryOrgId?: string | null
+): Promise<
   | {
       ok: true;
       userId: string;
@@ -71,7 +78,10 @@ export async function requirePaddleUpgradeActor(): Promise<
   }
   const admin = supabaseAdmin();
   const email = (user.email ?? "").trim().toLowerCase() || null;
-  const ctx = await loadPaddleSubscriptionUpgradeContext(admin, user.id, email);
+  const ctx = await loadPaddleSubscriptionUpgradeContext(admin, user.id, email, {
+    projectId: projectId && projectId.trim() ? projectId.trim() : null,
+    primaryOrgId: primaryOrgId && primaryOrgId.trim() ? primaryOrgId.trim() : null,
+  });
   if (!ctx) {
     return {
       ok: false,

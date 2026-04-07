@@ -289,10 +289,39 @@ function PostCheckoutOnboardingModalInner() {
 
   if (gate === "boot") {
     return (
-      <div style={overlayStyle} role="dialog" aria-modal="true" aria-busy="true" aria-label="Загрузка">
+      <div
+        style={overlayStyle}
+        role="dialog"
+        aria-modal="true"
+        aria-busy="true"
+        aria-labelledby="post-checkout-boot-title"
+        aria-describedby="post-checkout-boot-desc"
+      >
         <div style={panelStyle}>
-          <p style={{ margin: 0, textAlign: "center", fontSize: 15, color: "rgba(255,255,255,0.75)" }}>
+          <p
+            id="post-checkout-boot-title"
+            style={{
+              margin: 0,
+              textAlign: "center",
+              fontSize: 17,
+              fontWeight: 700,
+              color: "rgba(255,255,255,0.92)",
+              letterSpacing: "-0.02em",
+            }}
+          >
             Подождите…
+          </p>
+          <p
+            id="post-checkout-boot-desc"
+            style={{
+              margin: "10px 0 0",
+              textAlign: "center",
+              fontSize: 14,
+              lineHeight: 1.45,
+              color: "rgba(255,255,255,0.58)",
+            }}
+          >
+            Загружаем ваше рабочее пространство
           </p>
         </div>
       </div>

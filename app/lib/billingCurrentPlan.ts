@@ -9,7 +9,7 @@ import type { BillingPlanId } from "@/app/lib/billingPlanPriceDetect";
 import {
   getAccessibleProjectIds,
   getBillingPayerUserForOrganization,
-  resolveBillingOrganizationId,
+  resolveBillingOrganizationIdWithPaddleEmailFallback,
 } from "@/app/lib/billingOrganizationContext";
 import {
   collectPaddleCustomerIdsForBillingContext,
@@ -37,6 +37,8 @@ export {
   getBillingPayerUserForOrganization,
   getPrimaryOwnerOrgId,
   resolveBillingOrganizationId,
+  resolveBillingOrganizationIdWithPaddleEmailFallback,
+  userHasAccessToBillingOrganization,
 } from "@/app/lib/billingOrganizationContext";
 
 const ACTIVE_STATUSES = new Set(["active", "trialing", "past_due"]);
@@ -405,25 +407,13 @@ export async function loadBillingCurrentPlan(
   const has_org_membership = await hasOrgMembership(admin, userId);
   const projectIds = await getAccessibleProjectIds(admin, userId);
   const has_any_accessible_project = projectIds.size > 0;
-  let billingOrgId = await resolveBillingOrganizationId(
+  const billingOrgId = await resolveBillingOrganizationIdWithPaddleEmailFallback(
     admin,
     userId,
+    email,
     options?.projectId ?? null,
     projectIds
   );
-  const em = (email ?? "").trim().toLowerCase();
-  if (!billingOrgId && em) {
-    const { data: mapOrg } = await admin
-      .from("billing_customer_map")
-      .select("organization_id")
-      .eq("provider", "paddle")
-      .eq("email", em)
-      .not("organization_id", "is", null)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (mapOrg?.organization_id) billingOrgId = String(mapOrg.organization_id);
-  }
   const company_profile_completed = billingOrgId
     ? await isCompanyProfileCompleteForOrg(admin, billingOrgId)
     : false;
@@ -504,53 +494,37 @@ export async function loadBillingCurrentPlan(
   const customerIds = await collectPaddleCustomerIdsForBillingContext(admin, billingOrgId);
   const pending_plan_change_db = await fetchPendingPlanChangeForCustomers(admin, customerIds);
 
-  if (customerIds.length === 0) {
-    const access_state: AccessState = "no_subscription";
-    const shell = await buildShellEnrichment(
-      admin,
-      userId,
-      email,
-      billingOrgId,
-      access_state,
-      null,
-      has_any_accessible_project
-    );
-    return assembleBillingPayload(
-      {
-        subscription: null,
-        access_state,
-        effective_plan: null,
-        requires_post_checkout_onboarding: false,
-        post_checkout_onboarding_step: 1,
-        company_profile_completed,
-        onboarding_state: "no_subscription",
-        has_any_accessible_project,
-        has_org_membership,
-        pending_plan_change_db: false,
-        primary_org_id: billingOrgId,
-        org_enabled_ad_accounts,
-        invite_pending: shell.invite_pending,
-        over_limit_violations: shell.over_limit_violations,
-      },
-      requestId
-    );
+  let list: SubRow[] = [];
+
+  if (billingOrgId) {
+    const { data: byOrg, error: orgErr } = await admin
+      .from("billing_subscriptions")
+      .select(
+        "provider_subscription_id, provider_customer_id, provider_price_id, provider_product_id, status, currency_code, current_period_start, current_period_end, canceled_at, last_event_type, last_event_at, updated_at, grace_until"
+      )
+      .eq("provider", "paddle")
+      .eq("organization_id", billingOrgId)
+      .order("updated_at", { ascending: false })
+      .limit(20);
+    if (!orgErr && byOrg?.length) list = byOrg as SubRow[];
   }
 
-  const { data: subs, error: subsErr } = await admin
-    .from("billing_subscriptions")
-    .select(
-      "provider_subscription_id, provider_customer_id, provider_price_id, provider_product_id, status, currency_code, current_period_start, current_period_end, canceled_at, last_event_type, last_event_at, updated_at, grace_until"
-    )
-    .eq("provider", "paddle")
-    .in("provider_customer_id", customerIds)
-    .order("updated_at", { ascending: false })
-    .limit(20);
-
-  if (subsErr) {
-    return { success: false, error: subsErr.message };
+  if (!list.length && customerIds.length) {
+    const { data: subs, error: custErr } = await admin
+      .from("billing_subscriptions")
+      .select(
+        "provider_subscription_id, provider_customer_id, provider_price_id, provider_product_id, status, currency_code, current_period_start, current_period_end, canceled_at, last_event_type, last_event_at, updated_at, grace_until"
+      )
+      .eq("provider", "paddle")
+      .in("provider_customer_id", customerIds)
+      .order("updated_at", { ascending: false })
+      .limit(20);
+    if (custErr) {
+      return { success: false, error: custErr.message };
+    }
+    list = (subs ?? []) as SubRow[];
   }
 
-  const list = (subs ?? []) as SubRow[];
   if (!list.length) {
     const access_state: AccessState = "no_subscription";
     const shell = await buildShellEnrichment(

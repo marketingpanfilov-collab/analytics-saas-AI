@@ -51,9 +51,12 @@ export function isSubscriptionUpgradeAllowed(
 }
 
 export function parseBootstrapBillingPeriod(v: string | undefined | null): BillingPeriod | "unknown" {
-  const x = String(v ?? "").toLowerCase();
-  if (x === "monthly") return "monthly";
-  if (x === "yearly") return "yearly";
+  const x = String(v ?? "")
+    .trim()
+    .toLowerCase();
+  if (!x || x === "unknown") return "unknown";
+  if (x === "monthly" || x === "month" || x === "mo") return "monthly";
+  if (x === "yearly" || x === "year" || x === "annual" || x === "annually" || x === "yr") return "yearly";
   return "unknown";
 }
 
