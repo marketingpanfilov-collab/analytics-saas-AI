@@ -10,7 +10,8 @@ function safeReturnTo(input: string) {
   return v.startsWith("/") ? v : "/app/accounts";
 }
 
-const SCOPE = "https://www.googleapis.com/auth/adwords";
+const SCOPE =
+  "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/adwords";
 
 export async function GET(req: NextRequest) {
   const clientId = process.env.GOOGLE_CLIENT_ID;
