@@ -210,12 +210,14 @@ function usePrefersReducedMotion() {
 
 function LandingHeroTicker() {
   const reducedMotion = usePrefersReducedMotion();
-  const sequence = reducedMotion ? [...HERO_TICKER_LABELS] : [...HERO_TICKER_LABELS, ...HERO_TICKER_LABELS];
+  const sequence = reducedMotion
+    ? [...HERO_TICKER_LABELS]
+    : [...HERO_TICKER_LABELS, ...HERO_TICKER_LABELS, ...HERO_TICKER_LABELS];
   return (
     <div className="hero-ticker" aria-hidden>
       <div
         className={cn(
-          "hero-ticker__track flex gap-[1.20rem]",
+          "hero-ticker__track flex flex-nowrap gap-[1.20rem]",
           reducedMotion
             ? "hero-ticker__track--static w-full max-w-[56rem] flex-wrap justify-center mx-auto"
             : "w-max"
@@ -320,9 +322,9 @@ export default function Page() {
 
       <LandingHeader />
 
-      {/* Остаток экрана под спейсером хедера: центр контента + тикер у нижнего края hero */}
+      {/* Высота hero как раньше (100svh − хедер). Хедер fixed — pt на flex-1 смещает зону justify-center вниз, без увеличения min-height секции */}
       <section className="hero-scope relative z-10 flex min-h-[calc(100svh-4rem)] w-full flex-col md:min-h-[calc(100svh-4.25rem)]">
-        <div className="flex min-h-0 flex-1 flex-col justify-center">
+        <div className="flex min-h-0 flex-1 flex-col justify-center pt-16 md:pt-[4.25rem]">
           <div className="mx-auto w-full max-w-5xl px-5 py-10 md:py-12">
             <div className="flex flex-col items-center text-center md:block">
               <div className="relative mx-auto flex w-full max-w-4xl flex-col items-center md:inline-block">

@@ -886,7 +886,8 @@ button:not([class]):hover {
     transform: translate3d(0, 0, 0);
   }
   100% {
-    transform: translate3d(-50%, 0, 0);
+    /* Три копии сегмента в JSX: сдвиг ровно на 1/3 ширины трека (иначе -50% + субпиксели flex → щель при loop) */
+    transform: translate3d(calc(-100% / 3), 0, 0);
   }
 }
 
@@ -902,6 +903,7 @@ button:not([class]):hover {
   /* gap задаётся в JSX (gap-[1.20rem]), чтобы Tailwind не перебивался порядком слоёв */
   animation: hero-ticker-marquee 52s linear infinite;
   will-change: transform;
+  backface-visibility: hidden;
 }
 
 .hero-scope .hero-ticker__track--static {
