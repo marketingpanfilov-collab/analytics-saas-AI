@@ -181,6 +181,59 @@ function PricingCard({
   );
 }
 
+const HERO_TICKER_LABELS = [
+  "Продажи",
+  "Google Ads",
+  "LTV",
+  "Bitrix24",
+  "Meta Ads",
+  "CAC",
+  "AmoCRM",
+  "TikTok Ads",
+  "ROI",
+  "Webhook",
+  "Yandex Direct",
+  "Pixel",
+] as const;
+
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const sync = () => setReduced(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+  return reduced;
+}
+
+function LandingHeroTicker() {
+  const reducedMotion = usePrefersReducedMotion();
+  const sequence = reducedMotion ? [...HERO_TICKER_LABELS] : [...HERO_TICKER_LABELS, ...HERO_TICKER_LABELS];
+  return (
+    <div className="hero-ticker" aria-hidden>
+      <div
+        className={cn(
+          "hero-ticker__track flex gap-[1.20rem]",
+          reducedMotion
+            ? "hero-ticker__track--static w-full max-w-[56rem] flex-wrap justify-center mx-auto"
+            : "w-max"
+        )}
+      >
+        {sequence.map((label, i) => (
+          <span
+            key={`${label}-${i}`}
+            className="inline-flex shrink-0 rounded-full border border-white/20 bg-white/[0.06] px-3.5 py-2 text-[13px] font-medium text-white/70 backdrop-blur-sm sm:px-4 sm:text-sm"
+          >
+            {label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const PRICING_PLANS: {
   id: PricingPlanId;
   name: string;
@@ -267,11 +320,12 @@ export default function Page() {
 
       <LandingHeader />
 
-      {/* Остаток экрана под спейсером хедера (h-16 / md:h-[4.25rem]); grid + place-content-center — стабильнее вертикального центра, чем flex + dvh */}
-      <section className="hero-scope relative z-10 grid min-h-[calc(100svh-4rem)] w-full place-content-center md:min-h-[calc(100svh-4.25rem)]">
-        <div className="mx-auto w-full max-w-5xl px-5 py-10 md:py-12">
-          <div className="flex flex-col items-center text-center md:block">
-            <div className="relative mx-auto flex w-full max-w-4xl flex-col items-center md:inline-block">
+      {/* Остаток экрана под спейсером хедера: центр контента + тикер у нижнего края hero */}
+      <section className="hero-scope relative z-10 flex min-h-[calc(100svh-4rem)] w-full flex-col md:min-h-[calc(100svh-4.25rem)]">
+        <div className="flex min-h-0 flex-1 flex-col justify-center">
+          <div className="mx-auto w-full max-w-5xl px-5 py-10 md:py-12">
+            <div className="flex flex-col items-center text-center md:block">
+              <div className="relative mx-auto flex w-full max-w-4xl flex-col items-center md:inline-block">
               <div
                 className="mb-3 flex flex-wrap items-center justify-center gap-2 sm:mb-4 lg:hidden"
                 aria-hidden
@@ -307,17 +361,17 @@ export default function Page() {
                 </span>
               </div>
               <h1 className="hero-title-gradient mx-auto max-w-4xl overflow-visible pb-[0.12em] text-[2.55rem] font-extrabold leading-[1.1] md:text-6xl md:leading-[1.1] xl:text-[72px] xl:leading-[1.08]">
-                Управляйте маркетингом
+                Управляйте бизнесом
                 <br />
                 через прибыль
               </h1>
-            </div>
+              </div>
 
-            <p className="mx-auto mt-5 max-w-xl text-[1.08rem] leading-relaxed text-white/58 md:text-lg">
+              <p className="mx-auto mt-5 max-w-xl text-[1.08rem] leading-relaxed text-white/58 md:text-lg">
               Единая прозрачная аналитика, которая помогает принимать решения и управлять прибылью
-            </p>
+              </p>
 
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-3 md:justify-center">
+              <div className="mt-8 flex flex-wrap items-center justify-center gap-3 md:justify-center">
               <button
                 type="button"
                 onClick={scrollToPricing}
@@ -331,9 +385,14 @@ export default function Page() {
               <BaseButton href="#demo" variant="secondary">
                 Демо
               </BaseButton>
-              <LandingLoginButton variant="outline" />
+                <LandingLoginButton variant="outline" />
+              </div>
             </div>
           </div>
+        </div>
+
+        <div className="relative left-1/2 w-screen max-w-[100vw] flex-shrink-0 -translate-x-1/2 pb-6 pt-4 md:pb-8 md:pt-5">
+          <LandingHeroTicker />
         </div>
       </section>
 

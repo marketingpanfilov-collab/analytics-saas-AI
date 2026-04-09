@@ -880,6 +880,45 @@ button:not([class]):hover {
   }
 }
 
+/* Hero — нижняя бегущая строка тегов (app/page.tsx) */
+@keyframes hero-ticker-marquee {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.hero-scope .hero-ticker {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  mask-image: linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%);
+}
+
+.hero-scope .hero-ticker__track {
+  /* gap задаётся в JSX (gap-[1.20rem]), чтобы Tailwind не перебивался порядком слоёв */
+  animation: hero-ticker-marquee 52s linear infinite;
+  will-change: transform;
+}
+
+.hero-scope .hero-ticker__track--static {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-scope .hero-ticker {
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
+
+  .hero-scope .hero-ticker__track {
+    animation: none;
+  }
+}
+
 /* Landing mid-page sections — только LandingMidSections.tsx */
 @keyframes landing-mid-float {
   0%,
