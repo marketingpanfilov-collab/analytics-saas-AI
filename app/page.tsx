@@ -431,12 +431,24 @@ export default function Page() {
               </p>
 
               <div className="mt-8 flex flex-wrap items-center justify-center gap-3 md:justify-center">
-              <BaseButton href="/login?signup=1" variant="primary">
-                Начать бесплатно
-              </BaseButton>
-              <BaseButton href="#demo" variant="secondary">
-                Демо
-              </BaseButton>
+                <div className="flex w-full max-w-[min(100%,26rem)] gap-3 sm:w-[26rem]">
+                  <BaseButton
+                    href="/login?signup=1"
+                    variant="primary"
+                    full
+                    className="min-w-0 flex-1 basis-0 whitespace-nowrap"
+                  >
+                    Начать бесплатно
+                  </BaseButton>
+                  <BaseButton
+                    href="#demo"
+                    variant="secondary"
+                    full
+                    className="min-w-0 flex-1 basis-0 whitespace-nowrap"
+                  >
+                    Демо
+                  </BaseButton>
+                </div>
                 <LandingLoginButton variant="outline" />
               </div>
             </div>
