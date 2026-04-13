@@ -1,5 +1,7 @@
 # FINAL SUMMARY — Billing execution plan
 
+**Актуальная модель доступа:** [BILLING_ACCESS_MODEL.md](./BILLING_ACCESS_MODEL.md).
+
 ## Phases completed vs plan
 
 | Phase | Complete? | Notes |

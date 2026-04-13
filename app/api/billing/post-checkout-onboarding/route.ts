@@ -104,10 +104,33 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "Billing snapshot failed" }, { status: 500 });
     }
     if (!snap.requires_post_checkout_onboarding) {
-      return NextResponse.json(
-        { success: false, error: "Post-checkout onboarding is not active" },
-        { status: 403 }
-      );
+      // Free wizard: после save_company профиль уже полный, флаг мог бы отстать до правки billing;
+      // complete всё ещё должен проставить completed_at.
+      let allowCompleteWithoutRequires = false;
+      if (action === "complete") {
+        const { data: pcGate } = await admin
+          .from("user_post_checkout_onboarding")
+          .select("completed_at")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        allowCompleteWithoutRequires = Boolean(
+          pcGate &&
+            !pcGate.completed_at &&
+            snap.access_state === "no_subscription" &&
+            snap.company_profile_completed === true
+        );
+      }
+      if (!allowCompleteWithoutRequires) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "Настройка в этом окне сейчас недоступна. Обновите страницу или откройте раздел проектов.",
+            code: "onboarding_not_active",
+          },
+          { status: 403 }
+        );
+      }
     }
   }
 

@@ -171,5 +171,16 @@ export async function resolveBillingPlanForOrganization(
   const paddlePlan = await resolveBillingPlanFromPaddleCustomerIds(admin, orgCustomerIds);
   if (paddlePlan !== "unknown") return paddlePlan;
 
-  return "unknown";
+  /** Paddle-строки есть, но price/product не сопоставились — не считаем Free (избегаем ужесточения лимитов для оплаченного края). */
+  if (orgCustomerIds.length > 0) {
+    const { count, error } = await admin
+      .from("billing_subscriptions")
+      .select("id", { count: "exact", head: true })
+      .eq("provider", "paddle")
+      .in("provider_customer_id", orgCustomerIds);
+    if (!error && (count ?? 0) > 0) return "unknown";
+  }
+
+  /** Нет подписки — лимиты enforcement как у виртуального Free. */
+  return "free";
 }

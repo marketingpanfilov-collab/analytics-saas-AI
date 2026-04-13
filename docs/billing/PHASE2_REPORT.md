@@ -4,7 +4,7 @@
 
 | ID | Status | Notes |
 |----|--------|--------|
-| P2-UI-01 Shell from `screen` | Partial | `BillingShellGate` fullscreen for hard `PAYWALL`, `NO_ORG_ACCESS`, `OVER_LIMIT_*`, invite screens, `BILLING_REFUNDED`. Post-checkout remains dedicated modal. Not every `ScreenId` has a bespoke layout yet (e.g. `DEMO_SHELL`, `READ_ONLY_SHELL` soft modes rely on existing chrome + banners). |
+| P2-UI-01 Shell from `screen` | Partial | `BillingShellGate` fullscreen for hard shells when resolver отдаёт их: **`PAYWALL`** (редко; дефолтный **`no_subscription`** идёт в **`DASHBOARD`**, не сюда), **`NO_ORG_ACCESS`**, **`OVER_LIMIT_*`**, invite screens, **`BILLING_REFUNDED`**. Post-checkout remains dedicated modal. Not every `ScreenId` has a bespoke layout yet (e.g. `DEMO_SHELL`, `READ_ONLY_SHELL` soft modes rely on existing chrome + banners). |
 | P2-UI-02 allowed_actions | Partial | `billingActionAllowed` + dashboard `sync_refresh` gate on `POST /api/dashboard/refresh` paths in `AppDashboardClient`. Other surfaces (OAuth modals, reports export) should be wired the same way in follow-up. |
 | P2-UI-03 Data states | Pending | `data_state_default` on resolver; widget-level `EMPTY` / `LIMITED` / `BLOCKED` patterns not fully rolled through LTV/reports clients (see `docs/billing/DATA_STATE_WIDGET_PATTERNS.md` if present). |
 | P2-UI-04 Over-limit | Done | Backend `over_limit_details`; fullscreen gate + copy when `over_limit_ui` flag on. |

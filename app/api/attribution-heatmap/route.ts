@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { requireAttributionDebuggerApiAccess } from "@/app/lib/auth/requireAttributionDebuggerAccess";
 import { buildAttributionHeatmap } from "@/app/lib/attributionHeatmap";
 
 function parseDays(raw: string | null): number {
@@ -22,7 +22,9 @@ export async function GET(req: Request) {
       );
     }
 
-    const admin = supabaseAdmin();
+    const gate = await requireAttributionDebuggerApiAccess(req, projectId);
+    if (!gate.ok) return gate.response;
+    const admin = gate.admin;
     const channels = await buildAttributionHeatmap(admin, {
       project_id: projectId,
       days,

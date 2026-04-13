@@ -1,5 +1,7 @@
 # Матрица тарифов и ограничений (код)
 
+**Как матрица попадает в bootstrap и чем Free отличается от unpaid:** [BILLING_ACCESS_MODEL.md](./BILLING_ACCESS_MODEL.md).
+
 Сводка того, что **сейчас зашито в приложении**. Числа и флаги нужно менять в исходниках; этот файл затем обновить.
 
 **Канон лимитов и фич:** [`app/lib/planConfig.ts`](../../app/lib/planConfig.ts) (`PlanFeatureMatrix`, `getPlanFeatureMatrix`).
@@ -35,6 +37,12 @@ TTL «свежести» дашборда (порог устаревания д�
 ## План `unknown`
 
 Если эффективный план не распознан, [`getPlanFeatureMatrix`](../../app/lib/planConfig.ts) возвращает матрицу `unknown`: все `max_*` = `null`, `ltv_full_history` / `attribution_heavy` / `marketing_summary` = `false`.
+
+---
+
+## Free и `no_subscription` (bootstrap)
+
+Если у пользователя **`access_state: no_subscription`** (нет подписки Paddle), в ответе billing bootstrap выставляются **`experience_tier: "free"`** и матрица **`free`** (см. [`billingExperienceTier.ts`](../../app/lib/billingExperienceTier.ts), [`billingCurrentPlan.ts`](../../app/lib/billingCurrentPlan.ts) — `resolvePlanFeatureMatrixForBillingGate`). Это **не** то же самое, что **`unpaid` / `expired` / `paused`**: последние не считаются Free в API gates. Вход в продукт после регистрации/подтверждения email по умолчанию ведёт в **`/app/projects`** (валидный `next` под `/app` или fallback в [`auth/callback`](../../app/auth/callback/route.ts) и на логине).
 
 ---
 

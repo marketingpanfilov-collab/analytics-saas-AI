@@ -1,7 +1,17 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ignoreAbortRejection, isAbortError, safeAbortController } from "@/app/lib/abortUtils";
 import { SIDEBAR_TODAY_REFRESH_EVENT } from "@/app/lib/sidebarTodayRefreshEvent";
 import { supabase } from "@/app/lib/supabaseClient";
@@ -18,7 +28,30 @@ import {
   canOfferBillingInlinePricing,
   isBillingBlocking,
 } from "@/app/lib/billingBootstrapClient";
+import { emitBillingFunnelEvent, emitBillingFunnelEventOnce } from "@/app/lib/billingFunnelAnalytics";
+import {
+  bumpDashboardSourcesExploreOnce,
+  bumpFreeTierIntentAction,
+  freeTierIntentModalAlreadyShown,
+  markFreeTierIntentModalShown,
+} from "@/app/lib/freeTierIntentSession";
+import {
+  getOnboardingPopupVisitCount,
+  hasOnboardingShownThisSession,
+  isPostProjectSourcesModalDone,
+  markPostProjectSourcesModalDone,
+  ONBOARDING_POPUP_MAX_SHOWS,
+  POST_PROJECT_SOURCES_MODAL_ENABLED,
+  recordOnboardingPopupShown,
+} from "@/app/lib/boardiqOnboardingUx";
+import { FREE_AD_ACCOUNT_LIMIT_DASHBOARD_NOTICE_SESSION_KEY } from "@/app/lib/adAccountPlanLimit";
 import { resolveDashboardWidgetState } from "@/app/lib/billingWidgetState";
+import {
+  FREE_DASHBOARD_ATTRIBUTION_CTA_LABEL,
+  FREE_DASHBOARD_ATTRIBUTION_LIMIT_BODY,
+  FREE_DASHBOARD_ATTRIBUTION_LIMIT_FOOTNOTE,
+  FREE_DASHBOARD_ATTRIBUTION_LIMIT_TITLE,
+} from "@/app/lib/planRestrictedCopy";
 import { useBillingBootstrap } from "./components/BillingBootstrapProvider";
 import { useBillingPricingModalRequest } from "./components/BillingPricingModalProvider";
 import BillingWidgetPlaceholder from "./components/BillingWidgetPlaceholder";
@@ -26,6 +59,7 @@ import AssistedAttributionCard from "./components/AssistedAttributionCard";
 import { RevenueAttributionMapCard } from "./components/RevenueAttributionMapCard";
 import { ConversionBehaviorCard } from "./components/ConversionBehaviorCard";
 import { AttributionFlowCard } from "./components/AttributionFlowCard";
+import PostProjectSourcesModal from "./components/PostProjectSourcesModal";
 
 function toISO(d: Date) {
   const yyyy = d.getFullYear();
@@ -84,7 +118,7 @@ function extractApiError(payload: any): string {
 const INTEGRATION_REASON_HUMAN: Record<string, string> = {
   sync_old: "Данные устарели — запустите синхронизацию.",
   data_behind: "Данные отстают от рекламного кабинета.",
-  no_data_updates_today: "За сегодня пока нет обновлённых данных.",
+  no_data_updates_today: "За сегодня в данных ограниченный срез — обновления ещё не подтянулись.",
   sync_failed: "Ошибка при последней синхронизации.",
   internal_error: "Временная ошибка сервиса. Повторите позже.",
   token_invalid: "Сессия истекла — переподключите аккаунт.",
@@ -244,9 +278,21 @@ function MultiMetricLineChart({
           alignItems: "center",
           justifyContent: "center",
           opacity: 0.78,
+          boxSizing: "border-box",
         }}
       >
-        Нет данных за выбранный период (или sync ещё не записал строки).
+        <div
+          style={{
+            textAlign: "center",
+            lineHeight: 1.5,
+            padding: "0 28px",
+            maxWidth: "min(100%, 520px)",
+            margin: "0 auto",
+          }}
+        >
+          Ограниченные данные за выбранный период: для графика пока нет точек — дождитесь синхронизации или измените
+          диапазон дат.
+        </div>
       </div>
     );
   }
@@ -561,6 +607,8 @@ type IntegrationStatusRow = {
   oauth_valid: boolean;
   enabled_accounts: number;
   status: IntegrationStatusValue;
+  /** Present when returned from `/api/oauth/integration/status` (system state). */
+  channel_state?: import("@/app/lib/channelState").ChannelState;
   reason: string | null;
   token_reason_code?: string | null;
   token_temporary?: boolean | null;
@@ -607,11 +655,17 @@ function narrowRefreshRangeForTodayEnd(start: string, end: string): { start: str
 
 export default function AppDashboardClient() {
   const router = useRouter();
+  /** `usePathname()` can be "" during hydration; `??` does not fall back for empty string. */
+  const pathname = usePathname() || "/app";
   const sp = useSearchParams();
   const { resolvedUi, bootstrap, overLimitApplyGraceUntilMs, relaxOverLimitForPendingWebhook } =
     useBillingBootstrap();
   const { requestBillingPricingModal } = useBillingPricingModalRequest();
   const projectId = sp.get("project_id") || "";
+  const isFreeExperience = bootstrap?.experience_tier === "free";
+  const isFreePlanMatrix = bootstrap?.plan_feature_matrix?.plan === "free";
+  const [freeAdAccountLimitBannerOpen, setFreeAdAccountLimitBannerOpen] = useState(false);
+  const postProjectOnboardingFlag = sp.get("post_project_onboarding") === "1";
   const billingBlockingOpts = useMemo(
     () => ({ overLimitApplyGraceUntilMs, relaxOverLimitForPendingWebhook }),
     [overLimitApplyGraceUntilMs, relaxOverLimitForPendingWebhook]
@@ -649,6 +703,21 @@ export default function AppDashboardClient() {
     void fetch(`/api/projects/${encodeURIComponent(projectId)}/touch`, { method: "POST" }).catch(() => null);
   }, [projectId, resolvedUi]);
 
+  useEffect(() => {
+    const onApp = pathname === "/app" || pathname === "/app/";
+    if (!projectId || !onApp || !isFreePlanMatrix) {
+      setFreeAdAccountLimitBannerOpen(false);
+      return;
+    }
+    try {
+      setFreeAdAccountLimitBannerOpen(
+        sessionStorage.getItem(FREE_AD_ACCOUNT_LIMIT_DASHBOARD_NOTICE_SESSION_KEY) === "1"
+      );
+    } catch {
+      setFreeAdAccountLimitBannerOpen(false);
+    }
+  }, [projectId, pathname, isFreePlanMatrix]);
+
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [selectedAccountIds, setSelectedAccountIds] = useState<string[]>([]);
   const [dashboardAccounts, setDashboardAccounts] = useState<DashboardAccount[]>([]);
@@ -658,6 +727,10 @@ export default function AppDashboardClient() {
   const accountsDropdownRef = useRef<HTMLDivElement>(null);
   const [kpiSummary, setKpiSummary] = useState<KpiSummary | null>(null);
   const [activeSourceOptions, setActiveSourceOptions] = useState<SourceOption[]>([]);
+
+  useLayoutEffect(() => {
+    setKpiSummary(null);
+  }, [projectId]);
 
   const enabledAccounts = useMemo(
     () => dashboardAccounts.filter((a) => a.is_enabled),
@@ -694,7 +767,9 @@ export default function AppDashboardClient() {
   const freshnessCheckInFlightRef = useRef<Promise<boolean> | null>(null);
   const lastFreshnessCheckAtRef = useRef(0);
   const prevAppliedRangeKeyRef = useRef<string | null>(null);
+  const freeIntentFilterRef = useRef<string | null>(null);
   const [errorText, setErrorText] = useState<string | null>(null);
+  const [, setFreeIntentUiTick] = useState(0);
 
   const [summary, setSummary] = useState<Summary>({ spend: 0 });
   const [points, setPoints] = useState<Point[]>([]);
@@ -715,6 +790,191 @@ export default function AppDashboardClient() {
   const [usdToKztRate, setUsdToKztRate] = useState<number | null>(null);
   const [projectMinDate, setProjectMinDate] = useState<string | null>(null);
   const [backgroundReady, setBackgroundReady] = useState(false);
+
+  const [onboardingSignals, setOnboardingSignals] = useState<{
+    hydrated: boolean;
+    hasAdAccounts: boolean;
+    hasSiteEvents: boolean;
+    hasRedirectLinks: boolean;
+  }>({
+    hydrated: false,
+    hasAdAccounts: false,
+    hasSiteEvents: false,
+    hasRedirectLinks: false,
+  });
+  const [showPostProjectModal, setShowPostProjectModal] = useState(false);
+  const postProjectPopupRecordedRef = useRef(false);
+
+  useEffect(() => {
+    if (!projectId) {
+      setOnboardingSignals({
+        hydrated: false,
+        hasAdAccounts: false,
+        hasSiteEvents: false,
+        hasRedirectLinks: false,
+      });
+      return;
+    }
+    const ac = new AbortController();
+    (async () => {
+      let hasAdAccounts = false;
+      let hasSiteEvents = false;
+      let hasRedirectLinks = false;
+      try {
+        const [aRes, iRes, rRes, tRes] = await Promise.all([
+          fetch(`/api/dashboard/accounts?project_id=${encodeURIComponent(projectId)}`, {
+            cache: "no-store",
+            signal: ac.signal,
+          }),
+          fetch(`/api/oauth/integration/status?project_id=${encodeURIComponent(projectId)}`, {
+            cache: "no-store",
+            signal: ac.signal,
+          }),
+          fetch(`/api/redirect-links?project_id=${encodeURIComponent(projectId)}`, {
+            cache: "no-store",
+            signal: ac.signal,
+          }),
+          fetch(`/api/tracking/source/status?site_id=${encodeURIComponent(projectId)}`, {
+            cache: "no-store",
+            signal: ac.signal,
+          }),
+        ]);
+        if (aRes.ok) {
+          const j = (await aRes.json()) as { accounts?: unknown[] };
+          hasAdAccounts = Array.isArray(j?.accounts) && j.accounts.length > 0;
+        }
+        if (!hasAdAccounts && iRes.ok) {
+          const j = (await iRes.json()) as {
+            integrations?: Array<{ connected?: boolean; enabled_accounts?: number }>;
+          };
+          const list = Array.isArray(j?.integrations) ? j.integrations : [];
+          hasAdAccounts = list.some(
+            (x) => x.connected === true && Number(x.enabled_accounts ?? 0) > 0
+          );
+        }
+        if (rRes.ok) {
+          const j = (await rRes.json()) as { items?: unknown[] };
+          hasRedirectLinks = Array.isArray(j?.items) && j.items.length > 0;
+        }
+        if (tRes.ok) {
+          const j = (await tRes.json()) as { hasEvents?: boolean };
+          if (j?.hasEvents === true) hasSiteEvents = true;
+        }
+      } catch {
+        /* ignore */
+      }
+      if (!ac.signal.aborted) {
+        setOnboardingSignals({
+          hydrated: true,
+          hasAdAccounts,
+          hasSiteEvents,
+          hasRedirectLinks,
+        });
+      }
+    })();
+    return () => ac.abort();
+  }, [projectId]);
+
+  const handlePostProjectModalDismiss = useCallback(() => {
+    if (projectId) markPostProjectSourcesModalDone(projectId);
+    setShowPostProjectModal(false);
+    const params = new URLSearchParams(sp.toString());
+    params.delete("post_project_onboarding");
+    const q = params.toString();
+    router.replace(`${pathname}${q ? `?${q}` : ""}`, { scroll: false });
+  }, [projectId, router, sp, pathname]);
+
+  useEffect(() => {
+    // Only mounted from /app?project_id=… (AppDashboardPage). Do not gate on pathname — usePathname() can be "" during hydration.
+    if (!projectId) return;
+
+    const stripOnboardingQueryIfPresent = () => {
+      if (postProjectOnboardingFlag) {
+        const params = new URLSearchParams(sp.toString());
+        params.delete("post_project_onboarding");
+        const q = params.toString();
+        router.replace(`${pathname}${q ? `?${q}` : ""}`, { scroll: false });
+      }
+      setShowPostProjectModal(false);
+    };
+
+    if (!POST_PROJECT_SOURCES_MODAL_ENABLED) {
+      stripOnboardingQueryIfPresent();
+      return;
+    }
+
+    if (!onboardingSignals.hydrated || loading) return;
+
+    if (isPostProjectSourcesModalDone(projectId)) {
+      stripOnboardingQueryIfPresent();
+      return;
+    }
+
+    const hasCompletedOnboarding =
+      onboardingSignals.hasAdAccounts &&
+      onboardingSignals.hasSiteEvents &&
+      onboardingSignals.hasRedirectLinks;
+
+    const totalRevenue = Number(kpiSummary?.revenue ?? 0);
+    const totalEvents =
+      Number(kpiSummary?.registrations ?? 0) + Number(kpiSummary?.sales ?? 0);
+    const hasData = totalRevenue > 0 || totalEvents > 0;
+
+    const visits = getOnboardingPopupVisitCount();
+    if (
+      hasCompletedOnboarding ||
+      hasData ||
+      visits >= ONBOARDING_POPUP_MAX_SHOWS ||
+      (hasOnboardingShownThisSession() && !showPostProjectModal)
+    ) {
+      stripOnboardingQueryIfPresent();
+      return;
+    }
+
+    setShowPostProjectModal(true);
+  }, [
+    projectId,
+    postProjectOnboardingFlag,
+    onboardingSignals.hydrated,
+    onboardingSignals.hasAdAccounts,
+    onboardingSignals.hasSiteEvents,
+    onboardingSignals.hasRedirectLinks,
+    loading,
+    kpiSummary,
+    showPostProjectModal,
+    router,
+    sp,
+    pathname,
+  ]);
+
+  useEffect(() => {
+    if (!showPostProjectModal) {
+      postProjectPopupRecordedRef.current = false;
+      return;
+    }
+    if (postProjectPopupRecordedRef.current) return;
+    const t = window.setTimeout(() => {
+      if (postProjectPopupRecordedRef.current) return;
+      postProjectPopupRecordedRef.current = true;
+      recordOnboardingPopupShown();
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [showPostProjectModal]);
+
+  const postProjectModalSignals = useMemo(
+    () => ({
+      hydrated: onboardingSignals.hydrated,
+      hasAdAccounts: onboardingSignals.hasAdAccounts,
+      hasSiteEvents: onboardingSignals.hasSiteEvents,
+      hasRedirectLinks: onboardingSignals.hasRedirectLinks,
+    }),
+    [
+      onboardingSignals.hydrated,
+      onboardingSignals.hasAdAccounts,
+      onboardingSignals.hasSiteEvents,
+      onboardingSignals.hasRedirectLinks,
+    ]
+  );
 
   const fetchDashboardIntegrationStatus = useCallback(async (pid: string, opts?: { signal?: AbortSignal; force?: boolean }) => {
     const signal = opts?.signal;
@@ -1511,6 +1771,24 @@ export default function AppDashboardClient() {
         // ignore
       }
 
+      if (bootstrap?.experience_tier === "free") {
+        const n = bumpFreeTierIntentAction();
+        if (
+          n >= 3 &&
+          !freeTierIntentModalAlreadyShown() &&
+          resolvedUi &&
+          canOfferBillingInlinePricing(resolvedUi)
+        ) {
+          markFreeTierIntentModalShown();
+          emitBillingFunnelEvent("upgrade_trigger", {
+            reason: "intent_after_resync",
+            project_id: projectId,
+            experience_tier: "free",
+          });
+          requestBillingPricingModal("free_intent_3_actions", { force: true });
+        }
+      }
+
       if (fullResyncRunIdRef.current !== runId) return;
       if (appliedDateFrom !== snapFrom || appliedDateTo !== snapTo) return;
 
@@ -1675,6 +1953,12 @@ export default function AppDashboardClient() {
     }
   }, [sourcesOpen, accountsOpen]);
 
+  useEffect(() => {
+    if (!sourcesOpen && !accountsOpen) return;
+    bumpDashboardSourcesExploreOnce();
+    setFreeIntentUiTick((t) => t + 1);
+  }, [sourcesOpen, accountsOpen]);
+
   const updatedStr = useMemo(() => {
     const iso = safeIso(updatedAt);
     if (!iso) return "—";
@@ -1760,13 +2044,16 @@ export default function AppDashboardClient() {
     []
   );
 
-  /** Data Status: count only healthy integrations (green). Total = Meta, Google, TikTok. */
+  /** Платформы с подключением (не «Not connected») — знаменатель бейджа и счётчик Ad platforms. */
+  const connectedPlatformsCount = useMemo(
+    () => adaptiveIntegrationStatus.filter((i) => i.status !== "not_connected").length,
+    [adaptiveIntegrationStatus]
+  );
+  /** Среди подключённых — сколько в статусе healthy. */
   const healthyCount = useMemo(
     () => adaptiveIntegrationStatus.filter((i) => i.status === "healthy").length,
     [adaptiveIntegrationStatus]
   );
-  const totalPlatformsCount = 3; // meta, google, tiktok
-  const adPlatformsCount = healthyCount;
 
   const integrationStatusByPlatform = useMemo(() => {
     const map = new Map<string, IntegrationStatusValue>();
@@ -1940,18 +2227,6 @@ export default function AppDashboardClient() {
     whiteSpace: "nowrap" as const,
   });
 
-  const statusState = useMemo<"loading" | "success" | "error">(() => {
-    if (loading || syncLoading) return "loading";
-    if (errorText) return "error";
-    return "success";
-  }, [loading, syncLoading, errorText]);
-
-  const statusLabel = useMemo(() => {
-    if (statusState === "loading") return syncLoading ? "Идёт обновление…" : "Загрузка…";
-    if (statusState === "error") return "Ошибка";
-    return "Готово";
-  }, [statusState, syncLoading]);
-
   const accountsByPlatform = useMemo(() => {
     const map = new Map<string, DashboardAccount[]>();
     for (const a of enabledAccounts) {
@@ -1986,52 +2261,524 @@ export default function AppDashboardClient() {
   }, [effectiveSources, activeSourceOptions]);
   const accountsLabel = selectedAccountIds.length === 0 ? "All" : `${selectedAccountIds.length} selected`;
 
-  const handleDateBlur = () => {
-    const nextFrom = projectMinDate && draftDateFrom < projectMinDate ? projectMinDate : draftDateFrom;
-    const nextTo = projectMinDate && draftDateTo < projectMinDate ? projectMinDate : draftDateTo;
-    if (nextFrom > nextTo) return;
-    if (nextFrom !== draftDateFrom) setDraftDateFrom(nextFrom);
-    if (nextTo !== draftDateTo) setDraftDateTo(nextTo);
-    if (nextFrom === appliedDateFrom && nextTo === appliedDateTo) return;
-    setAppliedDateFrom(nextFrom);
-    setAppliedDateTo(nextTo);
-    const params = new URLSearchParams(sp.toString());
-    if (projectId) params.set("project_id", projectId);
-    params.set("start", nextFrom);
-    params.set("end", nextTo);
-    router.replace(`${window.location.pathname}?${params.toString()}`, { scroll: false });
+  const enabledSourcesCount =
+    Number(onboardingSignals.hasAdAccounts) + Number(onboardingSignals.hasSiteEvents);
+  const showFreeSingleSourceOnboarding =
+    onboardingSignals.hydrated && isFreePlanMatrix && enabledSourcesCount === 1;
+
+  /**
+   * Free dashboard: guidance-only until tracking + spend→conversion linkage + non-partial data exist.
+   * Product insights belong behind those gates (future); avoid pseudo-insights here.
+   */
+
+  useEffect(() => {
+    if (!isFreeExperience || !projectId) return;
+    if (!hasRealKpiData) return;
+    emitBillingFunnelEventOnce(`first_value_shown:${projectId}`, "first_value_shown", {
+      project_id: projectId,
+      experience_tier: "free",
+    });
+  }, [isFreeExperience, hasRealKpiData, projectId]);
+
+  useEffect(() => {
+    if (!isFreeExperience || !projectId) return;
+    if (!attributionLimited) return;
+    emitBillingFunnelEventOnce(`gate_seen:${projectId}:attribution`, "gate_seen", {
+      gate: "attribution",
+      project_id: projectId,
+    });
+  }, [isFreeExperience, attributionLimited, projectId]);
+
+  useEffect(() => {
+    if (!isFreeExperience) return;
+    const key = `${appliedDateFrom}|${appliedDateTo}|${sourcesKey}|${accountIdsKey}`;
+    if (freeIntentFilterRef.current === null) {
+      freeIntentFilterRef.current = key;
+      return;
+    }
+    if (freeIntentFilterRef.current === key) return;
+    freeIntentFilterRef.current = key;
+    const n = bumpFreeTierIntentAction();
+    if (n < 3) return;
+    if (freeTierIntentModalAlreadyShown()) return;
+    if (!resolvedUi || !canOfferBillingInlinePricing(resolvedUi)) return;
+    markFreeTierIntentModalShown();
+    emitBillingFunnelEvent("upgrade_trigger", {
+      reason: "intent_3_actions",
+      project_id: projectId,
+      experience_tier: "free",
+    });
+    requestBillingPricingModal("free_intent_3_actions", { force: true });
+  }, [
+    isFreeExperience,
+    appliedDateFrom,
+    appliedDateTo,
+    sourcesKey,
+    accountIdsKey,
+    resolvedUi,
+    requestBillingPricingModal,
+    projectId,
+  ]);
+
+  const applyDraftDateRange = useCallback(
+    (from: string, to: string) => {
+      const nextFrom = projectMinDate && from < projectMinDate ? projectMinDate : from;
+      const nextTo = projectMinDate && to < projectMinDate ? projectMinDate : to;
+      if (nextFrom > nextTo) return;
+      setDraftDateFrom(nextFrom);
+      setDraftDateTo(nextTo);
+      if (nextFrom === appliedDateFrom && nextTo === appliedDateTo) return;
+      setAppliedDateFrom(nextFrom);
+      setAppliedDateTo(nextTo);
+      const params = new URLSearchParams(sp.toString());
+      if (projectId) params.set("project_id", projectId);
+      params.set("start", nextFrom);
+      params.set("end", nextTo);
+      router.replace(`${window.location.pathname}?${params.toString()}`, { scroll: false });
+    },
+    [projectMinDate, appliedDateFrom, appliedDateTo, sp, router, projectId]
+  );
+
+  const onboardingHref = (path: string) =>
+    projectId ? `${path}?project_id=${encodeURIComponent(projectId)}` : path;
+
+  /** Единый UX-статус данных на дашборде (без технических текстов в UI). */
+  type DashboardDataUiStatus = "NO_SOURCES" | "LOADING" | "ERROR" | "READY";
+  const dashboardDataUiStatus = useMemo((): DashboardDataUiStatus => {
+    if (!onboardingSignals.hydrated) return "LOADING";
+    const hasAnySource = onboardingSignals.hasAdAccounts || onboardingSignals.hasSiteEvents;
+    if (!hasAnySource) return "NO_SOURCES";
+    if (errorText) return "ERROR";
+    if (dashboardWidgetPack.state === "BLOCKED" || dashboardWidgetPack.state === "LIMITED") {
+      return "READY";
+    }
+    if (!hasRealKpiData) return "LOADING";
+    return "READY";
+  }, [
+    onboardingSignals.hydrated,
+    onboardingSignals.hasAdAccounts,
+    onboardingSignals.hasSiteEvents,
+    errorText,
+    dashboardWidgetPack.state,
+    hasRealKpiData,
+  ]);
+
+  const showOnboardingPartialBanner =
+    onboardingSignals.hydrated &&
+    !showFreeSingleSourceOnboarding &&
+    ((!onboardingSignals.hasAdAccounts && onboardingSignals.hasSiteEvents) ||
+      (onboardingSignals.hasAdAccounts && !onboardingSignals.hasSiteEvents));
+  const showOnboardingTrackingBanner =
+    onboardingSignals.hydrated &&
+    !showFreeSingleSourceOnboarding &&
+    onboardingSignals.hasAdAccounts &&
+    !onboardingSignals.hasRedirectLinks;
+
+  /** Верхний guidance-блок Free (1 источник): сценарии по spend / продажам / отслеживанию — без универсального текста. */
+  const freeSingleSourceBannerModel = useMemo((): {
+    title: string;
+    lines: string[];
+    ctaLabel: string;
+    ctaPath: "/app/pixels" | "/app/accounts";
+  } | null => {
+    if (!showFreeSingleSourceOnboarding || dashboardDataUiStatus !== "READY") return null;
+
+    const hasTracking =
+      onboardingSignals.hasSiteEvents === true || onboardingSignals.hasRedirectLinks === true;
+
+    const fmtSpend = (v: number) => {
+      if (projectCurrency === "KZT" && usdToKztRate && usdToKztRate > 0) {
+        return `₸${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(Math.round(v))}`;
+      }
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 2,
+        minimumFractionDigits: 0,
+      }).format(v);
+    };
+
+    if (spendValue <= 0) {
+      return {
+        title: "Нет данных для анализа",
+        lines: ["Подключите рекламные источники."],
+        ctaLabel: "Подключить источники",
+        ctaPath: "/app/accounts",
+      };
+    }
+
+    if (kpiSummary == null) {
+      return {
+        title: "Данные о продажах не поступают",
+        lines: ["Проверьте Pixel или передачу событий."],
+        ctaLabel: "Настроить отслеживание",
+        ctaPath: "/app/pixels",
+      };
+    }
+
+    const sales = Number(kpiSummary.sales);
+    if (!Number.isFinite(sales)) {
+      return {
+        title: "Данные о продажах не поступают",
+        lines: ["Проверьте Pixel или передачу событий."],
+        ctaLabel: "Настроить отслеживание",
+        ctaPath: "/app/pixels",
+      };
+    }
+
+    if (sales === 0) {
+      return {
+        title: "Вы уже запускаете рекламу",
+        lines: [
+          `За период зафиксирован расход ${fmtSpend(spendValue)}, но продаж пока нет.`,
+          "Проверьте воронку или настройте отслеживание.",
+        ],
+        ctaLabel: "Проверить отслеживание",
+        ctaPath: "/app/pixels",
+      };
+    }
+
+    if (sales > 0 && !hasTracking) {
+      return {
+        title: "Есть данные, но аналитика ограничена",
+        lines: ["Продажи есть, но не видно вклад каналов.", "Настройте отслеживание."],
+        ctaLabel: "Настроить отслеживание",
+        ctaPath: "/app/pixels",
+      };
+    }
+
+    return null;
+  }, [
+    showFreeSingleSourceOnboarding,
+    dashboardDataUiStatus,
+    spendValue,
+    kpiSummary,
+    onboardingSignals.hasSiteEvents,
+    onboardingSignals.hasRedirectLinks,
+    projectCurrency,
+    usdToKztRate,
+  ]);
+
+  const onboardingLinkBtn: CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "10px 14px",
+    borderRadius: 10,
+    border: "1px solid rgba(147,197,253,0.45)",
+    background: "rgba(147,197,253,0.12)",
+    color: "rgba(219,234,254,0.98)",
+    fontWeight: 700,
+    fontSize: 13,
+    textDecoration: "none",
+    boxSizing: "border-box",
   };
+
+  const onboardingPrimaryBtn: CSSProperties = {
+    ...onboardingLinkBtn,
+    padding: "14px 22px",
+    fontSize: 15,
+    borderRadius: 12,
+    border: "1px solid rgba(147,197,253,0.65)",
+    background: "linear-gradient(180deg, rgba(147,197,253,0.28), rgba(147,197,253,0.14))",
+    boxShadow: "0 10px 32px rgba(59,130,246,0.18)",
+  };
+
+  const dismissFreeAdAccountLimitBanner = useCallback(() => {
+    try {
+      sessionStorage.removeItem(FREE_AD_ACCOUNT_LIMIT_DASHBOARD_NOTICE_SESSION_KEY);
+    } catch {
+      /* ignore */
+    }
+    setFreeAdAccountLimitBannerOpen(false);
+  }, []);
 
   return (
     <div style={{ padding: 28, position: "relative" }}>
+      {freeAdAccountLimitBannerOpen ? (
+        <div
+          style={{
+            marginBottom: 16,
+            padding: "14px 16px",
+            borderRadius: 14,
+            border: "1px solid rgba(251,191,36,0.35)",
+            background: "rgba(251,191,36,0.10)",
+            color: "rgba(255,248,220,0.95)",
+            fontSize: 14,
+            lineHeight: 1.45,
+            display: "flex",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: 12,
+            justifyContent: "space-between",
+          }}
+        >
+          <span>Вы достигли лимита бесплатного тарифа — 1 рекламный аккаунт</span>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+            <button
+              type="button"
+              onClick={() => {
+                dismissFreeAdAccountLimitBanner();
+                requestBillingPricingModal("free_ad_accounts_cap_dashboard", { force: true });
+              }}
+              style={{
+                padding: "10px 16px",
+                borderRadius: 12,
+                border: "1px solid rgba(52,211,129,0.45)",
+                background: "rgba(16,185,129,0.22)",
+                color: "rgba(220,255,235,0.98)",
+                fontWeight: 800,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Смотреть Growth
+            </button>
+            <button
+              type="button"
+              onClick={dismissFreeAdAccountLimitBanner}
+              style={{
+                padding: "8px 12px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.2)",
+                background: "transparent",
+                color: "rgba(255,255,255,0.75)",
+                fontWeight: 600,
+                cursor: "pointer",
+                fontSize: 13,
+              }}
+            >
+              Скрыть
+            </button>
+          </div>
+        </div>
+      ) : null}
       {/* Header */}
       <div style={{ marginBottom: 10 }}>
         <div style={{ fontSize: 34, fontWeight: 900, lineHeight: 1.1 }}>Дашборд</div>
         <div style={{ opacity: 0.75, marginTop: 6 }}>
-          Обзор метрик по выбранному периоду и статус данных.
+          {dashboardDataUiStatus === "NO_SOURCES"
+            ? "Подключите источники — затем здесь появятся метрики."
+            : dashboardDataUiStatus === "LOADING"
+              ? "Собираем данные из подключённых источников."
+              : dashboardDataUiStatus === "ERROR"
+                ? "Не удалось обновить данные. Попробуйте снова или проверьте подключения."
+                : "Обзор метрик по выбранному периоду и статус данных."}
         </div>
 
-        {errorText ? (
-          <div style={{ marginTop: 10, color: "rgba(255,170,170,0.95)", fontWeight: 700 }}>
-            {errorText}
+        {dashboardDataUiStatus === "NO_SOURCES" ? (
+          <div
+            style={{
+              marginTop: 20,
+              padding: "22px 22px 20px",
+              borderRadius: 18,
+              border: "1px solid rgba(147,197,253,0.35)",
+              background:
+                "radial-gradient(900px 280px at 20% 0%, rgba(96,165,250,0.18), transparent 55%), rgba(255,255,255,0.05)",
+              boxShadow: "0 16px 48px rgba(0,0,0,0.45)",
+            }}
+          >
+            <div
+              className="flex w-full flex-col gap-6 sm:flex-row sm:items-center sm:justify-between sm:gap-8"
+              style={{ boxSizing: "border-box" }}
+            >
+              <div className="min-w-0 flex-1 text-left" style={{ maxWidth: 520, boxSizing: "border-box" }}>
+                <div style={{ fontWeight: 900, fontSize: 22, color: "rgba(255,255,255,0.98)", letterSpacing: "-0.02em" }}>
+                  Нет подключённых источников
+                </div>
+                <div style={{ marginTop: 10, fontSize: 14, lineHeight: 1.55, opacity: 0.82 }}>
+                  Подключите рекламные кабинеты и настройте отслеживание (UTM и Pixel), чтобы видеть реальные продажи
+                  и вклад каждого канала.
+                </div>
+                <div
+                  style={{
+                    marginTop: 12,
+                    fontSize: 12,
+                    lineHeight: 1.45,
+                    color: "rgba(255,255,255,0.58)",
+                  }}
+                >
+                  В рекламных объявлениях для точной аналитики используйте{" "}
+                  <Link
+                    href={onboardingHref("/app/utm-builder")}
+                    style={{
+                      fontWeight: 800,
+                      color: "rgba(191, 219, 254, 0.98)",
+                      textDecoration: "underline",
+                      textDecorationColor: "rgba(147, 197, 253, 0.55)",
+                      textUnderlineOffset: "2px",
+                    }}
+                  >
+                    tracking-ссылки (UTM)
+                  </Link>
+                  .
+                </div>
+              </div>
+              <div
+                className="flex w-full shrink-0 flex-col gap-3 sm:w-auto sm:flex-row sm:justify-end sm:gap-4"
+                style={{ boxSizing: "border-box" }}
+              >
+                <Link
+                  href={onboardingHref("/app/accounts")}
+                  className="w-full justify-center sm:w-auto"
+                  style={onboardingPrimaryBtn}
+                >
+                  Рекламные кабинеты
+                </Link>
+                <Link
+                  href={onboardingHref("/app/pixels")}
+                  className="w-full justify-center sm:w-auto"
+                  style={onboardingPrimaryBtn}
+                >
+                  Сайт, CRM и Pixel
+                </Link>
+              </div>
+            </div>
+          </div>
+        ) : dashboardDataUiStatus === "LOADING" ? (
+          <div
+            style={{
+              marginTop: 20,
+              padding: "20px 22px",
+              borderRadius: 18,
+              border: "1px solid rgba(255,255,255,0.12)",
+              background: "rgba(255,255,255,0.04)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+              alignItems: "flex-start",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span
+                aria-hidden
+                style={{
+                  display: "inline-block",
+                  width: 18,
+                  height: 18,
+                  flexShrink: 0,
+                  border: "2px solid rgba(147,197,253,0.85)",
+                  borderTopColor: "transparent",
+                  borderRadius: "50%",
+                  animation: "dashboard-spin 0.7s linear infinite",
+                }}
+              />
+              <div style={{ fontWeight: 800, fontSize: 17, color: "rgba(255,255,255,0.95)" }}>Загружаем данные…</div>
+            </div>
+            <div style={{ fontSize: 13, lineHeight: 1.5, opacity: 0.72, paddingLeft: 30 }}>
+              Обычно это занимает 1–2 минуты.
+            </div>
+          </div>
+        ) : dashboardDataUiStatus === "ERROR" ? (
+          <div
+            style={{
+              marginTop: 20,
+              padding: "20px 22px",
+              borderRadius: 18,
+              border: "1px solid rgba(248,113,113,0.35)",
+              background: "rgba(248,113,113,0.08)",
+            }}
+          >
+            <div style={{ fontWeight: 800, fontSize: 17, color: "rgba(255,235,235,0.98)" }}>
+              Не удалось загрузить данные
+            </div>
+            <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.5, opacity: 0.82 }}>
+              Попробуйте обновить или проверить подключения
+            </div>
+            <div style={{ marginTop: 14, display: "flex", flexWrap: "wrap", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.reload();
+                }}
+                style={{
+                  ...onboardingLinkBtn,
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                Обновить страницу
+              </button>
+              <Link href={onboardingHref("/app/accounts")} style={onboardingLinkBtn}>
+                Рекламные кабинеты
+              </Link>
+              <Link href={onboardingHref("/app/pixels")} style={onboardingLinkBtn}>
+                Сайт, CRM и Pixel
+              </Link>
+            </div>
           </div>
         ) : null}
-        {dashboardWidgetPack.state === "BLOCKED" ||
-        dashboardWidgetPack.state === "LIMITED" ||
-        dashboardWidgetPack.state === "LOADING" ? (
+
+        {showOnboardingPartialBanner && dashboardDataUiStatus === "READY" ? (
+          <div
+            style={{
+              marginTop: 12,
+              padding: "14px 16px",
+              borderRadius: 14,
+              border: "1px solid rgba(250,200,80,0.28)",
+              background: "rgba(250,200,80,0.06)",
+            }}
+          >
+            <div style={{ fontWeight: 800, fontSize: 15, color: "rgba(255,245,210,0.98)" }}>
+              Дополните источники данных
+            </div>
+            <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.5, opacity: 0.82 }}>
+              Сейчас подключены не все источники. Добавьте остальные, чтобы получить точную аналитику бизнеса.
+            </div>
+            <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {!onboardingSignals.hasAdAccounts ? (
+                <Link href={onboardingHref("/app/accounts")} style={onboardingLinkBtn}>
+                  Рекламные кабинеты
+                </Link>
+              ) : null}
+              {!onboardingSignals.hasSiteEvents ? (
+                <Link href={onboardingHref("/app/pixels")} style={onboardingLinkBtn}>
+                  Сайт, CRM и Pixel
+                </Link>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {showOnboardingTrackingBanner && dashboardDataUiStatus === "READY" ? (
+          <div
+            style={{
+              marginTop: 12,
+              padding: "14px 16px",
+              borderRadius: 14,
+              border: "1px solid rgba(125,200,255,0.3)",
+              background: "rgba(125,200,255,0.07)",
+            }}
+          >
+            <div style={{ fontWeight: 800, fontSize: 15, color: "rgba(235,245,255,0.98)" }}>
+              Настройте отслеживание переходов
+            </div>
+            <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.5, opacity: 0.82 }}>
+              Если вы запускаете рекламу, используйте tracking-ссылки — так точнее определить, какие каналы приводят
+              клиентов.
+            </div>
+            <div style={{ marginTop: 6, fontSize: 13, lineHeight: 1.45, opacity: 0.72 }}>
+              Создавайте ссылки в UTM Builder и размещайте их в рекламе.
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <Link href={onboardingHref("/app/utm-builder")} style={onboardingLinkBtn}>
+                Создать ссылку
+              </Link>
+            </div>
+          </div>
+        ) : null}
+
+        {dashboardDataUiStatus !== "NO_SOURCES" &&
+        (dashboardWidgetPack.state === "BLOCKED" || dashboardWidgetPack.state === "LIMITED") ? (
           <div style={{ marginTop: 12 }}>
             <BillingWidgetPlaceholder
               pack={dashboardWidgetPack}
-              minHeight={
-                dashboardWidgetPack.state === "BLOCKED"
-                  ? 100
-                  : dashboardWidgetPack.state === "LOADING"
-                    ? 72
-                    : 88
-              }
+              minHeight={dashboardWidgetPack.state === "BLOCKED" ? 100 : 88}
             />
           </div>
         ) : null}
+
       </div>
 
       {/* ✅ Строка фильтров + табы (одной линией) */}
@@ -2185,133 +2932,80 @@ export default function AppDashboardClient() {
           >
             <div
               className="dashboard-native-date-range"
+              role="group"
+              title="Фильтр по дате"
+              aria-label="Фильтр по дате"
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 6,
+                gap: 4,
                 height: 40,
                 boxSizing: "border-box",
-                padding: "0 10px",
+                padding: "0 8px",
                 borderRadius: 12,
                 border: "1px solid rgba(255,255,255,0.10)",
                 background: "rgba(255,255,255,0.04)",
                 cursor: "pointer",
               }}
-              onBlur={handleDateBlur}
             >
               <input
                 type="date"
                 value={draftDateFrom}
-                onChange={(e) => setDraftDateFrom(e.target.value)}
-                onBlur={handleDateBlur}
+                onChange={(e) => applyDraftDateRange(e.target.value, draftDateTo)}
                 min={projectMinDate ?? undefined}
+                aria-label="Дата начала периода"
                 style={{
                   background: "transparent",
                   border: "none",
                   color: "white",
                   outline: "none",
-                  fontSize: 13,
+                  fontSize: 12,
                   lineHeight: 1,
-                  height: 24,
-                  padding: 0,
-                  minWidth: 120,
-                  width: 120,
+                  height: 22,
+                  minWidth: 108,
+                  width: 108,
+                  maxWidth: 108,
                   cursor: "pointer",
                 }}
               />
-              <span style={{ opacity: 0.6, fontSize: 11, cursor: "pointer" }}>—</span>
+              <span style={{ opacity: 0.6, fontSize: 11, cursor: "pointer" }} aria-hidden="true">
+                —
+              </span>
               <input
                 type="date"
                 value={draftDateTo}
-                onChange={(e) => setDraftDateTo(e.target.value)}
-                onBlur={handleDateBlur}
+                onChange={(e) => applyDraftDateRange(draftDateFrom, e.target.value)}
                 min={projectMinDate ?? undefined}
+                aria-label="Дата окончания периода"
                 style={{
                   background: "transparent",
                   border: "none",
                   color: "white",
                   outline: "none",
-                  fontSize: 13,
+                  fontSize: 12,
                   lineHeight: 1,
-                  height: 24,
-                  padding: 0,
-                  minWidth: 120,
-                  width: 120,
+                  height: 22,
+                  minWidth: 108,
+                  width: 108,
+                  maxWidth: 108,
                   cursor: "pointer",
                 }}
               />
-            </div>
-
-            {/* Done / status indicator: right of date range, color by state */}
-            <div
-              role="status"
-              aria-live="polite"
-              title={statusState === "error" ? errorText ?? "Ошибка" : "Статус загрузки данных"}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 8,
-                minWidth: 100,
-                height: 32,
-                padding: "0 14px",
-                borderRadius: 999,
-                border: "1px solid transparent",
-                fontWeight: 800,
-                fontSize: 12,
-                whiteSpace: "nowrap",
-                transition: "background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease",
-                ...(statusState === "loading"
-                  ? {
-                      background: "rgba(251,191,36,0.95)",
-                      color: "rgba(0,0,0,0.88)",
-                      borderColor: "rgba(251,191,36,0.6)",
-                    }
-                  : statusState === "error"
-                    ? {
-                        background: "rgba(220,38,38,0.9)",
-                        color: "rgba(255,255,255,0.98)",
-                        borderColor: "rgba(220,38,38,0.7)",
-                      }
-                    : {
-                        background: "rgba(16,185,129,0.85)",
-                        color: "rgba(255,255,255,0.98)",
-                        borderColor: "rgba(16,185,129,0.6)",
-                      }),
-              }}
-            >
-              {statusState === "loading" ? (
-                <>
-                  <span
-                    style={{
-                      display: "inline-block",
-                      width: 14,
-                      height: 14,
-                      flexShrink: 0,
-                      border: "2px solid currentColor",
-                      borderTopColor: "transparent",
-                      borderRadius: "50%",
-                      animation: "dashboard-spin 0.7s linear infinite",
-                    }}
-                  />
-                  {statusLabel}
-                </>
-              ) : (
-                statusLabel
-              )}
             </div>
           </div>
         </div>
 
-        {/* ✅ “Обновлено/ОК” прямо под хедером справа, отдельным блоком */}
-        <div style={{ display: "grid", gap: 6, justifyItems: "end", marginTop: 2 }}>
-          <span style={badge} title="Время обновления из API/сервера">
-            Обновлено: {updatedStr}
-          </span>
-          <span style={badge} title="Последний успешный ответ (клиент)">
-            OK: {lastOkStr}
-          </span>
-        </div>
+        {/* Технические бейджи только при готовых данных (без TTL в UI). */}
+        {dashboardDataUiStatus === "READY" ? (
+          <div style={{ display: "grid", gap: 6, justifyItems: "end", marginTop: 2 }}>
+            <span style={badge} title="Время обновления из API/сервера">
+              Обновлено: {updatedStr}
+            </span>
+            <span style={badge} title="Последний успешный ответ (клиент)">
+              OK: {lastOkStr}
+            </span>
+          </div>
+        ) : null}
       </div>
 
       {isInvalidRange ? (
@@ -2346,6 +3040,65 @@ export default function AppDashboardClient() {
             График обновится автоматически (до {MAX_BACKFILL_ATTEMPTS} попыток, каждые{" "}
             {BACKFILL_POLL_INTERVAL_MS / 1000}&nbsp;с).
           </span>
+        </div>
+      ) : null}
+
+      {freeSingleSourceBannerModel ? (
+        <div
+          style={{
+            marginTop: 14,
+            padding: "20px 22px",
+            borderRadius: 16,
+            border: "1px solid rgba(96, 165, 250, 0.42)",
+            background:
+              "linear-gradient(145deg, rgba(59,130,246,0.24) 0%, rgba(147,197,253,0.12) 45%, rgba(255,255,255,0.04) 100%)",
+            boxShadow: "0 14px 44px rgba(37,99,235,0.18)",
+            boxSizing: "border-box",
+            width: "100%",
+            maxWidth: "100%",
+          }}
+        >
+          <div className="flex w-full flex-col items-stretch gap-6 sm:flex-row sm:items-center sm:justify-between sm:gap-10 md:gap-12">
+            <div className="min-w-0 flex-1 text-left">
+              <div
+                style={{
+                  fontWeight: 900,
+                  fontSize: 18,
+                  color: "rgba(248,250,255,0.99)",
+                  letterSpacing: "-0.02em",
+                }}
+              >
+                {freeSingleSourceBannerModel.title}
+              </div>
+              <div
+                className="mt-2 line-clamp-2"
+                style={{
+                  fontSize: 14,
+                  lineHeight: 1.55,
+                  opacity: 0.9,
+                  width: "100%",
+                  maxWidth: "100%",
+                  boxSizing: "border-box",
+                }}
+              >
+                {freeSingleSourceBannerModel.lines.map((line, i) => (
+                  <span key={i}>
+                    {i > 0 ? " " : null}
+                    {line}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div className="flex w-full shrink-0 justify-start sm:w-auto sm:justify-end sm:pl-2 md:pl-4">
+              <Link
+                href={onboardingHref(freeSingleSourceBannerModel.ctaPath)}
+                className="inline-flex max-w-full justify-center whitespace-normal text-left sm:whitespace-nowrap"
+                style={{ ...onboardingPrimaryBtn, width: "auto", maxWidth: "100%" }}
+              >
+                {freeSingleSourceBannerModel.ctaLabel}
+              </Link>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -2444,10 +3197,12 @@ export default function AppDashboardClient() {
                   ? dashboardWidgetPack
                   : {
                       ...dashboardWidgetPack,
-                      title: dashboardWidgetPack.title || "График недоступен",
+                      title: dashboardWidgetPack.title || "Часть графика скрыта",
                       hint:
                         dashboardWidgetPack.hint ||
-                        "Данные скрыты из‑за ограничений подписки или статуса аккаунта.",
+                        (isFreeExperience
+                          ? "На бесплатном тарифе за выбранный период отображается часть данных."
+                          : "Вы видите только часть данных по текущему тарифу или статусу аккаунта. Полный график — в Growth."),
                     }
               }
               minHeight={260}
@@ -2533,7 +3288,10 @@ export default function AppDashboardClient() {
               >
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: "currentColor", flexShrink: 0 }} />
                 <span>
-                  {adPlatformsCount} / {totalPlatformsCount}&nbsp;&nbsp;{systemStatus.label}
+                  {connectedPlatformsCount > 0
+                    ? `${healthyCount} / ${connectedPlatformsCount}\u00a0\u00a0`
+                    : null}
+                  {systemStatus.label}
                 </span>
               </span>
             </div>
@@ -2688,7 +3446,7 @@ export default function AppDashboardClient() {
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 2 }}>
                 <span style={{ opacity: 0.7 }}>Ad platforms</span>
-                <span style={{ textAlign: "right" }}>{adPlatformsCount}</span>
+                <span style={{ textAlign: "right" }}>{connectedPlatformsCount}</span>
               </div>
             </div>
           </div>
@@ -2704,10 +3462,16 @@ export default function AppDashboardClient() {
               pack={{
                 state: "LIMITED",
                 reasonCode: "PLAN_LIMIT_ATTRIBUTION_HEAVY",
-                title: "Расширенные виджеты атрибуции",
-                hint: "На тарифе Starter недоступны тяжёлые блоки атрибуции и карты выручки. Перейдите на Growth для полного набора.",
+                title: FREE_DASHBOARD_ATTRIBUTION_LIMIT_TITLE,
+                hint: FREE_DASHBOARD_ATTRIBUTION_LIMIT_BODY,
               }}
               minHeight={220}
+              footerNote={FREE_DASHBOARD_ATTRIBUTION_LIMIT_FOOTNOTE}
+              visualTone="premium"
+              ctaLabel={FREE_DASHBOARD_ATTRIBUTION_CTA_LABEL}
+              onCtaClick={() =>
+                requestBillingPricingModal("free_dashboard_attribution_heavy_limited", { force: true })
+              }
             />
           ) : (
             <>
@@ -2824,7 +3588,7 @@ export default function AppDashboardClient() {
         </div>
       )}
 
-      {/* ✅ Advanced кнопка в самый низ справа (sandbars) */}
+      {/* ✅ Подробнее: debug внизу справа */}
       <button
         type="button"
         onClick={() => setShowAdvanced((v) => !v)}
@@ -2846,10 +3610,10 @@ export default function AppDashboardClient() {
           whiteSpace: "nowrap",
         }}
       >
-        Advanced {showAdvanced ? "▲" : "▼"}
+        Подробнее {showAdvanced ? "▲" : "▼"}
       </button>
 
-      {/* Advanced panel */}
+      {/* Панель отладки */}
       {showAdvanced ? (
         <div
           style={{
@@ -2861,7 +3625,7 @@ export default function AppDashboardClient() {
         >
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
             <div>
-              <div style={{ fontWeight: 900, fontSize: 18 }}>Advanced</div>
+              <div style={{ fontWeight: 900, fontSize: 18 }}>Подробнее</div>
               <div style={{ opacity: 0.72, marginTop: 4 }}>
                 Debug спрятан сюда, чтобы не мешал дашборду.
               </div>
@@ -2913,6 +3677,15 @@ export default function AppDashboardClient() {
             Диапазон дат: выберите даты — диапазон применится при выходе из полей.
           </div>
         </div>
+      ) : null}
+
+      {projectId && POST_PROJECT_SOURCES_MODAL_ENABLED ? (
+        <PostProjectSourcesModal
+          projectId={projectId}
+          open={showPostProjectModal}
+          onDismiss={handlePostProjectModalDismiss}
+          signals={postProjectModalSignals}
+        />
       ) : null}
     </div>
   );

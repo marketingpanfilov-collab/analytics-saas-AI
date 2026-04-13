@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
-import { requireProjectAccess } from "@/app/lib/auth/requireProjectAccess";
+import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingAnalyticsReadGateFromAccess } from "@/app/lib/auth/requireBillingAccess";
 import { utcDayRange } from "@/app/lib/utcDayRange";
 
 const ALLOWED_EVENTS = ["registration", "purchase"] as const;
@@ -30,19 +30,13 @@ export async function GET(req: Request) {
   }
 
   try {
-    const supabase = await createServerSupabase();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    const access = await requireProjectAccessOrInternal(req, projectId);
+    if (!access.allowed) {
+      return NextResponse.json(access.body, { status: access.status });
     }
 
-    const access = await requireProjectAccess(user.id, projectId);
-    if (!access) {
-      return NextResponse.json({ success: false, error: "Project access denied" }, { status: 403 });
-    }
+    const billing = await billingAnalyticsReadGateFromAccess(access);
+    if (!billing.ok) return billing.response;
 
     const admin = supabaseAdmin();
     const from = (page - 1) * pageSize;

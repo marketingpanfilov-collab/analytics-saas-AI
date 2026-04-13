@@ -11,9 +11,14 @@ type Variant = "primary" | "primaryEmerald" | "secondary" | "outline";
 export function LandingLoginButton({
   variant = "outline",
   className,
+  label: labelProp,
+  onBeforeNavigate,
 }: {
   variant?: Variant;
   className?: string;
+  /** По умолчанию «Войти» (десктоп хедера); для мобильного меню можно передать «Вход». */
+  label?: string;
+  onBeforeNavigate?: () => void;
 }) {
   const router = useRouter();
   const [isAuthed, setIsAuthed] = useState(false);
@@ -37,15 +42,17 @@ export function LandingLoginButton({
 
   const handleClick = useCallback(() => {
     setLoading(true);
+    onBeforeNavigate?.();
     (async () => {
       const { data } = await supabase.auth.getSession();
       const hasSession = Boolean(data.session);
       setIsAuthed(hasSession);
       router.push(hasSession ? "/app/projects" : "/login");
     })();
-  }, [router]);
+  }, [router, onBeforeNavigate]);
 
-  const label = loading ? (isAuthed ? "Авторизация..." : "Подождите…") : "Войти";
+  const idleLabel = labelProp ?? "Войти";
+  const label = loading ? (isAuthed ? "Авторизация..." : "Подождите…") : idleLabel;
 
   return (
     <button

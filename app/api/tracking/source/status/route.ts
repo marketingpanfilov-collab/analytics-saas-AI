@@ -6,8 +6,8 @@
  */
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
-import { createServerSupabase } from "@/app/lib/supabaseServer";
-import { requireProjectAccess } from "@/app/lib/auth/requireProjectAccess";
+import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingAnalyticsReadGateFromAccess } from "@/app/lib/auth/requireBillingAccess";
 
 function safeJson(body: object, status = 200) {
   return NextResponse.json(body, { status });
@@ -20,18 +20,13 @@ export async function GET(req: Request) {
       return safeJson({ success: false, error: "site_id required" }, 400);
     }
 
-    const supabase = await createServerSupabase();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      return safeJson({ success: false, error: "Unauthorized" }, 401);
+    const access = await requireProjectAccessOrInternal(req, siteId);
+    if (!access.allowed) {
+      return safeJson(access.body, access.status);
     }
 
-    const access = await requireProjectAccess(user.id, siteId);
-    if (!access) {
-      return safeJson({ success: false, error: "Project access denied" }, 403);
-    }
+    const billing = await billingAnalyticsReadGateFromAccess(access);
+    if (!billing.ok) return billing.response;
 
     const admin = supabaseAdmin();
     const { data, error } = await admin

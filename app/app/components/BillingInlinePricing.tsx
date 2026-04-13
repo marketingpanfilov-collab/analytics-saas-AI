@@ -71,12 +71,71 @@ import {
   remedialOverLimitBannerTitle,
   type OverLimitDetailRow,
 } from "@/app/lib/billingOverLimitDetails";
+import type { ExperienceTier } from "@/app/lib/billingExperienceTier";
 import { getPlanFeatureMatrix, type PlanFeatureMatrix } from "@/app/lib/planConfig";
 import { useBillingBootstrap } from "./BillingBootstrapProvider";
 
 /** Сервер может ответить 202, пока другой инстанс выполняет apply с тем же idempotency_key. */
 const APPLY_IN_PROGRESS_MAX_RETRIES = 24;
 const APPLY_IN_PROGRESS_DELAY_MS = 500;
+
+const FREE_PLAN_FEATURES = [
+  "Первичные данные по рекламе и продажам",
+  "Ограниченный анализ",
+  "1 проект",
+] as const;
+
+const FREE_PLAN_FEATURES_INLINE = FREE_PLAN_FEATURES.join(" · ");
+
+function FreePlanFeatureBullets({
+  fontSize,
+  color,
+  marginTop,
+}: {
+  fontSize: number;
+  color: string;
+  marginTop: number;
+}) {
+  return (
+    <ul
+      style={{
+        margin: `${marginTop}px 0 0`,
+        padding: 0,
+        listStyle: "none",
+        fontSize,
+        lineHeight: 1.5,
+        color,
+      }}
+    >
+      {FREE_PLAN_FEATURES.map((line) => (
+        <li
+          key={line}
+          style={{
+            display: "flex",
+            gap: 10,
+            alignItems: "flex-start",
+            margin: 0,
+            padding: 0,
+          }}
+        >
+          <span
+            aria-hidden
+            style={{
+              width: 5,
+              height: 5,
+              marginTop: "0.42em",
+              borderRadius: "50%",
+              background: color,
+              opacity: 0.55,
+              flexShrink: 0,
+            }}
+          />
+          <span style={{ flex: "1 1 auto", minWidth: 0 }}>{line}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 function billingPollDebug(
   message: string,
@@ -124,6 +183,26 @@ function planTier(id: PricingPlanId): number {
   if (id === "starter") return 0;
   if (id === "growth") return 1;
   return 2;
+}
+
+/** Платные колонки витрины без Starter (только UI; Paddle / price_id для starter не трогаем). */
+const INLINE_GRID_PAID_PLAN_IDS = ["growth", "scale"] as const satisfies readonly PricingPlanId[];
+
+function resolveInlinePricingTier(args: {
+  experienceTier: ExperienceTier | undefined;
+  matrixPlan: string | undefined;
+  subscriptionPlanRaw: string | undefined;
+  optimistic: { plan: PricingPlanId } | null;
+}): "free" | PricingPlanId {
+  const { experienceTier, matrixPlan, subscriptionPlanRaw, optimistic } = args;
+  if (optimistic) return optimistic.plan;
+  if (experienceTier === "free") return "free";
+  const mp = String(matrixPlan ?? "").trim().toLowerCase();
+  if (mp === "free") return "free";
+  if (mp === "starter" || mp === "growth" || mp === "scale") return mp as PricingPlanId;
+  const sub = String(subscriptionPlanRaw ?? "").trim().toLowerCase();
+  if (sub === "starter" || sub === "growth" || sub === "scale") return sub as PricingPlanId;
+  return "free";
 }
 
 function randomApplyIdempotencyKey(): string {
@@ -258,6 +337,16 @@ export default function BillingInlinePricing({
   }, [billingToast]);
 
   const matrixPlan = bootstrap?.plan_feature_matrix?.plan;
+  const inlineTier = useMemo(
+    (): "free" | PricingPlanId =>
+      resolveInlinePricingTier({
+        experienceTier: bootstrap?.experience_tier,
+        matrixPlan,
+        subscriptionPlanRaw: bootstrap?.subscription?.plan,
+        optimistic: optimisticSubscription,
+      }),
+    [bootstrap?.experience_tier, matrixPlan, bootstrap?.subscription?.plan, optimisticSubscription]
+  );
   const recommendedPlanId = useMemo(() => recommendedInlinePlanId(matrixPlan), [matrixPlan]);
   const isOverLimit = variant === "over_limit";
   /** Модалка «Повысить тариф» с remedial-баннера — отдельная полировка UI, не fullscreen shell. */
@@ -345,20 +434,11 @@ export default function BillingInlinePricing({
     }
   }, [subscriptionForUi?.billing_period]);
 
-  const currentPlanId = useMemo((): PricingPlanId => {
-    if (optimisticSubscription) return optimisticSubscription.plan;
-    if (matrixPlan === "starter" || matrixPlan === "growth" || matrixPlan === "scale") return matrixPlan;
-    const sub = String(bootstrap?.subscription?.plan ?? "")
-      .trim()
-      .toLowerCase();
-    if (sub === "starter" || sub === "growth" || sub === "scale") return sub as PricingPlanId;
-    return "starter";
-  }, [matrixPlan, bootstrap?.subscription?.plan, optimisticSubscription]);
-
   const upgradePlanIds = useMemo(() => {
-    const t = planTier(currentPlanId);
-    return PRICING_PLAN_IDS.filter((id) => planTier(id) > t);
-  }, [currentPlanId]);
+    if (inlineTier === "free") return [...INLINE_GRID_PAID_PLAN_IDS];
+    const t = planTier(inlineTier);
+    return INLINE_GRID_PAID_PLAN_IDS.filter((id) => planTier(id) > t);
+  }, [inlineTier]);
 
   const upgradePayBlocked = useCallback(
     (planId: PricingPlanId) => {
@@ -527,7 +607,7 @@ export default function BillingInlinePricing({
 
   useEffect(() => {
     if (suggestPlan && PRICING_PLAN_IDS.includes(suggestPlan)) {
-      setSelectedPlan(suggestPlan);
+      setSelectedPlan(suggestPlan === "starter" ? "growth" : suggestPlan);
       return;
     }
     setSelectedPlan(defaultInlinePlanId(matrixPlan));
@@ -764,6 +844,14 @@ export default function BillingInlinePricing({
           setCheckoutError(r.error);
           setCheckoutBusy(false);
         } else {
+          emitBillingFunnelEvent("checkout_started", {
+            checkout_attempt_id: checkoutAttemptId,
+            organization_id: primaryOrgId,
+            user_id: sessionUserId,
+            plan,
+            billing_period: billing,
+            source: "in_app",
+          });
           emitBillingFunnelEvent("billing_checkout_opened", {
             checkout_attempt_id: checkoutAttemptId,
             organization_id: primaryOrgId,
@@ -1159,6 +1247,618 @@ export default function BillingInlinePricing({
     );
   }
 
+  function renderWideLeadingTierColumn(): ReactNode {
+    if (inlineTier === "starter") {
+      const sid = "starter" as PricingPlanId;
+      return (
+        <div
+          key="wide-basic-current"
+          className="flex h-full min-h-0 min-w-0 flex-col"
+          style={{
+            padding: widePlanCardPad,
+            borderRadius: 14,
+            border: "1px solid rgba(255,255,255,0.1)",
+            background: "rgba(255,255,255,0.03)",
+            color: "rgba(255,255,255,0.65)",
+            textAlign: "left",
+            cursor: "default",
+            opacity: 0.52,
+            position: "relative",
+            boxSizing: "border-box",
+          }}
+        >
+          <div className="min-w-0 shrink-0">
+            <span
+              style={{
+                display: "inline-block",
+                marginBottom: 10,
+                fontSize: compact ? 9 : fsModal ? 10 : 9,
+                fontWeight: 800,
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+                color: "rgba(255,255,255,0.45)",
+                border: "1px solid rgba(255,255,255,0.2)",
+                borderRadius: 6,
+                padding: "2px 6px",
+                background: "rgba(255,255,255,0.06)",
+              }}
+            >
+              Ваш текущий тариф
+            </span>
+            <div style={{ fontWeight: 800, fontSize: compact ? 13 : fsModal ? 15 : 14 }}>
+              {BILLING_PLAN_LABELS[sid]}
+            </div>
+            <div
+              style={{
+                fontSize: compact ? 11 : fsModal ? 13 : 12,
+                marginTop: useWideDefaultGrid ? 6 : 4,
+                color: "rgba(255,255,255,0.45)",
+              }}
+            >
+              Текущий: <span style={{ color: "rgba(255,255,255,0.88)" }}>{planSummary}</span>
+            </div>
+            <div
+              style={{
+                fontSize: compact ? 11 : fsModal ? 13 : 12,
+                marginTop: useWideDefaultGrid ? 6 : 4,
+                color: "rgba(255,255,255,0.45)",
+              }}
+            >
+              {formatBillingPriceLabel(sid, displayBilling)}
+            </div>
+            <div className="mt-1 text-xs text-white/50">
+              Оплата: {realBilling === "yearly" ? "раз в год" : "раз в месяц"}
+            </div>
+            {renderPeriodPlanHints(sid, "rgba(255,255,255,0.34)", displayBilling)}
+            {renderModalWidePlanTaglines(sid)}
+          </div>
+          <div className="min-h-0 flex-1 basis-0" aria-hidden />
+          <button
+            type="button"
+            className={`${widePayBtnMt} w-full shrink-0`}
+            disabled
+            style={{
+              minHeight: overLimitPaySlotMinPx,
+              padding: widePayBtnPad,
+              borderRadius: 10,
+              border: "none",
+              background: "rgba(255,255,255,0.12)",
+              color: "rgba(255,255,255,0.4)",
+              fontWeight: 800,
+              fontSize: compact ? 12 : fsModal ? 14 : 13,
+              cursor: "not-allowed",
+              flexShrink: 0,
+              boxSizing: "border-box",
+            }}
+          >
+            Текущий тариф
+          </button>
+        </div>
+      );
+    }
+
+    const freeCurrent = inlineTier === "free";
+    return (
+      <div
+        key="wide-free-tier"
+        className="flex h-full min-h-0 min-w-0 flex-col"
+        style={{
+          padding: widePlanCardPad,
+          borderRadius: 14,
+          border: "1px solid rgba(255,255,255,0.1)",
+          background: freeCurrent ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.04)",
+          color: freeCurrent ? "rgba(255,255,255,0.65)" : "white",
+          textAlign: "left",
+          cursor: "default",
+          opacity: freeCurrent ? 0.52 : 1,
+          position: "relative",
+          boxSizing: "border-box",
+        }}
+      >
+        <div className="min-w-0 shrink-0">
+          <div
+            style={{
+              fontWeight: 800,
+              fontSize: compact ? 13 : fsModal ? 15 : 14,
+              color: freeCurrent ? "rgba(255,255,255,0.72)" : "white",
+            }}
+          >
+            Free{" "}
+            {freeCurrent ? <span style={{ fontWeight: 600, color: "rgba(255,255,255,0.5)" }}>(текущий)</span> : null}
+          </div>
+          <div
+            style={{
+              fontSize: compact ? 11 : fsModal ? 13 : 12,
+              marginTop: useWideDefaultGrid ? 6 : 4,
+              color: freeCurrent ? "rgba(255,255,255,0.45)" : "rgba(255,255,255,0.7)",
+            }}
+          >
+            $0 / Навсегда
+          </div>
+          <FreePlanFeatureBullets
+            marginTop={10}
+            fontSize={compact ? 10 : fsModal ? 11 : 10}
+            color={freeCurrent ? "rgba(255,255,255,0.38)" : "rgba(255,255,255,0.55)"}
+          />
+        </div>
+        <div className="min-h-0 flex-1 basis-0" aria-hidden />
+        <button
+          type="button"
+          className={`${widePayBtnMt} w-full shrink-0`}
+          disabled
+          style={{
+            minHeight: overLimitPaySlotMinPx,
+            padding: widePayBtnPad,
+            borderRadius: 10,
+            border: "none",
+            background: "rgba(255,255,255,0.12)",
+            color: "rgba(255,255,255,0.4)",
+            fontWeight: 800,
+            fontSize: compact ? 12 : fsModal ? 14 : 13,
+            cursor: "not-allowed",
+            flexShrink: 0,
+            boxSizing: "border-box",
+          }}
+        >
+          {freeCurrent ? "Текущий тариф" : "Ниже вашего тарифа"}
+        </button>
+      </div>
+    );
+  }
+
+  function renderWideGrowthOrScaleCard(id: PricingPlanId): ReactNode {
+    const isCurrent =
+      (paddleSrc
+        ? paddleSrc.plan === id && paddleSrc.billing === billing
+        : subscriptionUiSlice
+          ? subscriptionUiSlice.plan === id && subscriptionUiSlice.billing === billing
+          : false);
+    const tierBlocked = upgradePayBlocked(id);
+    const payLocked = disabled || checkoutBusy || !sessionEmail || postPaymentPolling;
+
+    if (isCurrent) {
+      return (
+        <div
+          key={id}
+          className="flex h-full min-h-0 min-w-0 flex-col"
+          style={{
+            padding: widePlanCardPad,
+            borderRadius: 14,
+            border: "1px solid rgba(255,255,255,0.1)",
+            background: "rgba(255,255,255,0.03)",
+            color: "rgba(255,255,255,0.65)",
+            textAlign: "left",
+            cursor: "default",
+            opacity: 0.52,
+            position: "relative",
+            boxSizing: "border-box",
+          }}
+        >
+          <div className="min-w-0 shrink-0">
+            <span
+              style={{
+                display: "inline-block",
+                marginBottom: 10,
+                fontSize: compact ? 9 : fsModal ? 10 : 9,
+                fontWeight: 800,
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+                color: "rgba(255,255,255,0.45)",
+                border: "1px solid rgba(255,255,255,0.2)",
+                borderRadius: 6,
+                padding: "2px 6px",
+                background: "rgba(255,255,255,0.06)",
+              }}
+            >
+              Ваш текущий тариф
+            </span>
+            <div style={{ fontWeight: 800, fontSize: compact ? 13 : fsModal ? 15 : 14 }}>
+              {BILLING_PLAN_LABELS[id]}
+            </div>
+            <div
+              style={{
+                fontSize: compact ? 11 : fsModal ? 13 : 12,
+                marginTop: useWideDefaultGrid ? 6 : 4,
+                color: "rgba(255,255,255,0.45)",
+              }}
+            >
+              Текущий: <span style={{ color: "rgba(255,255,255,0.88)" }}>{planSummary}</span>
+            </div>
+            <div
+              style={{
+                fontSize: compact ? 11 : fsModal ? 13 : 12,
+                marginTop: useWideDefaultGrid ? 6 : 4,
+                color: "rgba(255,255,255,0.45)",
+              }}
+            >
+              {formatBillingPriceLabel(id, displayBilling)}
+            </div>
+            <div className="mt-1 text-xs text-white/50">
+              Оплата: {realBilling === "yearly" ? "раз в год" : "раз в месяц"}
+            </div>
+            {renderPeriodPlanHints(id, "rgba(255,255,255,0.34)", displayBilling)}
+            {renderModalWidePlanTaglines(id)}
+          </div>
+          <div className="min-h-0 flex-1 basis-0" aria-hidden />
+          <button
+            type="button"
+            className={`${widePayBtnMt} w-full shrink-0`}
+            disabled
+            style={{
+              minHeight: overLimitPaySlotMinPx,
+              padding: widePayBtnPad,
+              borderRadius: 10,
+              border: "none",
+              background: "rgba(255,255,255,0.12)",
+              color: "rgba(255,255,255,0.4)",
+              fontWeight: 800,
+              fontSize: compact ? 12 : fsModal ? 14 : 13,
+              cursor: "not-allowed",
+              flexShrink: 0,
+              boxSizing: "border-box",
+            }}
+          >
+            Текущий тариф
+          </button>
+          {renderDueTodayUnderPlan(id)}
+        </div>
+      );
+    }
+
+    const showRec = suggestPlan
+      ? suggestPlan === id || (suggestPlan === "starter" && id === "growth")
+      : id === recommendedPlanId;
+    const growthHero = id === "growth";
+    const highlighted = showRec || growthHero;
+    const hovered = hoverUpgrade === id;
+    return (
+      <div
+        key={id}
+        className="flex h-full min-h-0 min-w-0 flex-col"
+        onMouseEnter={() => setHoverUpgrade(id)}
+        onMouseLeave={() => setHoverUpgrade(null)}
+        style={{
+          padding: widePlanCardPad,
+          borderRadius: 14,
+          border: growthHero
+            ? "2px solid rgba(52,211,153,0.88)"
+            : highlighted
+              ? "1px solid rgba(52,211,153,0.65)"
+              : hovered
+                ? "1px solid rgba(255,255,255,0.22)"
+                : "1px solid rgba(255,255,255,0.12)",
+          background: growthHero
+            ? "rgba(52,211,153,0.14)"
+            : highlighted
+              ? "rgba(52,211,153,0.1)"
+              : hovered
+                ? "rgba(255,255,255,0.07)"
+                : "rgba(255,255,255,0.04)",
+          color: "white",
+          textAlign: "left",
+          position: "relative",
+          boxSizing: "border-box",
+          transition: "border-color 0.12s ease, background 0.12s ease, transform 0.12s ease",
+          transform: growthHero ? "scale(1.03)" : undefined,
+          zIndex: growthHero ? 1 : undefined,
+          boxShadow: growthHero ? "0 12px 40px rgba(0,0,0,0.35)" : undefined,
+          opacity: disabled ? 0.55 : tierBlocked ? 0.42 : 1,
+        }}
+      >
+        {showRec || growthHero ? (
+          <span
+            style={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              fontSize: compact ? 9 : fsModal ? 10 : 9,
+              fontWeight: 800,
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+              color: "rgba(52,211,153,0.95)",
+              border: "1px solid rgba(52,211,153,0.45)",
+              borderRadius: 6,
+              padding: "2px 6px",
+              background: "rgba(52,211,153,0.12)",
+            }}
+          >
+            Рекомендуем
+          </span>
+        ) : null}
+        <div className="min-w-0 shrink-0">
+          <div
+            style={{
+              fontWeight: 800,
+              fontSize: growthHero
+                ? compact
+                  ? 14
+                  : fsModal
+                    ? 16
+                    : 15
+                : compact
+                  ? 13
+                  : fsModal
+                    ? 15
+                    : 14,
+              paddingRight: showRec || growthHero ? 72 : 0,
+            }}
+          >
+            {BILLING_PLAN_LABELS[id]}
+          </div>
+          <div
+            style={{
+              fontSize: compact ? 11 : fsModal ? 13 : 12,
+              marginTop: useWideDefaultGrid ? 6 : 4,
+              color: "rgba(255,255,255,0.7)",
+            }}
+          >
+            {formatBillingPriceLabel(id, displayBilling)}
+          </div>
+          {renderPeriodPlanHints(id, "rgba(255,255,255,0.48)")}
+          {renderModalWidePlanTaglines(id)}
+        </div>
+        <div className="min-h-0 flex-1 basis-0" aria-hidden />
+        <button
+          type="button"
+          className={`${widePayBtnMt} w-full shrink-0`}
+          disabled={payLocked || tierBlocked || controlsLocked}
+          onClick={() => {
+            if (tierBlocked) return;
+            setSelectedPlan(id);
+            void startCheckoutForPlan(id);
+          }}
+          style={{
+            minHeight: overLimitPaySlotMinPx,
+            padding: widePayBtnPad,
+            borderRadius: 10,
+            border: "none",
+            background:
+              payLocked || tierBlocked || controlsLocked
+                ? "rgba(255,255,255,0.12)"
+                : growthHero
+                  ? "rgba(16,185,129,0.98)"
+                  : "rgba(52,211,153,0.92)",
+            color: payLocked || tierBlocked || controlsLocked ? "rgba(255,255,255,0.4)" : "#0b0b10",
+            fontWeight: 800,
+            fontSize: growthHero ? (compact ? 13 : fsModal ? 15 : 14) : compact ? 12 : fsModal ? 14 : 13,
+            cursor: payLocked || tierBlocked || controlsLocked ? "not-allowed" : "pointer",
+            flexShrink: 0,
+            boxSizing: "border-box",
+          }}
+        >
+          {tierBlocked
+            ? "Недоступно"
+            : preparingCheckout
+              ? "Подготовка оплаты…"
+              : checkoutBusy && !preparingCheckout
+                ? "Обработка…"
+                : `Оплатить · ${BILLING_PLAN_LABELS[id]}`}
+        </button>
+        {renderDueTodayUnderPlan(id)}
+      </div>
+    );
+  }
+
+  function renderCompactLeadingPlanCell(): ReactNode {
+    if (inlineTier === "starter") {
+      return (
+        <div
+          key="compact-basic"
+          style={{
+            padding: pad,
+            borderRadius: 12,
+            border: "1px solid rgba(255,255,255,0.1)",
+            background: "rgba(255,255,255,0.03)",
+            color: "rgba(255,255,255,0.65)",
+            textAlign: "left",
+            opacity: 0.52,
+            position: "relative",
+            boxSizing: "border-box",
+          }}
+        >
+          <div style={{ fontWeight: 800, fontSize: 13 }}>{BILLING_PLAN_LABELS.starter}</div>
+          <div style={{ fontSize: 11, marginTop: 4, color: "rgba(255,255,255,0.7)" }}>
+            {formatBillingPriceLabel("starter", displayBilling)}
+          </div>
+          {renderPeriodPlanHints("starter", "rgba(255,255,255,0.45)")}
+          <div
+            style={{
+              fontSize: 10,
+              marginTop: 6,
+              lineHeight: 1.35,
+              color: "rgba(255,255,255,0.5)",
+            }}
+          >
+            {INLINE_PLAN_TAGLINE.starter}
+          </div>
+        </div>
+      );
+    }
+    const freeCurrent = inlineTier === "free";
+    return (
+      <div
+        key="compact-free"
+        style={{
+          padding: pad,
+          borderRadius: 12,
+          border: freeCurrent ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(255,255,255,0.12)",
+          background: freeCurrent ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.04)",
+          color: "white",
+          textAlign: "left",
+          opacity: freeCurrent ? 0.52 : 1,
+          cursor: "default",
+          position: "relative",
+          boxSizing: "border-box",
+        }}
+      >
+        <div style={{ fontWeight: 800, fontSize: 13, color: freeCurrent ? "rgba(255,255,255,0.85)" : "white" }}>
+          Free{" "}
+          {freeCurrent ? (
+            <span style={{ fontWeight: 600, color: "rgba(255,255,255,0.5)", fontSize: 11 }}>(текущий)</span>
+          ) : null}
+        </div>
+        <div style={{ fontSize: 11, marginTop: 4, color: "rgba(255,255,255,0.7)" }}>$0 / Навсегда</div>
+        <div
+          style={{
+            fontSize: 10,
+            marginTop: 6,
+            lineHeight: 1.35,
+            color: "rgba(255,255,255,0.5)",
+          }}
+        >
+          {FREE_PLAN_FEATURES_INLINE}
+        </div>
+      </div>
+    );
+  }
+
+  function renderShellDefaultLeadingPlanCell(): ReactNode {
+    const shellTitleFs = subscribeShellMinimal ? 15 : 14;
+    if (inlineTier === "starter") {
+      return (
+        <button
+          key="shell-basic"
+          type="button"
+          disabled
+          style={{
+            padding: pad,
+            borderRadius: 12,
+            border: "1px solid rgba(255,255,255,0.1)",
+            background: "rgba(255,255,255,0.03)",
+            color: "rgba(255,255,255,0.65)",
+            textAlign: "left",
+            cursor: "not-allowed",
+            opacity: 0.52,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "stretch",
+            height: "100%",
+            minHeight: 0,
+            boxSizing: "border-box",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              justifyContent: "space-between",
+              gap: 10,
+              width: "100%",
+            }}
+          >
+            <div
+              style={{
+                fontWeight: 800,
+                fontSize: shellTitleFs,
+                lineHeight: 1.25,
+                minWidth: 0,
+                flex: "1 1 auto",
+              }}
+            >
+              {BILLING_PLAN_LABELS.starter}
+            </div>
+          </div>
+          <div
+            style={{
+              fontSize: 12,
+              marginTop: subscribeShellMinimal ? 8 : 4,
+              color: "rgba(255,255,255,0.7)",
+            }}
+          >
+            {formatBillingPriceLabel("starter", displayBilling)}
+          </div>
+          {renderPeriodPlanHints("starter", "rgba(255,255,255,0.45)")}
+          <div style={{ flex: 1, minHeight: subscribeShellMinimal ? 8 : 4 }} aria-hidden />
+          <div
+            style={{
+              fontSize: subscribeShellMinimal ? 11 : 10,
+              lineHeight: 1.45,
+              color: "rgba(255,255,255,0.52)",
+            }}
+          >
+            {INLINE_PLAN_TAGLINE.starter}
+          </div>
+        </button>
+      );
+    }
+    const freeCurrent = inlineTier === "free";
+    return (
+      <button
+        key="shell-free"
+        type="button"
+        disabled
+        style={{
+          padding: pad,
+          borderRadius: 12,
+          border: freeCurrent ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(255,255,255,0.12)",
+          background: freeCurrent ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.04)",
+          color: "white",
+          textAlign: "left",
+          cursor: "not-allowed",
+          opacity: freeCurrent ? 0.52 : 0.88,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "stretch",
+          height: "100%",
+          minHeight: 0,
+          boxSizing: "border-box",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 10,
+            width: "100%",
+          }}
+        >
+          <div
+            style={{
+              fontWeight: 800,
+              fontSize: shellTitleFs,
+              lineHeight: 1.25,
+              minWidth: 0,
+              flex: "1 1 auto",
+              color: freeCurrent ? "rgba(255,255,255,0.85)" : "white",
+            }}
+          >
+            Free{" "}
+            {freeCurrent ? (
+              <span style={{ fontWeight: 600, color: "rgba(255,255,255,0.5)", fontSize: subscribeShellMinimal ? 12 : 11 }}>
+                (текущий)
+              </span>
+            ) : null}
+          </div>
+        </div>
+        <div
+          style={{
+            fontSize: 12,
+            marginTop: subscribeShellMinimal ? 8 : 4,
+            color: "rgba(255,255,255,0.7)",
+          }}
+        >
+          $0 / Навсегда
+        </div>
+        <div style={{ flex: 1, minHeight: subscribeShellMinimal ? 8 : 4 }} aria-hidden />
+        <div
+          style={{
+            fontSize: subscribeShellMinimal ? 11 : 10,
+            lineHeight: 1.45,
+            color: "rgba(255,255,255,0.52)",
+          }}
+        >
+          {FREE_PLAN_FEATURES_INLINE}
+          {!freeCurrent ? (
+            <span style={{ display: "block", marginTop: 6, color: "rgba(255,255,255,0.38)" }}>
+              Ниже вашего тарифа
+            </span>
+          ) : null}
+        </div>
+      </button>
+    );
+  }
+
   return (
     <div
       style={{
@@ -1246,7 +1946,7 @@ export default function BillingInlinePricing({
           ) : null}
 
           <div style={{ fontSize: compact ? 11 : fsModal ? 12 : 11, color: "rgba(255,255,255,0.5)", marginBottom: gap, lineHeight: 1.45 }}>
-            Кратко: Starter — старт; Growth — для роста (рекомендуем большинству); Scale — максимум возможностей.
+            Кратко: Free — старт; Growth — для роста (рекомендуем большинству); Scale — максимум возможностей.
           </div>
         </>
       ) : null}
@@ -1427,7 +2127,9 @@ export default function BillingInlinePricing({
         <div
           className={`text-center text-xs text-white/40 px-1 ${subscribeShellMinimal ? "mt-3" : "mt-2"} ${remedialOverLimitModal ? "mb-6" : ""}`}
         >
-          Цены указаны для выбранного периода
+          {billing === "yearly"
+            ? "Цены указаны в месяц при оплате за год"
+            : "Цены указаны при ежемесячной оплате"}
         </div>
       </div>
 
@@ -1447,108 +2149,169 @@ export default function BillingInlinePricing({
       >
         {isOverLimit ? (
           <>
-            <div
-              className="flex h-full min-h-0 min-w-0 flex-col"
-              style={{
-                padding: pad,
-                borderRadius: 12,
-                border: "1px solid rgba(255,255,255,0.1)",
-                background: "rgba(255,255,255,0.03)",
-                color: "rgba(255,255,255,0.65)",
-                textAlign: "left",
-                cursor: "not-allowed",
-                opacity: 0.52,
-                position: "relative",
-                boxSizing: "border-box",
-              }}
-            >
-              <div className="min-w-0 shrink-0">
-                <span
-                  style={{
-                    display: "inline-block",
-                    marginBottom: 8,
-                    fontSize: compact ? 9 : fsModal ? 10 : 9,
-                    fontWeight: 800,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.06em",
-                    color: "rgba(255,255,255,0.45)",
-                    border: "1px solid rgba(255,255,255,0.2)",
-                    borderRadius: 6,
-                    padding: "2px 6px",
-                    background: "rgba(255,255,255,0.06)",
-                  }}
-                >
-                  Ваш текущий тариф
-                </span>
-                <div style={{ fontWeight: 800, fontSize: compact ? 13 : fsModal ? 15 : 14 }}>
-                  {BILLING_PLAN_LABELS[currentPlanId]}
+            {inlineTier === "free" ? (
+              <div
+                className="flex h-full min-h-0 min-w-0 flex-col"
+                style={{
+                  padding: pad,
+                  borderRadius: 12,
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  background: "rgba(255,255,255,0.03)",
+                  color: "rgba(255,255,255,0.65)",
+                  textAlign: "left",
+                  cursor: "default",
+                  opacity: 0.52,
+                  position: "relative",
+                  boxSizing: "border-box",
+                }}
+              >
+                <div className="min-w-0 shrink-0">
+                  <div style={{ fontWeight: 800, fontSize: compact ? 13 : fsModal ? 15 : 14, color: "rgba(255,255,255,0.72)" }}>
+                    Free <span style={{ fontWeight: 600, color: "rgba(255,255,255,0.5)" }}>(текущий)</span>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: compact ? 11 : fsModal ? 13 : 12,
+                      marginTop: 6,
+                      color: "rgba(255,255,255,0.45)",
+                    }}
+                  >
+                    $0 / Навсегда
+                  </div>
+                  <FreePlanFeatureBullets
+                    marginTop={10}
+                    fontSize={compact ? 10 : fsModal ? 11 : 10}
+                    color="rgba(255,255,255,0.38)"
+                  />
                 </div>
-                <div style={{ fontSize: compact ? 11 : fsModal ? 13 : 12, marginTop: 4, color: "rgba(255,255,255,0.45)" }}>
-                  {formatBillingPriceLabel(currentPlanId, realBilling)}
-                </div>
-                <div className="mt-1 text-xs text-white/50">
-                  Оплата: {realBilling === "yearly" ? "раз в год" : "раз в месяц"}
-                </div>
-                {renderPeriodPlanHints(currentPlanId, "rgba(255,255,255,0.34)", realBilling)}
-                <div
-                  style={{
-                    fontSize: compact ? 10 : fsModal ? 11 : 10,
-                    marginTop: 6,
-                    lineHeight: 1.4,
-                    color: "rgba(255,255,255,0.38)",
-                  }}
-                >
-                  {INLINE_PLAN_TAGLINE[currentPlanId]}
-                </div>
-              </div>
-              <div className="min-h-0 flex-1 basis-0" aria-hidden />
-              {billing === "yearly" &&
-              (paddleSrc
-                ? canUpgradeTo(paddleSrc, currentPlanId, "yearly") && paddleSrc.billing === "monthly"
-                : subscriptionUiSlice
-                  ? canUpgradeFromSlice(subscriptionUiSlice, currentPlanId, "yearly") &&
-                    subscriptionUiSlice.billing === "monthly"
-                  : false) ? (
+                <div className="min-h-0 flex-1 basis-0" aria-hidden />
                 <button
                   type="button"
                   className="mt-4 w-full shrink-0"
-                  disabled={disabled || checkoutBusy || !sessionEmail || postPaymentPolling}
-                  onClick={() => void startCheckoutForPlan(currentPlanId)}
+                  disabled
                   style={{
                     minHeight: overLimitPaySlotMinPx,
                     padding: "0 12px",
                     borderRadius: 10,
                     border: "none",
-                    background:
-                      disabled || checkoutBusy || !sessionEmail || postPaymentPolling
-                        ? "rgba(255,255,255,0.12)"
-                        : "rgba(52,211,153,0.92)",
-                    color:
-                      disabled || checkoutBusy || !sessionEmail || postPaymentPolling
-                        ? "rgba(255,255,255,0.4)"
-                        : "#0b0b10",
+                    background: "rgba(255,255,255,0.12)",
+                    color: "rgba(255,255,255,0.4)",
                     fontWeight: 800,
                     fontSize: compact ? 12 : fsModal ? 14 : 13,
-                    cursor:
-                      disabled || checkoutBusy || !sessionEmail || postPaymentPolling
-                        ? "not-allowed"
-                        : "pointer",
+                    cursor: "not-allowed",
                     flexShrink: 0,
                     boxSizing: "border-box",
                   }}
                 >
-                  {preparingCheckout
-                    ? "Подготовка…"
-                    : checkoutBusy
-                      ? "Обработка…"
-                      : `Перейти на год · ${BILLING_PLAN_LABELS[currentPlanId]}`}
+                  Текущий тариф
                 </button>
-              ) : (
-                <div className="mt-4 w-full shrink-0" style={{ minHeight: overLimitPaySlotMinPx }} aria-hidden />
-              )}
-            </div>
+              </div>
+            ) : (
+              <div
+                className="flex h-full min-h-0 min-w-0 flex-col"
+                style={{
+                  padding: pad,
+                  borderRadius: 12,
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  background: "rgba(255,255,255,0.03)",
+                  color: "rgba(255,255,255,0.65)",
+                  textAlign: "left",
+                  cursor: "not-allowed",
+                  opacity: 0.52,
+                  position: "relative",
+                  boxSizing: "border-box",
+                }}
+              >
+                <div className="min-w-0 shrink-0">
+                  <span
+                    style={{
+                      display: "inline-block",
+                      marginBottom: 8,
+                      fontSize: compact ? 9 : fsModal ? 10 : 9,
+                      fontWeight: 800,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                      color: "rgba(255,255,255,0.45)",
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      borderRadius: 6,
+                      padding: "2px 6px",
+                      background: "rgba(255,255,255,0.06)",
+                    }}
+                  >
+                    Ваш текущий тариф
+                  </span>
+                  <div style={{ fontWeight: 800, fontSize: compact ? 13 : fsModal ? 15 : 14 }}>
+                    {BILLING_PLAN_LABELS[inlineTier]}
+                  </div>
+                  <div style={{ fontSize: compact ? 11 : fsModal ? 13 : 12, marginTop: 4, color: "rgba(255,255,255,0.45)" }}>
+                    {formatBillingPriceLabel(inlineTier, realBilling)}
+                  </div>
+                  <div className="mt-1 text-xs text-white/50">
+                    Оплата: {realBilling === "yearly" ? "раз в год" : "раз в месяц"}
+                  </div>
+                  {renderPeriodPlanHints(inlineTier, "rgba(255,255,255,0.34)", realBilling)}
+                  <div
+                    style={{
+                      fontSize: compact ? 10 : fsModal ? 11 : 10,
+                      marginTop: 6,
+                      lineHeight: 1.4,
+                      color: "rgba(255,255,255,0.38)",
+                    }}
+                  >
+                    {INLINE_PLAN_TAGLINE[inlineTier]}
+                  </div>
+                </div>
+                <div className="min-h-0 flex-1 basis-0" aria-hidden />
+                {billing === "yearly" &&
+                (paddleSrc
+                  ? canUpgradeTo(paddleSrc, inlineTier, "yearly") && paddleSrc.billing === "monthly"
+                  : subscriptionUiSlice
+                    ? canUpgradeFromSlice(subscriptionUiSlice, inlineTier, "yearly") &&
+                      subscriptionUiSlice.billing === "monthly"
+                    : false) ? (
+                  <button
+                    type="button"
+                    className="mt-4 w-full shrink-0"
+                    disabled={disabled || checkoutBusy || !sessionEmail || postPaymentPolling}
+                    onClick={() => void startCheckoutForPlan(inlineTier)}
+                    style={{
+                      minHeight: overLimitPaySlotMinPx,
+                      padding: "0 12px",
+                      borderRadius: 10,
+                      border: "none",
+                      background:
+                        disabled || checkoutBusy || !sessionEmail || postPaymentPolling
+                          ? "rgba(255,255,255,0.12)"
+                          : "rgba(52,211,153,0.92)",
+                      color:
+                        disabled || checkoutBusy || !sessionEmail || postPaymentPolling
+                          ? "rgba(255,255,255,0.4)"
+                          : "#0b0b10",
+                      fontWeight: 800,
+                      fontSize: compact ? 12 : fsModal ? 14 : 13,
+                      cursor:
+                        disabled || checkoutBusy || !sessionEmail || postPaymentPolling
+                          ? "not-allowed"
+                          : "pointer",
+                      flexShrink: 0,
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    {preparingCheckout
+                      ? "Подготовка…"
+                      : checkoutBusy
+                        ? "Обработка…"
+                        : `Перейти на год · ${BILLING_PLAN_LABELS[inlineTier]}`}
+                  </button>
+                ) : (
+                  <div className="mt-4 w-full shrink-0" style={{ minHeight: overLimitPaySlotMinPx }} aria-hidden />
+                )}
+              </div>
+            )}
             {upgradePlanIds.map((id) => {
-              const showRec = suggestPlan ? suggestPlan === id : id === recommendedPlanId;
+              const showRec = suggestPlan
+                ? suggestPlan === id || (suggestPlan === "starter" && id === "growth")
+                : id === recommendedPlanId;
               const growthHero = id === "growth";
               const highlighted = showRec || growthHero;
               const hovered = hoverUpgrade === id;
@@ -1731,7 +2494,9 @@ export default function BillingInlinePricing({
             })}
           </>
         ) : compact ? (
-          PRICING_PLAN_IDS.map((id) => {
+          <>
+            {renderCompactLeadingPlanCell()}
+            {INLINE_GRID_PAID_PLAN_IDS.map((id) => {
             const active = selectedPlan === id;
             const showRec = id === recommendedPlanId;
             return (
@@ -1793,243 +2558,21 @@ export default function BillingInlinePricing({
                 </div>
               </button>
             );
-          })
+            })}
+          </>
         ) : useWideDefaultGrid ? (
-          PRICING_PLAN_IDS.map((id) => {
-            const isCurrent =
-              (paddleSrc
-                ? paddleSrc.plan === id && paddleSrc.billing === billing
-                : subscriptionUiSlice
-                  ? subscriptionUiSlice.plan === id && subscriptionUiSlice.billing === billing
-                  : false);
-            const tierBlocked = upgradePayBlocked(id);
-            const payLocked = disabled || checkoutBusy || !sessionEmail || postPaymentPolling;
-
-            if (isCurrent) {
-              return (
-                <div
-                  key={id}
-                  className="flex h-full min-h-0 min-w-0 flex-col"
-                  style={{
-                    padding: widePlanCardPad,
-                    borderRadius: 14,
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    background: "rgba(255,255,255,0.03)",
-                    color: "rgba(255,255,255,0.65)",
-                    textAlign: "left",
-                    cursor: "default",
-                    opacity: 0.52,
-                    position: "relative",
-                    boxSizing: "border-box",
-                  }}
-                >
-                  <div className="min-w-0 shrink-0">
-                    <span
-                      style={{
-                        display: "inline-block",
-                        marginBottom: 10,
-                        fontSize: compact ? 9 : fsModal ? 10 : 9,
-                        fontWeight: 800,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.06em",
-                        color: "rgba(255,255,255,0.45)",
-                        border: "1px solid rgba(255,255,255,0.2)",
-                        borderRadius: 6,
-                        padding: "2px 6px",
-                        background: "rgba(255,255,255,0.06)",
-                      }}
-                    >
-                      Ваш текущий тариф
-                    </span>
-                    <div style={{ fontWeight: 800, fontSize: compact ? 13 : fsModal ? 15 : 14 }}>
-                      {BILLING_PLAN_LABELS[id]}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: compact ? 11 : fsModal ? 13 : 12,
-                        marginTop: useWideDefaultGrid ? 6 : 4,
-                        color: "rgba(255,255,255,0.45)",
-                      }}
-                    >
-                      Текущий: <span style={{ color: "rgba(255,255,255,0.88)" }}>{planSummary}</span>
-                    </div>
-                    <div
-                      style={{
-                        fontSize: compact ? 11 : fsModal ? 13 : 12,
-                        marginTop: useWideDefaultGrid ? 6 : 4,
-                        color: "rgba(255,255,255,0.45)",
-                      }}
-                    >
-                      {formatBillingPriceLabel(id, displayBilling)}
-                    </div>
-                    <div className="mt-1 text-xs text-white/50">
-                      Оплата: {realBilling === "yearly" ? "раз в год" : "раз в месяц"}
-                    </div>
-                    {renderPeriodPlanHints(id, "rgba(255,255,255,0.34)", displayBilling)}
-                    {renderModalWidePlanTaglines(id)}
-                  </div>
-                  <div className="min-h-0 flex-1 basis-0" aria-hidden />
-                  <button
-                    type="button"
-                    className={`${widePayBtnMt} w-full shrink-0`}
-                    disabled
-                    style={{
-                      minHeight: overLimitPaySlotMinPx,
-                      padding: widePayBtnPad,
-                      borderRadius: 10,
-                      border: "none",
-                      background: "rgba(255,255,255,0.12)",
-                      color: "rgba(255,255,255,0.4)",
-                      fontWeight: 800,
-                      fontSize: compact ? 12 : fsModal ? 14 : 13,
-                      cursor: "not-allowed",
-                      flexShrink: 0,
-                      boxSizing: "border-box",
-                    }}
-                  >
-                    Текущий тариф
-                  </button>
-                  {renderDueTodayUnderPlan(id)}
-                </div>
-              );
-            }
-
-            const showRec = suggestPlan ? suggestPlan === id : id === recommendedPlanId;
-            const growthHero = id === "growth";
-            const highlighted = showRec || growthHero;
-            const hovered = hoverUpgrade === id;
-            return (
-              <div
-                key={id}
-                className="flex h-full min-h-0 min-w-0 flex-col"
-                onMouseEnter={() => setHoverUpgrade(id)}
-                onMouseLeave={() => setHoverUpgrade(null)}
-                style={{
-                  padding: widePlanCardPad,
-                  borderRadius: 14,
-                  border: growthHero
-                    ? "2px solid rgba(52,211,153,0.88)"
-                    : highlighted
-                      ? "1px solid rgba(52,211,153,0.65)"
-                      : hovered
-                        ? "1px solid rgba(255,255,255,0.22)"
-                        : "1px solid rgba(255,255,255,0.12)",
-                  background: growthHero
-                    ? "rgba(52,211,153,0.14)"
-                    : highlighted
-                      ? "rgba(52,211,153,0.1)"
-                      : hovered
-                        ? "rgba(255,255,255,0.07)"
-                        : "rgba(255,255,255,0.04)",
-                  color: "white",
-                  textAlign: "left",
-                  position: "relative",
-                  boxSizing: "border-box",
-                  transition: "border-color 0.12s ease, background 0.12s ease, transform 0.12s ease",
-                  transform: growthHero ? "scale(1.03)" : undefined,
-                  zIndex: growthHero ? 1 : undefined,
-                  boxShadow: growthHero ? "0 12px 40px rgba(0,0,0,0.35)" : undefined,
-                  opacity: disabled ? 0.55 : tierBlocked ? 0.42 : 1,
-                }}
-              >
-                {showRec || growthHero ? (
-                  <span
-                    style={{
-                      position: "absolute",
-                      top: 8,
-                      right: 8,
-                      fontSize: compact ? 9 : fsModal ? 10 : 9,
-                      fontWeight: 800,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.06em",
-                      color: "rgba(52,211,153,0.95)",
-                      border: "1px solid rgba(52,211,153,0.45)",
-                      borderRadius: 6,
-                      padding: "2px 6px",
-                      background: "rgba(52,211,153,0.12)",
-                    }}
-                  >
-                    Рекомендуем
-                  </span>
-                ) : null}
-                <div className="min-w-0 shrink-0">
-                  <div
-                    style={{
-                      fontWeight: 800,
-                      fontSize: growthHero
-                        ? compact
-                          ? 14
-                          : fsModal
-                            ? 16
-                            : 15
-                        : compact
-                          ? 13
-                          : fsModal
-                            ? 15
-                            : 14,
-                      paddingRight: showRec || growthHero ? 72 : 0,
-                    }}
-                  >
-                    {BILLING_PLAN_LABELS[id]}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: compact ? 11 : fsModal ? 13 : 12,
-                      marginTop: useWideDefaultGrid ? 6 : 4,
-                      color: "rgba(255,255,255,0.7)",
-                    }}
-                  >
-                    {formatBillingPriceLabel(id, displayBilling)}
-                  </div>
-                  {renderPeriodPlanHints(id, "rgba(255,255,255,0.48)")}
-                  {renderModalWidePlanTaglines(id)}
-                </div>
-                <div className="min-h-0 flex-1 basis-0" aria-hidden />
-                <button
-                  type="button"
-                  className={`${widePayBtnMt} w-full shrink-0`}
-                  disabled={payLocked || tierBlocked || controlsLocked}
-                  onClick={() => {
-                    if (tierBlocked) return;
-                    setSelectedPlan(id);
-                    void startCheckoutForPlan(id);
-                  }}
-                  style={{
-                    minHeight: overLimitPaySlotMinPx,
-                    padding: widePayBtnPad,
-                    borderRadius: 10,
-                    border: "none",
-                    background:
-                      payLocked || tierBlocked || controlsLocked
-                        ? "rgba(255,255,255,0.12)"
-                        : growthHero
-                          ? "rgba(16,185,129,0.98)"
-                          : "rgba(52,211,153,0.92)",
-                    color:
-                      payLocked || tierBlocked || controlsLocked ? "rgba(255,255,255,0.4)" : "#0b0b10",
-                    fontWeight: 800,
-                    fontSize: growthHero ? (compact ? 13 : fsModal ? 15 : 14) : compact ? 12 : fsModal ? 14 : 13,
-                    cursor: payLocked || tierBlocked || controlsLocked ? "not-allowed" : "pointer",
-                    flexShrink: 0,
-                    boxSizing: "border-box",
-                  }}
-                >
-                  {tierBlocked
-                    ? "Недоступно"
-                    : preparingCheckout
-                      ? "Подготовка оплаты…"
-                      : checkoutBusy && !preparingCheckout
-                        ? "Обработка…"
-                        : `Оплатить · ${BILLING_PLAN_LABELS[id]}`}
-                </button>
-                {renderDueTodayUnderPlan(id)}
-              </div>
-            );
-          })
+          <>
+            {renderWideLeadingTierColumn()}
+            {INLINE_GRID_PAID_PLAN_IDS.map((id) => renderWideGrowthOrScaleCard(id))}
+          </>
         ) : (
-          PRICING_PLAN_IDS.map((id) => {
+          <>
+            {renderShellDefaultLeadingPlanCell()}
+            {INLINE_GRID_PAID_PLAN_IDS.map((id) => {
             const active = selectedPlan === id;
-            const showRec = id === recommendedPlanId;
+            const showRec = suggestPlan
+              ? suggestPlan === id || (suggestPlan === "starter" && id === "growth")
+              : id === recommendedPlanId;
             const tierBlocked = upgradePayBlocked(id);
             return (
               <button
@@ -2128,7 +2671,8 @@ export default function BillingInlinePricing({
                 </div>
               </button>
             );
-          })
+            })}
+          </>
         )}
       </div>
 
@@ -2376,36 +2920,9 @@ export default function BillingInlinePricing({
             Оплата не завершена
           </p>
           <p style={{ margin: "8px 0 0", fontSize: 12, color: "rgba(255,255,255,0.65)", lineHeight: 1.45 }}>
-            Окно было закрыто или произошла ошибка. Вы можете попробовать снова — текущий экран и данные не затронуты.
+            Окно было закрыто или произошла ошибка. Закройте это сообщение и снова нажмите «Оплатить» у нужного тарифа —
+            текущий экран и данные не затронуты.
           </p>
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => {
-              if (isOverLimit) {
-                const p =
-                  suggestPlan && upgradePlanIds.includes(suggestPlan)
-                    ? suggestPlan
-                    : (upgradePlanIds[0] ?? selectedPlan);
-                void startCheckoutForPlan(p);
-              } else {
-                void startCheckout();
-              }
-            }}
-            style={{
-              marginTop: 10,
-              padding: "8px 14px",
-              borderRadius: 10,
-              border: "1px solid rgba(52,211,153,0.45)",
-              background: "rgba(52,211,153,0.15)",
-              color: "rgba(220,255,235,0.98)",
-              fontWeight: 700,
-              fontSize: 13,
-              cursor: disabled ? "not-allowed" : "pointer",
-            }}
-          >
-            Попробовать снова
-          </button>
         </div>
       ) : null}
 

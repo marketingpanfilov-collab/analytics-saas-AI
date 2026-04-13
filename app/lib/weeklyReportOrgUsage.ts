@@ -4,6 +4,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getPlanFeatureMatrix } from "@/app/lib/planConfig";
 import type { EffectivePlan } from "@/app/lib/accessState";
+import type { ExperienceTier } from "@/app/lib/billingExperienceTier";
 
 /** YYYY-MM в UTC (канон биллинга / отчётов). */
 export function weeklyReportUsageMonthUtc(d = new Date()): string {
@@ -191,8 +192,21 @@ export async function consumeWeeklyReportUsageAfterSuccess(
   };
 }
 
-export function maxWeeklyReportsForEffectivePlan(effectivePlan: EffectivePlan): number | null {
-  if (effectivePlan == null) return null;
-  const m = getPlanFeatureMatrix(effectivePlan);
-  return m.max_weekly_reports_per_month;
+/** Shared Board Report: только платные продуктовые тарифы (не виртуальный Free). */
+export function isWeeklyBoardReportPlanAllowed(effectivePlan: EffectivePlan): boolean {
+  return effectivePlan === "starter" || effectivePlan === "growth" || effectivePlan === "scale";
+}
+
+export function maxWeeklyReportsForEffectivePlan(
+  effectivePlan: EffectivePlan,
+  experienceTier?: ExperienceTier
+): number | null {
+  if (effectivePlan != null) {
+    const m = getPlanFeatureMatrix(effectivePlan);
+    return m.max_weekly_reports_per_month;
+  }
+  if (experienceTier === "free") {
+    return getPlanFeatureMatrix("free").max_weekly_reports_per_month;
+  }
+  return null;
 }

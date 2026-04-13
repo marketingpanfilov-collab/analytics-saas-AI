@@ -47,12 +47,14 @@ function subscriptionRowToUpgradeContext(top: SubRow): PaddleSubscriptionUpgrade
     top.provider_price_id ?? null,
     top.provider_product_id ?? null
   );
+  const planNorm =
+    meta.plan === "starter" || meta.plan === "growth" || meta.plan === "scale" ? meta.plan : "unknown";
   return {
     provider_subscription_id: top.provider_subscription_id,
     provider_customer_id: top.provider_customer_id,
     provider_price_id: top.provider_price_id,
     status: st,
-    plan: meta.plan,
+    plan: planNorm,
     billing: meta.billing,
   };
 }

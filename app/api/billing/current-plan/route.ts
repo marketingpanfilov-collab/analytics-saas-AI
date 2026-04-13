@@ -59,6 +59,7 @@ export async function GET(request: Request) {
     has_org_membership: rest.has_org_membership,
     onboarding_progress: rest.onboarding_progress,
     plan_feature_matrix: rest.plan_feature_matrix,
+    experience_tier: rest.experience_tier,
     org_enabled_ad_accounts: rest.org_enabled_ad_accounts,
     feature_flags: rest.feature_flags,
     resolved_ui_state: rest.resolved_ui_state,

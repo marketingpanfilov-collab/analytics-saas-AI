@@ -50,6 +50,19 @@ const inputBase: CSSProperties = {
 
 type Gate = "boot" | "skip" | "flow" | "success";
 
+/** Не показывать английские/технические ответы API в красном блоке. */
+function userFacingOnboardingError(raw: string): string {
+  const m = raw.trim();
+  if (!m) return "Не удалось выполнить запрос. Попробуйте ещё раз.";
+  if (/post-checkout onboarding is not active/i.test(m)) {
+    return "Обновите страницу и завершите настройку, либо откройте раздел «Проекты».";
+  }
+  if (m === "onboarding_not_active") {
+    return "Настройка в этом окне сейчас недоступна. Обновите страницу или откройте раздел проектов.";
+  }
+  return m;
+}
+
 function primaryCtaStyle(loading: boolean, enabled: boolean): CSSProperties {
   return {
     padding: "12px 18px",
@@ -195,7 +208,9 @@ function PostCheckoutOnboardingModalInner() {
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) {
-      throw new Error((j as { error?: string }).error ?? "Запрос не выполнен");
+      throw new Error(
+        userFacingOnboardingError((j as { error?: string }).error ?? "Запрос не выполнен")
+      );
     }
     return j;
   };

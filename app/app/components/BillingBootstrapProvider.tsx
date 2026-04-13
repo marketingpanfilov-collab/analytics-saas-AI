@@ -43,6 +43,7 @@ import {
   clearLoginCheckoutFinalizeOrg,
   readLoginCheckoutFinalizeOrg,
 } from "@/app/lib/billingLoginCheckoutClient";
+import { clearPostProjectOnboardingSessionGate } from "@/app/lib/boardiqOnboardingUx";
 import type { PlanFeatureMatrix } from "@/app/lib/planConfig";
 import { supabase } from "@/app/lib/supabaseClient";
 import type { BillingBootstrapReloadPack } from "@/app/lib/billingPostPaymentPoll";
@@ -141,6 +142,7 @@ function BillingBootstrapProviderInner({ children }: { children: ReactNode }) {
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_OUT") {
+        clearPostProjectOnboardingSessionGate();
         clearBillingRouteStorage();
         clearLoginCheckoutFinalizeOrg();
         lastAuthUserIdRef.current = null;

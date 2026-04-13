@@ -2,6 +2,7 @@
  * Phase 2 — widget-level data states derived from resolved_ui_state + plan_feature_matrix (no access_state branching).
  */
 import type { PlanFeatureMatrix } from "@/app/lib/planConfig";
+import { PLAN_RESTRICTED_ANALYTICS_MESSAGE } from "@/app/lib/planRestrictedCopy";
 import { ReasonCode, ScreenId, type ResolvedUiStateV1 } from "@/app/lib/billingUiContract";
 
 export type BillingWidgetState = "EMPTY" | "LIMITED" | "BLOCKED" | "LOADING";
@@ -129,11 +130,12 @@ export function resolveLtvWidgetState(
   const base = resolveDashboardWidgetState(resolved);
   if (base.state === "LOADING" || base.state === "BLOCKED") return base;
   if (!matrix?.ltv_full_history) {
+    const isFree = matrix?.plan === "free";
     return pack(
       "LIMITED",
       "PLAN_LIMIT_LTV_HISTORY",
-      "LTV на тарифе Starter",
-      "Полная история когорт и расширенные окна доступны на Growth и выше. Отображается урезанный срез."
+      isFree ? "LTV на бесплатном тарифе" : "LTV на тарифе Starter",
+      PLAN_RESTRICTED_ANALYTICS_MESSAGE
     );
   }
   return base;
@@ -146,11 +148,12 @@ export function resolveReportsWidgetState(
   const base = resolveDashboardWidgetState(resolved);
   if (base.state === "LOADING" || base.state === "BLOCKED") return base;
   if (matrix && matrix.marketing_summary === false) {
+    const isFree = matrix?.plan === "free";
     return pack(
       "BLOCKED",
       "PLAN_LIMIT_MARKETING_SUMMARY",
-      "Отчёт недоступен на текущем плане",
-      "Marketing Summary включён в платные тарифы. Обновите подписку или дождитесь активации тарифа."
+      isFree ? "Сводка на бесплатном тарифе" : "Отчёт недоступен на текущем плане",
+      PLAN_RESTRICTED_ANALYTICS_MESSAGE
     );
   }
   return base;

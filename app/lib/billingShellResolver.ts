@@ -55,8 +55,6 @@ export function resolveBillingShell(input: {
     intended_route: null as string | null,
   };
 
-  const hasSharedProductAccess = input.has_org_membership || input.has_any_accessible_project;
-
   if (input.demo_mode) {
     return {
       ...base,
@@ -106,18 +104,7 @@ export function resolveBillingShell(input: {
     };
   }
 
-  // Личная подписка (Paddle) отсутствует — но доступ через орг/проект (приглашённый) не ведёт на paywall.
-  if (input.access_state === "no_subscription" && !hasSharedProductAccess) {
-    return {
-      ...base,
-      screen: ScreenId.PAYWALL,
-      reason: ReasonCode.BILLING_NO_SUBSCRIPTION,
-      cta: CtaKey.subscribe,
-      allowed_actions: [ActionId.billing_checkout, ActionId.sign_out, ActionId.navigate_settings],
-      blocking_level: "hard",
-      pending_plan_change: false,
-    };
-  }
+  // Free: нет подписки Paddle — не paywall (новый signup, до первой орг/проекта; приглашённый тоже здесь).
 
   if (input.access_state === "refunded") {
     return {
@@ -163,7 +150,6 @@ export function resolveBillingShell(input: {
         ActionId.navigate_projects,
         ActionId.billing_manage,
         ActionId.manage_project_members,
-        ActionId.sync_refresh,
       ],
       blocking_level: "soft",
       pending_plan_change: false,
@@ -182,7 +168,6 @@ export function resolveBillingShell(input: {
         ActionId.navigate_projects,
         ActionId.billing_manage,
         ActionId.manage_project_members,
-        ActionId.sync_refresh,
       ],
       blocking_level: "soft",
       pending_plan_change: false,
@@ -228,8 +213,19 @@ export function resolveBillingShell(input: {
     };
   }
 
-  // Только project_members — нет строки organization_members, но проекты есть.
+  // Нет орг и нет проектов: paywall только если это не «чистый» Free (no_subscription).
   if (!input.has_org_membership && !input.has_any_accessible_project) {
+    if (input.access_state === "no_subscription") {
+      return {
+        ...base,
+        screen: ScreenId.DASHBOARD,
+        reason: ReasonCode.OK,
+        cta: null,
+        allowed_actions: [ActionId.wildcard],
+        blocking_level: "none",
+        pending_plan_change: false,
+      };
+    }
     return {
       ...base,
       screen: ScreenId.NO_ORG_ACCESS,

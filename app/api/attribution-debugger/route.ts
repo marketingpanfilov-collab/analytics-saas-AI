@@ -6,7 +6,7 @@
  * Returns attribution chains and/or orphan/unmatched events.
  */
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { requireAttributionDebuggerApiAccess } from "@/app/lib/auth/requireAttributionDebuggerAccess";
 import { buildAttributionChains, buildOrphanEvents } from "@/app/lib/attributionDebugger";
 
 const DEFAULT_DAYS = 30;
@@ -56,7 +56,9 @@ export async function GET(req: Request) {
       );
     }
 
-    const admin = supabaseAdmin();
+    const gate = await requireAttributionDebuggerApiAccess(req, projectId);
+    if (!gate.ok) return gate.response;
+    const admin = gate.admin;
 
     if (viewMode === "orphans") {
       const orphanResult = await buildOrphanEvents(admin, {

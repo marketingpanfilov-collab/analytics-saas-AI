@@ -70,7 +70,7 @@ function CreateProjectLinkControl({
       <PortalTooltip
         content={PROJECT_PLAN_LIMIT_USER_MESSAGE}
         ariaDisabled
-        className={`${disabledClassName} max-w-full select-none outline-none focus-visible:ring-2 focus-visible:ring-white/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b0b10]`}
+        className={`${disabledClassName} w-full max-w-full select-none outline-none focus-visible:ring-2 focus-visible:ring-white/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b0b10] sm:w-auto`}
       >
         {children}
       </PortalTooltip>
@@ -84,7 +84,7 @@ function CreateProjectLinkControl({
     );
   }
   return (
-    <span className={disabledClassName} aria-disabled="true">
+    <span className={`${disabledClassName} w-full sm:w-auto`} aria-disabled="true">
       {children}
     </span>
   );
@@ -127,6 +127,13 @@ export default function ProjectsListClient({
   const atProjectPlanLimit = useMemo(
     () => planMaxProjects != null && projects.length >= planMaxProjects,
     [planMaxProjects, projects.length]
+  );
+  /** Первый проект: не блокировать кнопку до прихода bootstrap (resolvedUi === null). */
+  const billingAllowsCreateProject = useMemo(
+    () =>
+      canCreateProjectAction ||
+      (canCreate && !atProjectPlanLimit && projects.length === 0),
+    [canCreateProjectAction, canCreate, atProjectPlanLimit, projects.length]
   );
   const menuAnchorRef = useRef<HTMLDivElement>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
@@ -345,21 +352,21 @@ export default function ProjectsListClient({
   const emptyForTab = isArchivedTab
     ? "Нет архивных проектов"
     : canCreate
-      ? "Нет проектов"
+      ? "Создайте первый проект"
       : "Нет назначенных проектов";
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8 p-6">
+    <div className="mx-auto w-full min-w-0 max-w-6xl space-y-6 px-4 py-5 sm:space-y-8 sm:p-6">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-white">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight text-white sm:text-2xl">
             Проекты
           </h1>
           <p className="mt-1 text-sm text-zinc-400">
             Выберите проект для работы в дашборде
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-3">
           {canManageAccess && (
             <Link
               href={
@@ -369,7 +376,7 @@ export default function ProjectsListClient({
                     ? `/app/settings?project_id=${encodeURIComponent(projects[0].id)}&section=access`
                     : "/app/projects"
               }
-              className="inline-flex h-10 cursor-pointer items-center rounded-xl border border-white/15 bg-white/[0.06] px-4 text-sm font-medium text-white hover:bg-white/10"
+              className="inline-flex h-10 w-full cursor-pointer items-center justify-center rounded-xl border border-white/15 bg-white/[0.06] px-4 text-sm font-medium text-white hover:bg-white/10 sm:w-auto"
             >
               Управлять доступом
             </Link>
@@ -379,17 +386,17 @@ export default function ProjectsListClient({
               type="button"
               onClick={openTransferModal}
               disabled={!canBillingManage}
-              className="inline-flex h-10 cursor-pointer items-center rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 text-sm font-medium text-amber-200 hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex min-h-10 w-full cursor-pointer items-center justify-center rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-center text-xs font-medium leading-snug text-amber-200 hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:px-4 sm:text-sm sm:leading-normal"
             >
               Передать управление организацией
             </button>
           )}
           <CreateProjectLinkControl
             canTryCreate={canCreate}
-            billingAllows={canCreateProjectAction}
+            billingAllows={billingAllowsCreateProject}
             atPlanLimit={atProjectPlanLimit}
-            linkClassName="inline-flex h-10 cursor-pointer items-center rounded-xl bg-white/10 px-5 text-sm font-medium text-white hover:bg-white/15"
-            disabledClassName="inline-flex h-10 cursor-not-allowed items-center rounded-xl bg-white/[0.05] px-5 text-sm font-medium text-white/35"
+            linkClassName="inline-flex h-10 w-full cursor-pointer items-center justify-center rounded-xl bg-white/10 px-5 text-sm font-medium text-white hover:bg-white/15 sm:w-auto"
+            disabledClassName="inline-flex h-10 w-full cursor-not-allowed items-center justify-center rounded-xl bg-white/[0.05] px-5 text-sm font-medium text-white/35 sm:w-auto"
           >
             Создать проект
           </CreateProjectLinkControl>
@@ -406,11 +413,11 @@ export default function ProjectsListClient({
       )}
 
       {/* Tabs: Active / Archived */}
-      <div className="flex gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/10">
+      <div className="flex w-full min-w-0 gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/10">
         <button
           type="button"
           onClick={() => setTab("active")}
-          className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+          className={`flex-1 rounded-lg px-3 py-2 text-center text-sm font-medium transition-colors sm:flex-none sm:px-4 ${
             tab === "active"
               ? "bg-white/10 text-white"
               : "text-zinc-400 hover:text-zinc-200"
@@ -421,7 +428,7 @@ export default function ProjectsListClient({
         <button
           type="button"
           onClick={() => setTab("archived")}
-          className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+          className={`flex-1 rounded-lg px-3 py-2 text-center text-sm font-medium transition-colors sm:flex-none sm:px-4 ${
             tab === "archived"
               ? "bg-white/10 text-white"
               : "text-zinc-400 hover:text-zinc-200"
@@ -432,7 +439,7 @@ export default function ProjectsListClient({
       </div>
 
       {showEmpty ? (
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-10 text-center">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-center sm:p-10">
           <h2 className="text-lg font-medium text-white">{emptyForTab}</h2>
           <p className="mt-2 text-sm text-zinc-500">
             {isArchivedTab
@@ -442,13 +449,13 @@ export default function ProjectsListClient({
                 : "Обратитесь к администратору организации для доступа к проекту."}
           </p>
           {canCreate && !isArchivedTab && (
-            <div className="mt-6">
+            <div className="mt-6 flex justify-center px-1">
               <CreateProjectLinkControl
                 canTryCreate
-                billingAllows={canCreateProjectAction}
+                billingAllows={billingAllowsCreateProject}
                 atPlanLimit={atProjectPlanLimit}
-                linkClassName="inline-flex h-11 cursor-pointer items-center rounded-xl bg-white/10 px-6 text-sm font-medium text-white hover:bg-white/15"
-                disabledClassName="inline-flex h-11 cursor-not-allowed items-center rounded-xl bg-white/[0.05] px-6 text-sm font-medium text-white/35"
+                linkClassName="inline-flex h-11 w-full max-w-xs cursor-pointer items-center justify-center rounded-xl bg-white/10 px-6 text-sm font-medium text-white hover:bg-white/15 sm:inline-flex sm:w-auto"
+                disabledClassName="inline-flex h-11 w-full max-w-xs cursor-not-allowed items-center justify-center rounded-xl bg-white/[0.05] px-6 text-sm font-medium text-white/35 sm:inline-flex sm:w-auto"
               >
                 Создать первый проект
               </CreateProjectLinkControl>
@@ -456,7 +463,7 @@ export default function ProjectsListClient({
           )}
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {displayProjects.map((project) => {
             const role = roleMap[project.id] ?? "member";
             const isActive = !isArchivedTab && activeProjectId !== null && project.id === activeProjectId;
@@ -496,7 +503,7 @@ export default function ProjectsListClient({
                       </button>
                       {menuOpen && (
                         <div
-                          className="absolute right-0 top-full z-10 mt-1 min-w-[200px] rounded-xl border border-white/10 bg-zinc-900 py-1 shadow-xl"
+                          className="absolute left-0 top-full z-10 mt-1 w-full max-w-[min(100%,14rem)] rounded-xl border border-white/10 bg-zinc-900 py-1 shadow-xl sm:left-auto sm:right-0 sm:w-auto sm:max-w-none sm:min-w-[200px]"
                           role="menu"
                         >
                           {canRenameProject(role) && (
@@ -525,11 +532,11 @@ export default function ProjectsListClient({
                   )}
                 </div>
                 {/* Row 2: short id + badges */}
-                <div className="mt-2 flex items-center justify-between gap-2">
-                  <p className="text-xs text-zinc-500 font-mono">
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                  <p className="min-w-0 truncate text-xs font-mono text-zinc-500">
                     {shortId(project.id)}
                   </p>
-                  <div className="flex shrink-0 items-center gap-2">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
                     {!isArchivedTab && (
                       <span
                         className={
@@ -572,9 +579,9 @@ export default function ProjectsListClient({
 
       {/* Rename modal */}
       {renameProject && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center sm:pb-4">
           <div
-            className="w-full max-w-md rounded-2xl border border-white/10 bg-zinc-900 p-6 shadow-xl"
+            className="w-full max-w-md max-h-[min(90dvh,90vh)] overflow-y-auto rounded-2xl border border-white/10 bg-zinc-900 p-5 shadow-xl sm:p-6"
             role="dialog"
             aria-modal="true"
             aria-labelledby="rename-title"
@@ -603,11 +610,11 @@ export default function ProjectsListClient({
             {renameError && (
               <p className="mt-2 text-sm text-red-400">{renameError}</p>
             )}
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-3">
               <button
                 type="button"
                 onClick={() => setRenameProject(null)}
-                className="rounded-xl border border-white/10 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-white/10"
+                className="w-full rounded-xl border border-white/10 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-white/10 sm:w-auto"
               >
                 Cancel
               </button>
@@ -616,7 +623,7 @@ export default function ProjectsListClient({
                 onClick={submitRename}
                 disabled={!canSyncProjectMutations || renameLoading}
                 aria-busy={renameLoading}
-                className="rounded-xl bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
+                className="w-full rounded-xl bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
               >
                 {renameLoading ? "Подождите…" : "Save"}
               </button>
@@ -627,9 +634,9 @@ export default function ProjectsListClient({
 
       {/* Archive modal */}
       {archiveProject && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center sm:pb-4">
           <div
-            className="w-full max-w-md rounded-2xl border border-amber-500/30 bg-zinc-900 p-6 shadow-xl"
+            className="w-full max-w-md max-h-[min(90dvh,90vh)] overflow-y-auto rounded-2xl border border-amber-500/30 bg-zinc-900 p-5 shadow-xl sm:p-6"
             role="dialog"
             aria-modal="true"
             aria-labelledby="archive-title"
@@ -644,11 +651,11 @@ export default function ProjectsListClient({
             {archiveError && (
               <p className="mt-2 text-sm text-red-400">{archiveError}</p>
             )}
-            <div className="mt-6 flex justify-end gap-3">
+            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-3">
               <button
                 type="button"
                 onClick={() => setArchiveProject(null)}
-                className="rounded-xl border border-white/10 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-white/10"
+                className="w-full rounded-xl border border-white/10 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-white/10 sm:w-auto"
               >
                 Cancel
               </button>
@@ -657,7 +664,7 @@ export default function ProjectsListClient({
                 onClick={submitArchive}
                 disabled={archiveLoading}
                 aria-busy={archiveLoading}
-                className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
+                className="w-full rounded-xl bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
               >
                 {archiveLoading ? "Подождите…" : "Archive"}
               </button>
@@ -668,9 +675,9 @@ export default function ProjectsListClient({
 
       {/* Transfer ownership modal (global) */}
       {transferModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center sm:pb-4">
           <div
-            className="w-full max-w-md rounded-2xl border border-red-500/30 bg-zinc-900 p-6 shadow-xl"
+            className="w-full max-w-md max-h-[min(90dvh,90vh)] overflow-y-auto rounded-2xl border border-red-500/30 bg-zinc-900 p-5 shadow-xl sm:p-6"
             role="dialog"
             aria-modal="true"
             aria-labelledby="transfer-title"
@@ -761,12 +768,12 @@ export default function ProjectsListClient({
                 {transferError && (
                   <p className="mt-2 text-sm text-red-400">{transferError}</p>
                 )}
-                <div className="mt-6 flex justify-end gap-3">
+                <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-3">
                   {transferStep === 2 ? (
                     <button
                       type="button"
                       onClick={() => setTransferStep(1)}
-                      className="rounded-xl border border-white/10 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-white/10"
+                      className="w-full rounded-xl border border-white/10 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-white/10 sm:w-auto"
                     >
                       Назад
                     </button>
@@ -774,7 +781,7 @@ export default function ProjectsListClient({
                     <button
                       type="button"
                       onClick={() => setTransferModalOpen(false)}
-                      className="rounded-xl border border-white/10 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-white/10"
+                      className="w-full rounded-xl border border-white/10 px-4 py-2 text-sm font-medium text-zinc-300 hover:bg-white/10 sm:w-auto"
                     >
                       Отмена
                     </button>
@@ -788,7 +795,7 @@ export default function ProjectsListClient({
                       (transferStep === 1 && !transferRecipientEmail.trim())
                     }
                     aria-busy={transferLoading}
-                    className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
+                    className="w-full rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
                   >
                     {transferLoading
                       ? "Подождите…"

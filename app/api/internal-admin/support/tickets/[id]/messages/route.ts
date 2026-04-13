@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentSystemRoleCheck } from "@/app/lib/auth/systemRoles";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { signSupportAttachments } from "@/app/lib/supportAttachments";
 import { checkRateLimit, getRequestIp } from "@/app/lib/security/rateLimit";
 
 type Params = { params: Promise<{ id: string }> };
@@ -22,11 +23,31 @@ export async function GET(_req: Request, { params }: Params) {
   const admin = supabaseAdmin();
   const { data, error } = await admin
     .from("support_ticket_messages")
-    .select("id, sender_role, body, created_at")
+    .select("id, sender_role, body, created_at, attachments")
     .eq("ticket_id", id)
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-  return NextResponse.json({ success: true, messages: data ?? [] });
+
+  const rows = data ?? [];
+  const messages = await Promise.all(
+    rows.map(async (m) => {
+      const signed = await signSupportAttachments(admin, (m as { attachments?: unknown }).attachments);
+      return {
+        id: m.id,
+        sender_role: m.sender_role,
+        body: m.body,
+        created_at: m.created_at,
+        attachments: signed.map((a) => ({
+          name: a.name,
+          size: a.size,
+          url: a.url,
+          content_type: a.content_type,
+        })),
+      };
+    })
+  );
+
+  return NextResponse.json({ success: true, messages });
 }
 
 export async function POST(req: Request, { params }: Params) {
@@ -61,6 +82,7 @@ export async function POST(req: Request, { params }: Params) {
     sender_user_id: auth.userId,
     sender_role: senderRole,
     body: text,
+    attachments: [],
     created_at: nowIso,
   });
   if (msgErr) return NextResponse.json({ success: false, error: msgErr.message }, { status: 500 });

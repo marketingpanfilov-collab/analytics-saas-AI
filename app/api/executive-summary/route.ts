@@ -4,7 +4,7 @@
  * Budget Optimization, and Chains/Journeys into a rule-based management summary.
  */
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { requireAttributionDebuggerApiAccess } from "@/app/lib/auth/requireAttributionDebuggerAccess";
 import { computeDataQualityScore } from "@/app/lib/dataQualityScore";
 import { getAttributionAnomalies } from "@/app/lib/attributionAnomalies";
 import { buildAttributionAssistant } from "@/app/lib/attributionAssistant";
@@ -35,7 +35,9 @@ export async function GET(req: Request) {
       );
     }
 
-    const admin = supabaseAdmin();
+    const gate = await requireAttributionDebuggerApiAccess(req, projectId);
+    if (!gate.ok) return gate.response;
+    const admin = gate.admin;
 
     const [dataQuality, anomalies, chainResult] = await Promise.all([
       computeDataQualityScore(admin, projectId, days),

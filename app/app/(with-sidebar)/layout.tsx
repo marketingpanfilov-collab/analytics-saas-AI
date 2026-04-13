@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import DevAbortRejectionSuppressor from "../components/DevAbortRejectionSuppressor";
 import { BillingBootstrapProvider } from "../components/BillingBootstrapProvider";
 import { BillingPricingModalProvider } from "../components/BillingPricingModalProvider";
@@ -44,6 +45,8 @@ function TopbarFallback() {
 }
 
 export default function WithSidebarLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const isSupportPage = pathname === "/app/support" || pathname?.startsWith("/app/support/");
   const [email, setEmail] = useState<string>("");
   const mainRef = useRef<HTMLElement | null>(null);
 
@@ -67,7 +70,11 @@ export default function WithSidebarLayout({ children }: { children: React.ReactN
       <div
         className="app-shell-grid"
         style={{
-          minHeight: "100vh",
+          /* Вся оболочка привязана к viewport: 1fr у main не растёт с контентом; скролл — в колонке сайдбара и в main-scroll (кроме /app/support). */
+          height: "100dvh",
+          maxHeight: "100dvh",
+          minHeight: "100dvh",
+          overflow: "hidden",
           background: "#0b0b10",
           display: "grid",
           gridTemplateColumns: "260px 1fr",
@@ -76,7 +83,18 @@ export default function WithSidebarLayout({ children }: { children: React.ReactN
         <DevAbortRejectionSuppressor />
         <PaddleAppInit />
         {/* LEFT: SIDEBAR — 260px to match Sidebar component width; wrapped in Suspense because Sidebar uses useSearchParams() */}
-        <div className="app-shell-sidebar" style={{ minHeight: "100vh", minWidth: 0 }}>
+        <div
+          className="app-shell-sidebar"
+          style={{
+            minWidth: 0,
+            minHeight: 0,
+            height: "100%",
+            maxHeight: "100dvh",
+            overflowX: "hidden",
+            overflowY: "auto",
+            overscrollBehavior: "contain",
+          }}
+        >
           <Suspense fallback={<SidebarFallback />}>
             <Sidebar />
           </Suspense>
@@ -86,7 +104,10 @@ export default function WithSidebarLayout({ children }: { children: React.ReactN
         <div
           className="app-shell-main-stack"
           style={{
-            minHeight: "100vh",
+            minHeight: 0,
+            height: "100%",
+            maxHeight: "100%",
+            overflow: "hidden",
             display: "grid",
             gridTemplateRows: "auto 64px 1fr",
           }}
@@ -104,17 +125,28 @@ export default function WithSidebarLayout({ children }: { children: React.ReactN
 
           <main
             ref={mainRef}
-            className="app-shell-main"
+            className="app-shell-main flex min-h-0 flex-col"
             style={{
               minHeight: 0,
               position: "relative",
               overflowX: "hidden",
-              overflowY: "auto",
+              overflowY: "hidden",
             }}
           >
             <AppMainPaneRefProvider mainRef={mainRef}>
-              <ReadOnlyPaywallBanner />
-              <BillingShellGate>{children}</BillingShellGate>
+              <div className="shrink-0">
+                <ReadOnlyPaywallBanner />
+              </div>
+              {/* Обычные страницы: вертикальный scroll здесь. /app/support — без scroll оболочки, только внутренние панели. */}
+              <div
+                className={
+                  isSupportPage
+                    ? "app-shell-main-scroll flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-hidden"
+                    : "app-shell-main-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+                }
+              >
+                <BillingShellGate>{children}</BillingShellGate>
+              </div>
             </AppMainPaneRefProvider>
           </main>
         </div>

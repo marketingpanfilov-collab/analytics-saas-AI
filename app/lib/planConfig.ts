@@ -73,6 +73,18 @@ const UNKNOWN: PlanFeatureMatrix = {
   marketing_summary: false,
 };
 
+/** Виртуальный Free: не `unknown` (Reports/LTV не ломаются как «план неизвестен»); глубже Starter не даём. */
+const FREE_VIRTUAL: PlanFeatureMatrix = {
+  plan: "free",
+  max_projects: 1,
+  max_seats: 1,
+  max_ad_accounts: 1,
+  max_weekly_reports_per_month: 10,
+  ltv_full_history: false,
+  attribution_heavy: false,
+  marketing_summary: false,
+};
+
 export function getPlanFeatureMatrix(plan: BillingPlanId | "unknown"): PlanFeatureMatrix {
   switch (plan) {
     case "starter":
@@ -81,6 +93,8 @@ export function getPlanFeatureMatrix(plan: BillingPlanId | "unknown"): PlanFeatu
       return withSeatLimitSafeguards({ ...GROWTH });
     case "scale":
       return withSeatLimitSafeguards({ ...SCALE });
+    case "free":
+      return withSeatLimitSafeguards({ ...FREE_VIRTUAL });
     default:
       return withSeatLimitSafeguards({ ...UNKNOWN });
   }

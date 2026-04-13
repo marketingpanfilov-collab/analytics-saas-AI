@@ -1,10 +1,12 @@
 # PHASE 3 REPORT — QA & validation
 
+**Актуальная модель доступа:** [BILLING_ACCESS_MODEL.md](./BILLING_ACCESS_MODEL.md).
+
 ## CJM scenarios (manual checklist)
 
 Run on staging with real Paddle test mode where applicable. Mark pass/fail.
 
-1. **New user** — Register → paywall (`BillingShellGate`) → checkout → post-checkout steps → first project.
+1. **New user (Free)** — Register (и при необходимости confirm email) → **`/app/projects`** или валидный `next` под `/app` → **без** hard PAYWALL; **`experience_tier: free`**, обычный продукт → создание первого проекта в лимитах Free. Отдельно: сценарий **signup + оплата на login** — checkout → post-checkout steps → первый проект.
 2. **Post-checkout interrupt** — Stop at step 2 → re-login → same step restored.
 3. **Invite** — Pending invite, email match → `INVITE_LOADING` until accept.
 4. **Invite timeout** — Pending invite `created_at` &gt; 7s without membership → `INVITE_FALLBACK` / `INVITE_TIMEOUT`, retry + support CTAs.

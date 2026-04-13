@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation";
 import WeeklyReportContent from "@/app/app/components/WeeklyReportContent";
 import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
+import { PLAN_RESTRICTED_ANALYTICS_MESSAGE } from "@/app/lib/planRestrictedCopy";
 import PlanRestrictedOverlay from "@/app/app/components/PlanRestrictedOverlay";
 import { useBillingPricingModalRequest } from "@/app/app/components/BillingPricingModalProvider";
 import {
@@ -40,9 +41,6 @@ type WeeklyUsageState = {
   unlimited: boolean;
   usage_month_utc: string;
 };
-
-const STARTER_WEEKLY_LIMIT_OVERLAY_COPY =
-  "Лимит отчетов для тарифа Starter исчерпан. Чтобы снять ограничение, оформите подписку Growth или Scale.";
 
 export default function WeeklyReportClient() {
   const searchParams = useSearchParams();
@@ -261,7 +259,7 @@ export default function WeeklyReportClient() {
           unlimited: false,
           usage_month_utc: String(json.usage_month_utc ?? ""),
         });
-        setShareNotice("Достигнут лимит отчётов на тарифе Starter. Обновите тариф, чтобы продолжить.");
+        setShareNotice(PLAN_RESTRICTED_ANALYTICS_MESSAGE);
         return;
       }
       if (json?.success && json.url) {
@@ -418,9 +416,9 @@ export default function WeeklyReportClient() {
   return (
     <PlanRestrictedOverlay
       allowedPlans={["starter", "growth", "scale"]}
-      message={STARTER_WEEKLY_LIMIT_OVERLAY_COPY}
+      message={PLAN_RESTRICTED_ANALYTICS_MESSAGE}
       quotaExhausted={quotaExhausted}
-      quotaMessage={STARTER_WEEKLY_LIMIT_OVERLAY_COPY}
+      quotaMessage={PLAN_RESTRICTED_ANALYTICS_MESSAGE}
       upgradeSource="weekly_report_limit"
     >
       <div className="min-h-[60vh] bg-[#0b0b10] p-6" style={{ gridColumn: "2 / -1" }}>

@@ -40,18 +40,43 @@ export function usePartnershipLead() {
 const partnershipNavClass =
   "cursor-pointer rounded-md px-1 py-0.5 text-sm font-semibold !text-white/65 transition-colors duration-200 ease-out hover:!text-white hover:[text-shadow:0_0_20px_rgba(255,255,255,0.45),0_0_36px_rgba(200,230,255,0.2)]";
 
+/** Полноширинный пункт мобильного меню (те же действия, что у кнопки в шапке). */
+const partnershipMobileNavClass =
+  "w-full cursor-pointer rounded-xl border-0 bg-transparent px-4 py-3.5 text-left text-base font-semibold text-white/90 transition hover:bg-white/[0.06] active:bg-white/[0.08]";
+
 /** Кнопка «Партнёрам»: на лендинге с провайдером открывает попап; иначе — ссылка на главную #partnership */
-export function PartnershipNavButton({ className }: { className?: string }) {
+export function PartnershipNavButton({
+  className,
+  onBeforeAction,
+  layout = "header",
+}: {
+  className?: string;
+  onBeforeAction?: () => void;
+  /** `mobile` — блок в выезжающем меню; `header` — компактная ссылка в шапке. */
+  layout?: "header" | "mobile";
+}) {
+  const base = layout === "mobile" ? partnershipMobileNavClass : partnershipNavClass;
   const ctx = useContext(PartnershipLeadContext);
   if (!ctx) {
     return (
-      <Link href="/#partnership" className={cn(partnershipNavClass, className)}>
+      <Link
+        href="/#partnership"
+        className={cn(base, className)}
+        onClick={() => onBeforeAction?.()}
+      >
         Партнёрам
       </Link>
     );
   }
   return (
-    <button type="button" onClick={ctx.open} className={cn(partnershipNavClass, className)}>
+    <button
+      type="button"
+      onClick={() => {
+        onBeforeAction?.();
+        ctx.open();
+      }}
+      className={cn(base, className)}
+    >
       Партнёрам
     </button>
   );

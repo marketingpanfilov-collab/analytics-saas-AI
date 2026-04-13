@@ -1,5 +1,7 @@
 # Action matrix (BoardIQ Billing UX Hardening §4)
 
+**Канон доступа и тарифов:** [BILLING_ACCESS_MODEL.md](./BILLING_ACCESS_MODEL.md).
+
 Единая таблица «reason / режим → действия в UI». **API остаётся финальным gate** (`requireBillingAccess`, project/org guards); матрица задаёт ожидания для QA и согласованность с `resolved_ui_state.allowed_actions` из `app/lib/billingShellResolver.ts`.
 
 | Reason / режим | `create_project` | `sync` / `refresh` | `export` | `billing_manage` | `navigate_app` | `navigate_settings` | `navigate_projects` |
@@ -12,12 +14,14 @@
 | `PLAN_CHANGE_PENDING` | ✗ до confirm | ✗ | ✗ | read / retry | ✓ | ✓ | по политике |
 | `BILLING_GRACE` / `BILLING_PAST_DUE` | по лимитам | ~ | ~ | ✓ owner | ✓ | ✓ | ✓ |
 | `BILLING_UNPAID` / `BILLING_EXPIRED` | ✗ | ✗ | ✗ | ✓ owner | ✓ read-only | ✓ | ✓ |
-| `BILLING_NO_SUBSCRIPTION` | ✗ | ✗ | ✗ | ✓ (checkout) | paywall | ограниченно | ✗ |
+| `OK` + Free (`access_state: no_subscription`, `experience_tier: free`) | по матрице Free / лимитам орг. | по `canRunSync` / политике | по политике | ✓ (upgrade) | ✓ | ✓ | ✓ |
 | `OVER_LIMIT_*` | ✗ до фикса | ✗ | ✗ | ✓ owner | fullscreen block | разрешённые | ✗ |
 | `BILLING_REFUNDED` | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
 | `BILLING_DEMO_MODE` | по демо-политике | ограничено | ограничено | ~ | ✓ | ✓ | ~ |
 | `BOOTSTRAP_UNAVAILABLE` (клиент) | ✗ | ✗ | ✗ | ✗ | ✗ | ✓ | ✗ |
 
 \*Создание проекта при `NO_ACTIVE_PROJECT` — обычно ✗; исключения документировать отдельно.
+
+**`BILLING_NO_SUBSCRIPTION` / `PAYWALL`:** остаются в контракте (`billingUiContract`) и в UI для редких/наследуемых веток; **типичный** bootstrap при **`access_state: no_subscription`** даёт **`reason: OK`** и **`ScreenId.DASHBOARD`** (см. `billingShellResolver.ts`), а не эту пару — см. строку **`OK` + Free** выше.
 
 Обновлять эту таблицу при изменении `ActionId` / resolver / серверных gates.

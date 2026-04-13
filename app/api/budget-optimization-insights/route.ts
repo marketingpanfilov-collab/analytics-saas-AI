@@ -4,7 +4,7 @@
  * Builds journeys from chains, runs budget optimization (v11), returns channel metrics, insights, portfolio summary, priority actions.
  */
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { requireAttributionDebuggerApiAccess } from "@/app/lib/auth/requireAttributionDebuggerAccess";
 import { buildAttributionChains } from "@/app/lib/attributionDebugger";
 import { buildJourneysFromChains } from "@/app/lib/attributionJourney";
 import { buildBudgetOptimization, type JourneyForBudget } from "@/app/lib/budgetOptimizationInsights";
@@ -31,7 +31,9 @@ export async function GET(req: Request) {
       );
     }
 
-    const admin = supabaseAdmin();
+    const gate = await requireAttributionDebuggerApiAccess(req, projectId);
+    if (!gate.ok) return gate.response;
+    const admin = gate.admin;
     const chainResult = await buildAttributionChains(admin, {
       project_id: projectId,
       days,

@@ -29,7 +29,7 @@ type PaneBox = { top: number; left: number; width: number; height: number };
 function normalizeEffectivePlan(raw: string | null | undefined): PlanRestrictedTier | null {
   if (raw == null || typeof raw !== "string") return null;
   const p = raw.trim().toLowerCase();
-  if (p === "starter" || p === "growth" || p === "scale") return p;
+  if (p === "starter" || p === "growth" || p === "scale" || p === "free") return p;
   return null;
 }
 

@@ -20,9 +20,19 @@ type Props = {
   guestHref: string;
   planId: PricingPlanId;
   billing: BillingPeriod;
+  /** Текст ссылки для неавторизованных (по умолчанию «Приобрести»). */
+  guestLabel?: string;
+  /** Текст кнопки оплаты для авторизованных (по умолчанию «Приобрести»). */
+  checkoutLabel?: string;
 };
 
-export default function PricingBuyButton({ guestHref, planId, billing }: Props) {
+export default function PricingBuyButton({
+  guestHref,
+  planId,
+  billing,
+  guestLabel = "Приобрести",
+  checkoutLabel = "Приобрести",
+}: Props) {
   const router = useRouter();
   const pathname = usePathname() ?? "";
   const [authPhase, setAuthPhase] = useState<"loading" | "guest" | "authed">("loading");
@@ -140,9 +150,9 @@ export default function PricingBuyButton({ guestHref, planId, billing }: Props) 
       <Link
         href={guestHref}
         className="inline-flex h-10 min-w-[130px] cursor-pointer items-center justify-center rounded-xl border border-emerald-400/35 bg-emerald-500/[0.18] px-4 text-sm font-semibold text-white transition hover:bg-emerald-500/[0.28]"
-        aria-label={`Приобрести тариф ${planId}`}
+        aria-label={`${guestLabel}: тариф ${planId}`}
       >
-        Приобрести
+        {guestLabel}
       </Link>
     );
   }
@@ -154,7 +164,7 @@ export default function PricingBuyButton({ guestHref, planId, billing }: Props) 
         disabled={busy || pendingPlanChange || billingOrgMissing}
         onClick={() => void onPaddleBuy()}
         className="inline-flex h-10 min-w-[130px] cursor-pointer items-center justify-center rounded-xl border border-emerald-400/35 bg-emerald-500/[0.18] px-4 text-sm font-semibold text-white transition hover:bg-emerald-500/[0.28] disabled:cursor-not-allowed disabled:opacity-45"
-        aria-label={`Приобрести тариф ${planId}`}
+        aria-label={`${checkoutLabel}: тариф ${planId}`}
         title={
           pendingPlanChange
             ? "Идёт смена тарифа — не оплачивайте повторно"
@@ -163,7 +173,7 @@ export default function PricingBuyButton({ guestHref, planId, billing }: Props) 
               : undefined
         }
       >
-        {busy ? "Открываем…" : pendingPlanChange ? "Смена тарифа…" : "Приобрести"}
+        {busy ? "Открываем…" : pendingPlanChange ? "Смена тарифа…" : checkoutLabel}
       </button>
       {billingOrgMissing ? (
         <span className="flex max-w-[220px] flex-col items-center gap-1 text-center text-[11px] text-amber-200/90">

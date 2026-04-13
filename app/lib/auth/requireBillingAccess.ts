@@ -6,16 +6,24 @@ import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { resolveBillingGateContext } from "@/app/lib/billingCurrentPlan";
-import {
-  type AccessState,
-  accessStateAllowsAnalyticsRead,
-  accessStateAllowsHeavySync,
-} from "@/app/lib/accessState";
+import { canReadAnalytics, canRunSync } from "@/app/lib/billingExperienceTier";
+import { type AccessState } from "@/app/lib/accessState";
 import type { ProjectAccessCheckResult } from "@/app/lib/auth/requireProjectAccessOrInternal";
 
 export type BillingGateResult =
   | { ok: true; access_state: AccessState }
   | { ok: false; response: NextResponse };
+
+export function billingGateUnavailableResponse(): NextResponse {
+  return NextResponse.json(
+    {
+      success: false,
+      error: "Не удалось загрузить статус подписки. Повторите попытку.",
+      code: "BILLING_GATE_UNAVAILABLE",
+    },
+    { status: 503 }
+  );
+}
 
 /**
  * POST sync / refresh / OAuth pull: require full paid window (active, trialing, canceled_until_end).
@@ -33,7 +41,10 @@ export async function requireBillingHeavySyncForUser(
   const ctx = await resolveBillingGateContext(admin, access.userId, userEmail ?? null, {
     projectId,
   });
-  if (!accessStateAllowsHeavySync(ctx.access_state)) {
+  if (!ctx.ok) {
+    return { ok: false, response: billingGateUnavailableResponse() };
+  }
+  if (!canRunSync({ access_state: ctx.access_state, experience_tier: ctx.experience_tier })) {
     return {
       ok: false,
       response: NextResponse.json(
@@ -67,7 +78,10 @@ export async function requireBillingAnalyticsReadForUser(
   const ctx = await resolveBillingGateContext(admin, access.userId, userEmail ?? null, {
     projectId,
   });
-  if (!accessStateAllowsAnalyticsRead(ctx.access_state)) {
+  if (!ctx.ok) {
+    return { ok: false, response: billingGateUnavailableResponse() };
+  }
+  if (!canReadAnalytics({ access_state: ctx.access_state, experience_tier: ctx.experience_tier })) {
     return {
       ok: false,
       response: NextResponse.json(

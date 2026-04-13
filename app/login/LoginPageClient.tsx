@@ -37,17 +37,29 @@ import { subscribeMetaInitiateCheckoutWhenCheckoutLoaded } from "../lib/metaInit
 import { fireMetaPurchasePixelFromPaddleEvent } from "../lib/metaPixelBrowser";
 import { warnPaddleCheckoutCatalogIds } from "../lib/paddleCheckoutConfigDiagnostics";
 import { addPaddleEventListener, getPaddle } from "../lib/paddle";
+import { safeAppNextTarget } from "../lib/auth/safeAppNextTarget";
 import { getPaddlePriceId, getPaddleProductId, type BillingPeriod } from "../lib/paddlePriceMap";
 import { supabase } from "../lib/supabaseClient";
 
-/** Абсолютный URL для письма подтверждения (Supabase redirect allow-list). */
-function buildEmailConfirmRedirectUrl(): string {
-  const origin =
-    typeof window !== "undefined"
-      ? window.location.origin
-      : (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
-  const next = encodeURIComponent("/app/projects");
-  return `${origin.replace(/\/$/, "")}/auth/callback?next=${next}`;
+const DEFAULT_POST_AUTH_APP = "/app/projects";
+
+/**
+ * Абсолютный URL для письма подтверждения (Supabase redirect allow-list).
+ * `next` в query — тот же контракт, что и в GET /auth/callback (safeAppNextTarget + fallback).
+ */
+function buildEmailConfirmRedirectUrl(appNextPath: string): string {
+  const envBase = (process.env.NEXT_PUBLIC_APP_URL ?? "").trim().replace(/\/$/, "");
+  const winOrigin = typeof window !== "undefined" ? window.location.origin : "";
+  // Письмо Supabase должно вести на канонический origin из env (прод), если задан — совпадение с redirect allow-list.
+  const base = (
+    /^https?:\/\//i.test(envBase) ? envBase : winOrigin || envBase
+  ).replace(/\/$/, "");
+  const safe = safeAppNextTarget(appNextPath, base || winOrigin || "http://localhost") ?? DEFAULT_POST_AUTH_APP;
+  const absoluteBase = base || winOrigin;
+  if (!absoluteBase) {
+    return `/auth/callback?next=${encodeURIComponent(safe)}`;
+  }
+  return `${absoluteBase}/auth/callback?next=${encodeURIComponent(safe)}`;
 }
 
 function buildPasswordResetRedirectUrl(): string {
@@ -72,7 +84,8 @@ export default function LoginPageClient() {
   // Если пользователь пришел с тарифа, сохраняем plan/billing в next-path.
   const nextPath = useMemo(() => {
     const n = searchParams.get("next");
-    let path = !n || !n.startsWith("/") ? "/app/projects" : n;
+    let path =
+      !n || !n.startsWith("/") || n.startsWith("//") ? "/app/projects" : n;
     if (path === "/app" || path === "/app/") path = "/app/projects";
 
     const plan = searchParams.get("plan");
@@ -129,7 +142,6 @@ export default function LoginPageClient() {
   }>(null);
   const checkoutTimeoutRef = useRef<number | null>(null);
   const checkoutClosedGraceTimerRef = useRef<number | null>(null);
-  const continueAfterPlanSelectRef = useRef(false);
   const lastSignupCheckoutRef = useRef<{
     checkoutAttemptId: string;
     organizationId: string;
@@ -168,11 +180,13 @@ export default function LoginPageClient() {
   };
 
   const priceText = (plan: PricingPlanId) => {
-    if (modalBilling === "monthly") return `${MONTHLY_USD[plan]} $ / мес`;
-    return `${yearlyTotalDiscountedUsd(plan)} $ / год`;
+    if (modalBilling === "monthly") return `${MONTHLY_USD[plan]} $ / в месяц`;
+    const yearly = yearlyTotalDiscountedUsd(plan);
+    const perMonth = Math.round(yearly / 12);
+    return `${perMonth} $ / в месяц при оплате за год`;
   };
 
-  // С лендинга по кнопке «Приобрести»: открываем сразу вкладку «Регистрация».
+  // С лендинга по signup=1 или plan=: открываем сразу вкладку «Регистрация».
   useEffect(() => {
     const signup = searchParams.get("signup");
     const plan = searchParams.get("plan");
@@ -301,7 +315,7 @@ export default function LoginPageClient() {
     const signUpRes = await supabase.auth.signUp({
       email: email.trim(),
       password,
-      options: { emailRedirectTo: buildEmailConfirmRedirectUrl() },
+      options: { emailRedirectTo: buildEmailConfirmRedirectUrl(nextPath) },
     });
     let data = signUpRes.data;
     if (signUpRes.error) {
@@ -400,20 +414,28 @@ export default function LoginPageClient() {
 
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
-        options: { emailRedirectTo: buildEmailConfirmRedirectUrl() },
+        options: { emailRedirectTo: buildEmailConfirmRedirectUrl(nextPath) },
       });
       if (error) {
         setMsg(error.message);
-        setLoading(false);
+        return;
+      }
+      // При включённом «Confirm email» в Supabase сессии нет до клика по ссылке —
+      // редирект в /app без cookie даёт redirect на /login и визуально «зависание», если не снять loading.
+      if (!data.session) {
+        setMsg(
+          "Аккаунт создан. Подтвердите email по ссылке в письме, затем войдите — после этого откроется доступ к проектам."
+        );
         return;
       }
       router.replace(nextPath);
     } catch (e) {
       console.error("[Login invite signup] error", e);
       setMsg(e instanceof Error ? e.message : "Не удалось выполнить запрос. Попробуйте ещё раз.");
+    } finally {
       setLoading(false);
     }
   };
@@ -658,10 +680,9 @@ export default function LoginPageClient() {
       return;
     }
 
+    /** Регистрация без выбора платного тарифа → сразу Free, без paywall. */
     if (mode === "signup" && !selectedPlan) {
-      continueAfterPlanSelectRef.current = true;
-      setShowPlanModal(true);
-      setLoading(false);
+      await inviteOnlySignup();
       return;
     }
 
@@ -759,9 +780,11 @@ export default function LoginPageClient() {
                 >
                   {mode === "signup" && selectedPlan && !isInviteOnlySignup
                     ? `ТАРИФ: ${PLAN_LABELS[selectedPlan]}`
-                    : isInviteOnlySignup && mode === "signup"
-                      ? "По приглашению"
-                      : "Dashboard online"}
+                    : mode === "signup" && !selectedPlan && !isInviteOnlySignup
+                      ? "ТАРИФ: Free"
+                      : isInviteOnlySignup && mode === "signup"
+                        ? "По приглашению"
+                        : "Dashboard online"}
                 </span>
               </div>
               <p className="mt-1 text-sm text-zinc-400">
@@ -1001,18 +1024,26 @@ export default function LoginPageClient() {
               </button>
             </div>
 
-            <p className="text-center text-xs text-zinc-500">© 2026 Analytics SaaS — Все права защищены.</p>
+            <p className="text-center text-xs text-zinc-500">© 2026 BoardIQ analytics — Все права защищены.</p>
           </div>
         </div>
 
         {showPlanModal ? (
           <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/65 p-4">
             <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0f0f14] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.65)]">
-              <h2 className="text-lg font-semibold text-white">Выберите тариф</h2>
-              <p className="mt-2 text-sm text-zinc-400">Сначала выберите тариф и период оплаты, затем продолжите регистрацию и оплату.</p>
+              <h2 className="text-center text-lg font-semibold leading-snug text-white">
+                Выберите подходящий тариф
+              </h2>
+              <p className="mt-2 text-center text-sm text-zinc-400">
+                Можно начать с бесплатного тарифа и оформить Growth или Scale позже, когда понадобится полный анализ.
+              </p>
+
+              <p className="mt-4 text-center text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                Тарифы
+              </p>
 
               {/* Период оплаты (как на главной) */}
-              <div className="mt-4 flex justify-center">
+              <div className="mt-2 flex justify-center">
                 <div
                   className="grid w-full grid-cols-2 gap-1 rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/10"
                   role="group"
@@ -1063,9 +1094,35 @@ export default function LoginPageClient() {
                 </div>
               </div>
 
-              {/* Тариф */}
+              {/* Free + платные — один список */}
               <div className="mt-4 grid grid-cols-1 gap-2">
-                {(["starter", "growth", "scale"] as const).map((plan) => {
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPlan(null);
+                    const p = new URLSearchParams(searchParams.toString());
+                    p.delete("plan");
+                    p.set("signup", "1");
+                    router.replace(`/login?${p.toString()}`);
+                    setShowPlanModal(false);
+                  }}
+                  className={`h-11 w-full cursor-pointer rounded-xl border px-4 text-sm font-semibold transition ${
+                    selectedPlan === null
+                      ? "border-sky-400/40 bg-sky-500/[0.14] text-white"
+                      : "border-white/10 bg-white/[0.03] text-zinc-200 hover:bg-white/[0.06]"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <span>Free</span>
+                      <span className="rounded-md border border-white/15 bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-zinc-300">
+                        Без оплаты
+                      </span>
+                    </div>
+                    <div className="text-right text-xs font-semibold text-white/80">0 $</div>
+                  </div>
+                </button>
+                {(["growth", "scale"] as const).map((plan) => {
                   const isActive = selectedPlan === plan;
                   return (
                     <button
@@ -1079,10 +1136,6 @@ export default function LoginPageClient() {
                         p.set("signup", "1");
                         router.replace(`/login?${p.toString()}`);
                         setShowPlanModal(false);
-                        if (continueAfterPlanSelectRef.current) {
-                          continueAfterPlanSelectRef.current = false;
-                          void submitWithPlan(plan, modalBilling);
-                        }
                       }}
                       className={`h-11 cursor-pointer rounded-xl border px-4 text-sm font-semibold transition ${
                         isActive

@@ -8,6 +8,7 @@ import {
   getMetaTokenHealth,
   getTikTokTokenHealth,
 } from "@/app/lib/tokenHealth";
+import { resolveChannelState, type ChannelState } from "@/app/lib/channelState";
 
 export type IntegrationStatusValue = "healthy" | "error" | "stale" | "disconnected" | "no_accounts" | "not_connected";
 
@@ -17,6 +18,8 @@ export type IntegrationStatusRow = {
   oauth_valid: boolean;
   enabled_accounts: number;
   status: IntegrationStatusValue;
+  /** System state for clients; derived from the same fields as `status` + sync + metrics (see `resolveChannelState`). */
+  channel_state: ChannelState;
   reason: string | null;
   /** Optional: Meta/Google integration id for UI (e.g. connections/save). */
   integration_id?: string | null;
@@ -252,20 +255,31 @@ async function countEnabledAccounts(
 
 function safePush(
   integrations: IntegrationStatusRow[],
-  row: IntegrationStatusRow
+  row: Omit<IntegrationStatusRow, "channel_state">
 ): void {
-  console.log("[INTEGRATION_STATUS_ROW]", {
-    platform: row.platform,
-    status: row.status,
-    reason: row.reason ?? null,
-    token_reason_code: row.token_reason_code ?? null,
-    token_temporary: row.token_temporary ?? null,
-    enabled_accounts: row.enabled_accounts,
-  });
-  integrations.push({
+  const normalized: IntegrationStatusRow = {
     ...row,
     reason: row.reason ?? null,
+    channel_state: resolveChannelState({
+      connected: row.connected,
+      oauth_valid: row.oauth_valid,
+      enabled_accounts: row.enabled_accounts,
+      status: row.status,
+      reason: row.reason ?? null,
+      last_sync_status: row.last_sync_status ?? null,
+      data_max_date: row.data_max_date ?? null,
+    }),
+  };
+  console.log("[INTEGRATION_STATUS_ROW]", {
+    platform: normalized.platform,
+    status: normalized.status,
+    channel_state: normalized.channel_state,
+    reason: normalized.reason ?? null,
+    token_reason_code: normalized.token_reason_code ?? null,
+    token_temporary: normalized.token_temporary ?? null,
+    enabled_accounts: normalized.enabled_accounts,
   });
+  integrations.push(normalized);
 }
 
 /**
@@ -298,12 +312,72 @@ export async function GET(req: Request) {
     admin = supabaseAdmin();
   } catch (e) {
     console.error("[INTEGRATION_STATUS_SUPABASE_INIT]", { error: e });
+    const fallbackMeta: Omit<IntegrationStatusRow, "channel_state"> = {
+      platform: "meta",
+      connected: false,
+      oauth_valid: false,
+      enabled_accounts: 0,
+      status: "error",
+      reason: "internal_error",
+      integration_id: null,
+    };
+    const fallbackGoogle: Omit<IntegrationStatusRow, "channel_state"> = {
+      platform: "google",
+      connected: false,
+      oauth_valid: false,
+      enabled_accounts: 0,
+      status: "error",
+      reason: "internal_error",
+      integration_id: null,
+    };
+    const fallbackTiktok: Omit<IntegrationStatusRow, "channel_state"> = {
+      platform: "tiktok",
+      connected: false,
+      oauth_valid: false,
+      enabled_accounts: 0,
+      status: "not_connected",
+      reason: null,
+      integration_id: null,
+    };
     return NextResponse.json({
       success: true,
       integrations: [
-        { platform: "meta", connected: false, oauth_valid: false, enabled_accounts: 0, status: "error" as const, reason: "internal_error", integration_id: null },
-        { platform: "google", connected: false, oauth_valid: false, enabled_accounts: 0, status: "error" as const, reason: "internal_error", integration_id: null },
-        { platform: "tiktok", connected: false, oauth_valid: false, enabled_accounts: 0, status: "not_connected" as const, reason: null, integration_id: null },
+        {
+          ...fallbackMeta,
+          channel_state: resolveChannelState({
+            connected: fallbackMeta.connected,
+            oauth_valid: fallbackMeta.oauth_valid,
+            enabled_accounts: fallbackMeta.enabled_accounts,
+            status: fallbackMeta.status,
+            reason: fallbackMeta.reason,
+            last_sync_status: null,
+            data_max_date: null,
+          }),
+        },
+        {
+          ...fallbackGoogle,
+          channel_state: resolveChannelState({
+            connected: fallbackGoogle.connected,
+            oauth_valid: fallbackGoogle.oauth_valid,
+            enabled_accounts: fallbackGoogle.enabled_accounts,
+            status: fallbackGoogle.status,
+            reason: fallbackGoogle.reason,
+            last_sync_status: null,
+            data_max_date: null,
+          }),
+        },
+        {
+          ...fallbackTiktok,
+          channel_state: resolveChannelState({
+            connected: fallbackTiktok.connected,
+            oauth_valid: fallbackTiktok.oauth_valid,
+            enabled_accounts: fallbackTiktok.enabled_accounts,
+            status: fallbackTiktok.status,
+            reason: fallbackTiktok.reason,
+            last_sync_status: null,
+            data_max_date: null,
+          }),
+        },
       ],
     });
   }

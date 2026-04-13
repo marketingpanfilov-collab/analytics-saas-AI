@@ -1,5 +1,7 @@
 # Validation checklist §13.8 (Billing UX Hardening)
 
+**Канон доступа и тарифов:** [BILLING_ACCESS_MODEL.md](./BILLING_ACCESS_MODEL.md).
+
 Использовать перед мержем фазы контракта и после значимых изменений resolver / bootstrap.
 
 - [ ] Все состояния priority resolver покрыты тест-кейсами (включая `pending_plan_change`, §13.1).

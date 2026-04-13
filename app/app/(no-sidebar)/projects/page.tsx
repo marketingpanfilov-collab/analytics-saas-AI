@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getCurrentUserContext } from "@/app/lib/auth/getCurrentUserContext";
+import { loadBillingCurrentPlan } from "@/app/lib/billingCurrentPlan";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { getPlanMaxProjectsForUser } from "@/app/lib/projectPlanLimit";
 import ProjectsListClient from "../../components/projects/ProjectsListClient";
@@ -17,9 +18,25 @@ export default async function ProjectsPage() {
 
   const admin = supabaseAdmin();
 
+  const billing = await loadBillingCurrentPlan(
+    admin,
+    context.user.id,
+    context.user.email ?? null
+  );
+  if (billing.success && billing.requires_post_checkout_onboarding) {
+    redirect("/app/projects/onboarding");
+  }
+
+  /** Новый пользователь без орг и без проектов — создаёт орг на /app/projects/new, затем первый проект. */
+  const eligibleFirstWorkspace =
+    context.memberships.length === 0 &&
+    context.projects.length === 0 &&
+    context.archivedProjects.length === 0;
+
   const canCreate =
-    context.memberships.length > 0 &&
-    ORG_ROLES_CAN_CREATE.includes(context.memberships[0]!.role);
+    eligibleFirstWorkspace ||
+    (context.memberships.length > 0 &&
+      ORG_ROLES_CAN_CREATE.includes(context.memberships[0]!.role));
 
   const canManageAccess =
     context.memberships.length > 0 &&

@@ -11,7 +11,7 @@
 | `/pricing-comparison` (сессия есть) | Все CTA вели на login | `PricingBuyButton`: Paddle для залогиненных, прежний login URL для гостей; после оплаты — `broadcast` + редирект в `/app` |
 | После оплаты | Ручной refresh | `checkout.completed` → `reloadBootstrap` + `broadcastBillingBootstrapInvalidate` (в провайдере приложения); на лендинге сравнения — инвалидация + `/app` |
 
-Контракт `ResolvedUiStateV1` и `billingShellResolver.ts` **не менялись**. Ветвление UI по `screen`, `reason`, `allowed_actions`, `pending_plan_change`.
+Контракт `ResolvedUiStateV1` и ветвление UI по `screen`, `reason`, `allowed_actions`, `pending_plan_change` остаются каноном. **Обновление продукта:** дефолтный **`no_subscription`** больше **не** маппится на hard **PAYWALL** — см. актуальный [`billingShellResolver.ts`](../../app/lib/billingShellResolver.ts); Free пользователь заходит в продукт (в т.ч. **`/app/projects`**).
 
 ## Файлы
 
@@ -42,7 +42,7 @@
 3. **OVER_LIMIT** — в hard overlay виден inline upgrade + переходы в проекты/команду/аккаунты.
 4. **`pending_plan_change`** — Topbar «Сменить тариф» неактивен; на pricing-comparison кнопка «Приобрести» в состоянии ожидания; в inline-блоках checkout скрыт/заблокирован там, где учтён флаг.
 5. **Multi-tab** — после оплаты в одной вкладке вторая подхватывает обновление через `broadcastBillingBootstrapInvalidate`.
-6. **PAYWALL** — без ухода на логин сравнения можно оплатить из оверлея.
+6. **PAYWALL** (если экран показан resolver’ом/наследием) — без ухода на логин сравнения можно оплатить из оверлея; **типичный новый Free** этот экран не получает при **`no_subscription`**.
 7. **Гость на `/pricing-comparison`** — CTA ведут на прежний `buildLoginPurchaseHref`.
 
 Скриншоты flow в репозиторий не добавлялись (по согласованию — только текст отчёта).

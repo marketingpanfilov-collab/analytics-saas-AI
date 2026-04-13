@@ -2,17 +2,22 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
-import { billingAnalyticsReadGateFromAccess } from "@/app/lib/auth/requireBillingAccess";
+import {
+  billingAnalyticsReadGateFromAccess,
+  billingGateUnavailableResponse,
+} from "@/app/lib/auth/requireBillingAccess";
 import { resolveBillingGateContext } from "@/app/lib/billingCurrentPlan";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
 import {
   countWeeklyReportUsageForMonth,
+  isWeeklyBoardReportPlanAllowed,
   loadProjectOrganizationId,
   maxWeeklyReportsForEffectivePlan,
   weeklyReportUsageMonthUtc,
 } from "@/app/lib/weeklyReportOrgUsage";
 import { getCanonicalSummary } from "@/app/lib/dashboardCanonical";
 import { pickInsightTexts } from "@/app/lib/weeklyReportInsightTexts";
+import { PLAN_RESTRICTED_ANALYTICS_MESSAGE } from "@/app/lib/planRestrictedCopy";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 
 type ExecutiveKpi = {
@@ -642,7 +647,21 @@ export async function GET(req: Request) {
       const ctx = await resolveBillingGateContext(admin, access.userId, user?.email ?? null, {
         projectId,
       });
-      maxWeekly = maxWeeklyReportsForEffectivePlan(ctx.effective_plan);
+      if (!ctx.ok) {
+        return billingGateUnavailableResponse();
+      }
+      if (!isWeeklyBoardReportPlanAllowed(ctx.effective_plan)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: PLAN_RESTRICTED_ANALYTICS_MESSAGE,
+            code: "WEEKLY_REPORT_REQUIRES_PAID_PLAN",
+            effective_plan: ctx.effective_plan,
+          },
+          { status: 403 }
+        );
+      }
+      maxWeekly = maxWeeklyReportsForEffectivePlan(ctx.effective_plan, ctx.experience_tier);
     }
 
     const payload = await buildWeeklyReportPayload(admin, projectId, { start, end, sources, accountIds });
@@ -658,6 +677,7 @@ export async function GET(req: Request) {
           return NextResponse.json(
             {
               success: false,
+              error: PLAN_RESTRICTED_ANALYTICS_MESSAGE,
               code: "WEEKLY_REPORT_LIMIT_REACHED",
               used,
               limit: maxWeekly,

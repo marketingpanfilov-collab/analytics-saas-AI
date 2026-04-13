@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { signSupportAttachments, validateAttachmentPathsForUserTicket } from "@/app/lib/supportAttachments";
 import { checkRateLimit, getRequestIp } from "@/app/lib/security/rateLimit";
 
 type Params = { params: Promise<{ id: string }> };
@@ -27,11 +28,31 @@ export async function GET(_req: Request, { params }: Params) {
   const admin = supabaseAdmin();
   const { data, error } = await admin
     .from("support_ticket_messages")
-    .select("id, sender_role, body, created_at")
+    .select("id, sender_role, body, created_at, attachments")
     .eq("ticket_id", id)
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-  return NextResponse.json({ success: true, messages: data ?? [] });
+
+  const rows = data ?? [];
+  const messages = await Promise.all(
+    rows.map(async (m) => {
+      const signed = await signSupportAttachments(admin, (m as { attachments?: unknown }).attachments);
+      return {
+        id: m.id,
+        sender_role: m.sender_role,
+        body: m.body,
+        created_at: m.created_at,
+        attachments: signed.map((a) => ({
+          name: a.name,
+          size: a.size,
+          url: a.url,
+          content_type: a.content_type,
+        })),
+      };
+    })
+  );
+
+  return NextResponse.json({ success: true, messages });
 }
 
 export async function POST(req: Request, { params }: Params) {
@@ -39,9 +60,22 @@ export async function POST(req: Request, { params }: Params) {
   const check = await getAuthorizedUserTicketId(id);
   if (!check.ok) return NextResponse.json({ success: false, error: check.error }, { status: check.status });
 
-  const body = (await req.json().catch(() => null)) as { body?: string } | null;
+  const body = (await req.json().catch(() => null)) as { body?: string; attachments?: unknown } | null;
   const text = String(body?.body ?? "").trim();
-  if (!text) return NextResponse.json({ success: false, error: "body required" }, { status: 400 });
+  const attParsed = validateAttachmentPathsForUserTicket(check.userId, id, body?.attachments);
+  if (!attParsed.ok) {
+    return NextResponse.json({ success: false, error: attParsed.error }, { status: 400 });
+  }
+  const attachments = attParsed.items;
+  if (!text && attachments.length === 0) {
+    return NextResponse.json({ success: false, error: "body or attachment required" }, { status: 400 });
+  }
+
+  const bodyToStore =
+    text ||
+    (attachments.length === 1
+      ? `📎 ${attachments[0].name}`
+      : `📎 Вложения (${attachments.length})`);
   const ip = getRequestIp(req);
   const rl = await checkRateLimit(`support:reply:user:${check.userId}:${ip}`, 20, 60_000);
   if (!rl.ok) {
@@ -62,7 +96,8 @@ export async function POST(req: Request, { params }: Params) {
     ticket_id: id,
     sender_user_id: check.userId,
     sender_role: "user",
-    body: text,
+    body: bodyToStore,
+    attachments,
     created_at: nowIso,
   });
   if (msgErr) return NextResponse.json({ success: false, error: msgErr.message }, { status: 500 });

@@ -86,9 +86,13 @@ export function inferPlanBillingFromPaddleItems(items: PaddleSubscriptionItem[])
   const first = items[0];
   if (!first?.price_id) return { plan: "unknown", billing: "unknown" };
   const fromPrice = detectPlanFromPriceId(first.price_id);
-  if (fromPrice.plan !== "unknown") return { plan: fromPrice.plan, billing: fromPrice.billing };
+  if (fromPrice.plan === "starter" || fromPrice.plan === "growth" || fromPrice.plan === "scale") {
+    return { plan: fromPrice.plan, billing: fromPrice.billing };
+  }
   const snap = detectPlanFromPaddleSnapshot(first.price_id, first.product_id ?? null);
-  return { plan: snap.plan, billing: snap.billing };
+  const p =
+    snap.plan === "starter" || snap.plan === "growth" || snap.plan === "scale" ? snap.plan : "unknown";
+  return { plan: p, billing: snap.billing };
 }
 
 function buildUpgradeRequestBody(

@@ -5,14 +5,19 @@ import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccess } from "@/app/lib/auth/requireProjectAccess";
-import { billingAnalyticsReadGateBeforeProject } from "@/app/lib/auth/requireBillingAccess";
+import {
+  billingAnalyticsReadGateBeforeProject,
+  billingGateUnavailableResponse,
+} from "@/app/lib/auth/requireBillingAccess";
 import { resolveBillingGateContext } from "@/app/lib/billingCurrentPlan";
 import {
   countWeeklyReportUsageForMonth,
+  isWeeklyBoardReportPlanAllowed,
   loadProjectOrganizationId,
   maxWeeklyReportsForEffectivePlan,
   weeklyReportUsageMonthUtc,
 } from "@/app/lib/weeklyReportOrgUsage";
+import { PLAN_RESTRICTED_ANALYTICS_MESSAGE } from "@/app/lib/planRestrictedCopy";
 
 export async function GET(req: Request) {
   try {
@@ -40,7 +45,21 @@ export async function GET(req: Request) {
 
     const admin = supabaseAdmin();
     const ctx = await resolveBillingGateContext(admin, user.id, user.email ?? null, { projectId });
-    const limit = maxWeeklyReportsForEffectivePlan(ctx.effective_plan);
+    if (!ctx.ok) {
+      return billingGateUnavailableResponse();
+    }
+    if (!isWeeklyBoardReportPlanAllowed(ctx.effective_plan)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: PLAN_RESTRICTED_ANALYTICS_MESSAGE,
+          code: "WEEKLY_REPORT_REQUIRES_PAID_PLAN",
+          effective_plan: ctx.effective_plan,
+        },
+        { status: 403 }
+      );
+    }
+    const limit = maxWeeklyReportsForEffectivePlan(ctx.effective_plan, ctx.experience_tier);
     const month = weeklyReportUsageMonthUtc();
 
     const organizationId = await loadProjectOrganizationId(admin, projectId);

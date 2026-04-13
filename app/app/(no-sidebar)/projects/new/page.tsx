@@ -9,6 +9,23 @@ import PortalTooltip from "@/app/app/components/PortalTooltip";
 
 const ORG_ROLES_CAN_CREATE = ["owner", "admin"];
 
+/** Серверный bootstrap (service role): клиентский supabase не может вставить organizations из-за RLS. */
+async function provisionOrganizationViaApi(): Promise<{ ok: true; organization_id: string } | { ok: false; error: string }> {
+  const res = await fetch("/api/billing/provision-checkout-organization", { method: "POST" });
+  const j = (await res.json()) as {
+    success?: boolean;
+    organization_id?: string;
+    error?: string;
+  };
+  if (!res.ok || !j.success || !j.organization_id) {
+    return {
+      ok: false,
+      error: j.error ?? `HTTP ${res.status}`,
+    };
+  }
+  return { ok: true, organization_id: j.organization_id };
+}
+
 export default function NewProjectPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -19,6 +36,7 @@ export default function NewProjectPage() {
   const [submitLoading, setSubmitLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [planBlocked, setPlanBlocked] = useState(false);
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -29,18 +47,47 @@ export default function NewProjectPage() {
         router.replace("/login");
         return;
       }
+
+      const planRes = await fetch("/api/billing/current-plan", { credentials: "include" });
+      const planJson = (await planRes.json()) as {
+        success?: boolean;
+        requires_post_checkout_onboarding?: boolean;
+      };
+      if (!mounted) return;
+      if (planJson.success && planJson.requires_post_checkout_onboarding === true) {
+        router.replace("/app/projects/onboarding");
+        return;
+      }
+
       const { data: mem } = await supabase
         .from("organization_members")
         .select("organization_id, role")
         .eq("user_id", u.id)
         .maybeSingle();
       if (!mounted) return;
-      if (!mem || !ORG_ROLES_CAN_CREATE.includes((mem.role ?? "") as string)) {
+
+      let orgId: string | null = null;
+      if (mem && ORG_ROLES_CAN_CREATE.includes((mem.role ?? "") as string)) {
+        orgId = mem.organization_id as string;
+      } else if (mem && !ORG_ROLES_CAN_CREATE.includes((mem.role ?? "") as string)) {
         router.replace("/app/projects");
         return;
+      } else {
+        const created = await provisionOrganizationViaApi();
+        if (!mounted) return;
+        if (!created.ok) {
+          setBootstrapError(
+            created.error ||
+              "Не удалось подготовить рабочую область. Обновите страницу или попробуйте позже."
+          );
+          setLoading(false);
+          return;
+        }
+        orgId = created.organization_id;
       }
+
       setUserId(u.id);
-      setOrganizationId(mem.organization_id);
+      setOrganizationId(orgId);
       setAllowed(true);
 
       const res = await fetch("/api/projects", { cache: "no-store" });
@@ -99,11 +146,29 @@ export default function NewProjectPage() {
         setSubmitLoading(false);
         return;
       }
-      router.replace(`/app?project_id=${encodeURIComponent(pid)}`);
+      router.replace(`/app?project_id=${encodeURIComponent(pid)}&post_project_onboarding=1`);
     } catch {
       setError("Не удалось создать проект. Попробуйте ещё раз.");
       setSubmitLoading(false);
     }
+  }
+
+  if (bootstrapError) {
+    return (
+      <div className="mx-auto max-w-2xl space-y-4 p-6">
+        <p className="text-sm text-red-300">{bootstrapError}</p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm text-white hover:bg-white/15"
+        >
+          Обновить страницу
+        </button>
+        <Link href="/app/projects" className="ml-3 text-sm text-zinc-400 hover:text-white">
+          К списку проектов
+        </Link>
+      </div>
+    );
   }
 
   if (loading || !allowed) {

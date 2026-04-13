@@ -6,7 +6,7 @@ export const BOOTSTRAP_PLAN_DISPLAY_FALLBACK = "Подписка активна"
 export type BootstrapPlanTier = "starter" | "growth" | "scale";
 
 function tierLabel(tier: BootstrapPlanTier): string {
-  if (tier === "starter") return "Starter";
+  if (tier === "starter") return "Базовый";
   if (tier === "growth") return "Growth";
   return "Scale";
 }
@@ -39,6 +39,7 @@ export function resolveBootstrapPlanDisplayLabel(
   b: BillingBootstrapApiOk | null | undefined
 ): string {
   if (!b) return BOOTSTRAP_PLAN_DISPLAY_FALLBACK;
+  if (b.experience_tier === "free") return "Free";
 
   const fromEp = tierFromEffectivePlan(b.effective_plan ?? null);
   if (fromEp) return tierLabel(fromEp);
@@ -59,6 +60,7 @@ export function resolveBootstrapPlanAnalyticsSlug(
   b: BillingBootstrapApiOk | null | undefined
 ): string | null {
   if (!b) return null;
+  if (b.experience_tier === "free") return "free";
   const fromEp = tierFromEffectivePlan(b.effective_plan ?? null);
   if (fromEp) return fromEp;
   const fromSub = tierFromSubscriptionPlan(b.subscription?.plan ?? null);

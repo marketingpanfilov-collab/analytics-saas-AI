@@ -12,6 +12,8 @@ const MS_HOUR = 60 * 60 * 1000;
 /** Tariff-based dashboard data TTL (refresh policy). */
 export function getEffectiveDashboardTtlMs(plan: BillingPlanId): number {
   switch (plan) {
+    case "free":
+      return 6 * MS_HOUR;
     case "starter":
       return 6 * MS_HOUR;
     case "growth":

@@ -1,5 +1,7 @@
 # Pending plan change — приоритет в resolver (§2.3 UX Hardening)
 
+**Канон доступа и тарифов:** [BILLING_ACCESS_MODEL.md](./BILLING_ACCESS_MODEL.md).
+
 Дополнение к основному архдоку (§28–§31): модель **A (overlay)**.
 
 ## Вставка в priority
@@ -13,6 +15,6 @@
 
 ## §13.1 Billing доминирует
 
-При **любом** «плохом» `access_state` (`unpaid`, `expired`, `past_due`, `grace_past_due`, `no_subscription`, `refunded`, …) флаг `pending_plan_change` **не** влияет на копирайт: показывается биллинговый reason/screen; в API флаг **сбрасывается** в ответе (`pending_plan_change: false`).
+Если биллинг **не** в «зелёном» окне для overlay смены плана (см. условие выше — в их числе **`no_subscription`**, т.к. нет активной paid-подписки для swap, а также **`unpaid`**, **`expired`**, **`past_due`**, **`grace_past_due`**, **`refunded`**, …), флаг `pending_plan_change` **не** должен показывать оверлей смены плана; в API он **сбрасывается** (`pending_plan_change: false`). Актуальные **`screen` / `reason`** берутся из **`billingShellResolver`**: для типичного Free это **`DASHBOARD` + `OK`**, а не PAYWALL и не сценарий «сначала оплатите подписку».
 
 Реализация: `app/lib/billingShellResolver.ts` + колонка `billing_customer_map.pending_plan_change`.

@@ -2,7 +2,8 @@ import type { PricingPlanId } from "@/app/lib/auth/loginPurchaseUrl";
 import type { BillingPeriod } from "@/app/lib/paddlePriceMap";
 
 export const BILLING_PLAN_LABELS: Record<PricingPlanId, string> = {
-  starter: "Starter",
+  /** UI: не показываем «Starter» — только для legacy price_id / Paddle. */
+  starter: "Базовый",
   growth: "Growth",
   scale: "Scale",
 };
@@ -33,14 +34,17 @@ export function billingYearlySavingsUsd(plan: PricingPlanId): number {
 }
 
 export function formatBillingPriceLabel(plan: PricingPlanId, billing: BillingPeriod): string {
-  if (billing === "monthly") return `${BILLING_MONTHLY_USD[plan]} $ / мес`;
-  return `${billingYearlyTotalUsd(plan)} $ / год`;
+  if (billing === "monthly") return `${BILLING_MONTHLY_USD[plan]} $ / в месяц`;
+  const yearly = billingYearlyTotalUsd(plan);
+  const perMonth = Math.round(yearly / 12);
+  return `${perMonth} $ / в месяц при оплате за год`;
 }
 
-/** Next tier for upgrade CTA; Scale stays on Scale; unknown → Growth */
+/** Next tier for upgrade CTA; Scale stays on Scale; unknown → Growth; free → Growth (Starter скрыт в UI). */
 export function suggestUpgradePlanId(
-  matrixPlan: PricingPlanId | "unknown" | undefined | null
+  matrixPlan: PricingPlanId | "unknown" | "free" | undefined | null
 ): PricingPlanId {
+  if (matrixPlan === "free") return "growth";
   if (matrixPlan === "starter") return "growth";
   if (matrixPlan === "growth") return "scale";
   if (matrixPlan === "scale") return "scale";
@@ -48,13 +52,13 @@ export function suggestUpgradePlanId(
 }
 
 export function defaultInlinePlanId(
-  matrixPlan: PricingPlanId | "unknown" | undefined | null
+  matrixPlan: PricingPlanId | "unknown" | "free" | undefined | null
 ): PricingPlanId {
   return suggestUpgradePlanId(matrixPlan);
 }
 
 export function recommendedInlinePlanId(
-  matrixPlan: PricingPlanId | "unknown" | undefined | null
+  matrixPlan: PricingPlanId | "unknown" | "free" | undefined | null
 ): PricingPlanId {
   return suggestUpgradePlanId(matrixPlan);
 }

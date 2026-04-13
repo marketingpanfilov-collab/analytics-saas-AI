@@ -22,24 +22,31 @@ export async function GET() {
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
 
   const ticketIds = (tickets ?? []).map((t) => t.id as string);
-  const latestMessageByTicket = new Map<string, string>();
+  const latestMessageByTicket = new Map<string, { body: string; sender_role: string }>();
   if (ticketIds.length > 0) {
     const { data: messages } = await admin
       .from("support_ticket_messages")
-      .select("ticket_id, body, created_at")
+      .select("ticket_id, body, created_at, sender_role")
       .in("ticket_id", ticketIds)
       .order("created_at", { ascending: false });
     for (const m of messages ?? []) {
       const tid = String((m as { ticket_id?: string }).ticket_id ?? "");
       if (!tid || latestMessageByTicket.has(tid)) continue;
-      latestMessageByTicket.set(tid, String((m as { body?: string }).body ?? ""));
+      latestMessageByTicket.set(tid, {
+        body: String((m as { body?: string }).body ?? ""),
+        sender_role: String((m as { sender_role?: string }).sender_role ?? ""),
+      });
     }
   }
 
-  const result = (tickets ?? []).map((t) => ({
-    ...(t as Record<string, unknown>),
-    last_message: latestMessageByTicket.get(String(t.id)) ?? null,
-  }));
+  const result = (tickets ?? []).map((t) => {
+    const latest = latestMessageByTicket.get(String(t.id));
+    return {
+      ...(t as Record<string, unknown>),
+      last_message: latest?.body ?? null,
+      last_message_sender_role: latest?.sender_role ?? null,
+    };
+  });
   return NextResponse.json({ success: true, tickets: result });
 }
 

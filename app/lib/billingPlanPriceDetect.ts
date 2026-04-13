@@ -1,6 +1,7 @@
 /** Price id → plan (no DB); shared by billingPlan, orgBillingState, billingCurrentPlan. */
 
-export type BillingPlanId = "starter" | "growth" | "scale" | "unknown";
+/** `free` = виртуальный тариф орг без Paddle/entitlement (лимиты как у Free tier), не продаётся в Paddle. */
+export type BillingPlanId = "starter" | "growth" | "scale" | "unknown" | "free";
 
 function normId(s: string | null | undefined): string {
   return String(s ?? "").trim();

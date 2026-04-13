@@ -4,7 +4,7 @@
  * Returns detected attribution anomalies (current vs baseline).
  */
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { requireAttributionDebuggerApiAccess } from "@/app/lib/auth/requireAttributionDebuggerAccess";
 import { getAttributionAnomalies } from "@/app/lib/attributionAnomalies";
 
 const DEFAULT_WINDOW_HOURS = 24;
@@ -40,7 +40,9 @@ export async function GET(req: Request) {
       );
     }
 
-    const admin = supabaseAdmin();
+    const gate = await requireAttributionDebuggerApiAccess(req, projectId);
+    if (!gate.ok) return gate.response;
+    const admin = gate.admin;
     const anomalies = await getAttributionAnomalies(admin, {
       project_id: projectId,
       current_window_hours: windowHours,

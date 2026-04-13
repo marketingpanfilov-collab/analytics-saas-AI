@@ -9,15 +9,18 @@ import { requireProjectAccess } from "@/app/lib/auth/requireProjectAccess";
 import {
   billingAnalyticsReadGateBeforeProject,
   billingHeavySyncGateBeforeProject,
+  billingGateUnavailableResponse,
 } from "@/app/lib/auth/requireBillingAccess";
 import { resolveBillingGateContext } from "@/app/lib/billingCurrentPlan";
 import {
   consumeWeeklyReportUsageAfterSuccess,
   countWeeklyReportUsageForMonth,
+  isWeeklyBoardReportPlanAllowed,
   loadProjectOrganizationId,
   maxWeeklyReportsForEffectivePlan,
   weeklyReportUsageMonthUtc,
 } from "@/app/lib/weeklyReportOrgUsage";
+import { PLAN_RESTRICTED_ANALYTICS_MESSAGE } from "@/app/lib/planRestrictedCopy";
 import { buildWeeklyReportPayload } from "../route";
 
 const REPORT_TYPE = "weekly_board_report";
@@ -56,6 +59,22 @@ export async function GET(req: Request) {
     }
 
     const admin = supabaseAdmin();
+    const ctxGet = await resolveBillingGateContext(admin, user.id, user.email ?? null, { projectId });
+    if (!ctxGet.ok) {
+      return billingGateUnavailableResponse();
+    }
+    if (!isWeeklyBoardReportPlanAllowed(ctxGet.effective_plan)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: PLAN_RESTRICTED_ANALYTICS_MESSAGE,
+          code: "WEEKLY_REPORT_REQUIRES_PAID_PLAN",
+          effective_plan: ctxGet.effective_plan,
+        },
+        { status: 403 }
+      );
+    }
+
     const { data: row } = await admin
       .from("report_share_links")
       .select("id, token, created_at")
@@ -154,7 +173,21 @@ export async function POST(req: Request) {
     });
 
     const ctx = await resolveBillingGateContext(admin, user.id, user.email ?? null, { projectId });
-    const maxWeekly = maxWeeklyReportsForEffectivePlan(ctx.effective_plan);
+    if (!ctx.ok) {
+      return billingGateUnavailableResponse();
+    }
+    if (!isWeeklyBoardReportPlanAllowed(ctx.effective_plan)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: PLAN_RESTRICTED_ANALYTICS_MESSAGE,
+          code: "WEEKLY_REPORT_REQUIRES_PAID_PLAN",
+          effective_plan: ctx.effective_plan,
+        },
+        { status: 403 }
+      );
+    }
+    const maxWeekly = maxWeeklyReportsForEffectivePlan(ctx.effective_plan, ctx.experience_tier);
     const periodStart = start && /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : monthStart;
     const periodEnd = end && /^\d{4}-\d{2}-\d{2}$/.test(end) ? end : today;
     const usageMonth = weeklyReportUsageMonthUtc();
@@ -175,6 +208,7 @@ export async function POST(req: Request) {
         return NextResponse.json(
           {
             success: false,
+            error: PLAN_RESTRICTED_ANALYTICS_MESSAGE,
             code: consume.code,
             used: consume.used,
             limit: consume.limit,

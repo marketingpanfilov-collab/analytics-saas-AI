@@ -1,10 +1,12 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import WeeklyReportContent, { type WeeklyReportData } from "@/app/app/components/WeeklyReportContent";
 import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
+import { PLAN_RESTRICTED_ANALYTICS_MESSAGE } from "@/app/lib/planRestrictedCopy";
+import PlanRestrictedOverlay from "@/app/app/components/PlanRestrictedOverlay";
 import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
 import { ActionId } from "@/app/lib/billingUiContract";
 
@@ -57,10 +59,15 @@ export default function WeeklyReportExportClient() {
       const json = await res.json();
       if (res.status === 403 && json?.code === "WEEKLY_REPORT_LIMIT_REACHED") {
         setData(null);
-        const used = Number(json.used) ?? 0;
-        const limit = Number(json.limit) ?? 0;
+        setError(PLAN_RESTRICTED_ANALYTICS_MESSAGE);
+        return;
+      }
+      if (res.status === 403 && json?.code === "WEEKLY_REPORT_REQUIRES_PAID_PLAN") {
+        setData(null);
         setError(
-          `Достигнут лимит отчётов на тарифе Starter за месяц (UTC): ${used} из ${limit}. Откройте страницу в новом месяце или смените тариф.`
+          typeof json?.error === "string"
+            ? json.error
+            : PLAN_RESTRICTED_ANALYTICS_MESSAGE
         );
         return;
       }
@@ -118,11 +125,7 @@ export default function WeeklyReportExportClient() {
       });
       const json = await res.json().catch(() => ({}));
       if (res.status === 403 && json?.code === "WEEKLY_REPORT_LIMIT_REACHED") {
-        const used = Number(json.used) ?? 0;
-        const limit = Number(json.limit) ?? 0;
-        setPrintLimitMessage(
-          `Достигнут лимит отчётов на тарифе Starter за месяц (UTC): ${used} из ${limit}. Печать и PDF недоступны до следующего месяца или смены тарифа.`
-        );
+        setPrintLimitMessage(PLAN_RESTRICTED_ANALYTICS_MESSAGE);
         return;
       }
       if (!json?.success) {
@@ -139,8 +142,9 @@ export default function WeeklyReportExportClient() {
     }
   }, [canExportReport, projectId, start, end, sourcesFilter, accountIdsFilter]);
 
+  let body: ReactNode;
   if (!canExportReport) {
-    return (
+    body = (
       <div className="min-h-[60vh] bg-[#0b0b10] p-6" style={{ gridColumn: "2 / -1" }}>
         <p className="text-white/70">Экспорт и печать отчёта недоступны при текущем статусе подписки.</p>
         <Link
@@ -151,33 +155,26 @@ export default function WeeklyReportExportClient() {
         </Link>
       </div>
     );
-  }
-
-  if (!projectId) {
-    return (
+  } else if (!projectId) {
+    body = (
       <div className="min-h-[60vh] bg-[#0b0b10] p-6" style={{ gridColumn: "2 / -1" }}>
         <p className="text-white/70">Укажите project_id в адресе для экспорта.</p>
       </div>
     );
-  }
-
-  if (loading) {
-    return (
+  } else if (loading) {
+    body = (
       <div className="flex min-h-[60vh] items-center justify-center bg-[#0b0b10]" style={{ gridColumn: "2 / -1" }}>
         <p className="text-white/50">Загрузка…</p>
       </div>
     );
-  }
-
-  if (error || !data) {
-    return (
+  } else if (error || !data) {
+    body = (
       <div className="min-h-[60vh] bg-[#0b0b10] p-6" style={{ gridColumn: "2 / -1" }}>
         <p className="text-white/70">{error ?? "Нет данных."}</p>
       </div>
     );
-  }
-
-  return (
+  } else {
+    body = (
     <div className="weekly-report-export min-h-[60vh] bg-[#0b0b10] p-6" style={{ gridColumn: "2 / -1" }}>
       <style>{`
         @media print {
@@ -299,5 +296,16 @@ export default function WeeklyReportExportClient() {
         </section>
       </div>
     </div>
+    );
+  }
+
+  return (
+    <PlanRestrictedOverlay
+      allowedPlans={["starter", "growth", "scale"]}
+      message={PLAN_RESTRICTED_ANALYTICS_MESSAGE}
+      upgradeSource="weekly_report_export"
+    >
+      {body}
+    </PlanRestrictedOverlay>
   );
 }

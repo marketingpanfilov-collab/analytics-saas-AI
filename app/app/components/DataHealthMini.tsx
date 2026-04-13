@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useRef, useEffect, useCallback } from "react";
+import { PLAN_RESTRICTED_ANALYTICS_MESSAGE } from "@/app/lib/planRestrictedCopy";
 import { useBillingBootstrap } from "./BillingBootstrapProvider";
 import { useBillingPricingModalRequest } from "./BillingPricingModalProvider";
 
@@ -129,7 +130,9 @@ export default function DataHealthMini({ projectId, initialData = null }: DataHe
   const router = useRouter();
   const { bootstrap } = useBillingBootstrap();
   const { requestBillingPricingModal } = useBillingPricingModalRequest();
-  const isStarterPlan = bootstrap?.effective_plan === "starter";
+  /** Только Growth / Scale: оценка и рекомендации (см. попап и Topbar prefetch). */
+  const hasPaidDataQualityAccess =
+    bootstrap?.effective_plan === "growth" || bootstrap?.effective_plan === "scale";
 
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [data, setData] = useState<DataQualityPayload | null>(initialData ?? null);
@@ -186,12 +189,12 @@ export default function DataHealthMini({ projectId, initialData = null }: DataHe
     }
   }, [projectId]);
 
-  // When panel opens and we have projectId, fetch if no data yet (Starter — без запроса)
+  // Качество данных по API — только на Growth/Scale; на бесплатном/базовом тарифе запрос не делаем
   useEffect(() => {
-    if (popoverOpen && projectId && !data && !loading && !isStarterPlan) {
+    if (popoverOpen && projectId && !data && !loading && hasPaidDataQualityAccess) {
       fetchData();
     }
-  }, [popoverOpen, projectId, data, loading, fetchData, isStarterPlan]);
+  }, [popoverOpen, projectId, data, loading, fetchData, hasPaidDataQualityAccess]);
 
   // Sync initialData into local state when it becomes available from parent
   useEffect(() => {
@@ -215,7 +218,7 @@ export default function DataHealthMini({ projectId, initialData = null }: DataHe
   const v = Math.max(0, Math.min(100, score));
   const status = getStatusFromScore(v);
 
-  const onStarterChangePlan = useCallback(() => {
+  const onDataQualityUpgradeClick = useCallback(() => {
     const opened = requestBillingPricingModal("data_quality_starter", { force: true });
     if (!opened) router.push("/app/settings");
   }, [requestBillingPricingModal, router]);
@@ -261,7 +264,7 @@ export default function DataHealthMini({ projectId, initialData = null }: DataHe
           </span>
           <span style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.9)" }}>Качество данных</span>
         </div>
-        {isStarterPlan ? (
+        {!hasPaidDataQualityAccess ? (
           <span style={{ fontSize: 12, fontWeight: 700, color: "#3ddc97", marginTop: 1, marginLeft: 19 }}>
             Нет доступа
           </span>
@@ -306,16 +309,15 @@ export default function DataHealthMini({ projectId, initialData = null }: DataHe
             }
           `}</style>
 
-          {isStarterPlan ? (
+          {!hasPaidDataQualityAccess ? (
             <div style={{ padding: 20 }}>
               <div style={{ fontWeight: 700, fontSize: 16, color: "white", marginBottom: 6 }}>Качество данных</div>
               <p style={{ color: "rgba(255,255,255,0.65)", margin: 0, lineHeight: 1.45, fontSize: 13 }}>
-                На тарифе Starter этот показатель недоступен. На Growth и Scale отображаются оценка качества данных и
-                рекомендации по атрибуции.
+                {PLAN_RESTRICTED_ANALYTICS_MESSAGE}
               </p>
               <button
                 type="button"
-                onClick={onStarterChangePlan}
+                onClick={onDataQualityUpgradeClick}
                 className="mt-3.5 w-full cursor-pointer rounded-[10px] bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/80"
               >
                 Сменить тариф

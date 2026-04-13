@@ -114,7 +114,7 @@ function Dot({ color }: { color: string }) {
 }
 
 export default function Topbar({ email }: { email?: string }) {
-  type CurrentPlan = "starter" | "growth" | "scale" | "unknown";
+  type CurrentPlan = "starter" | "growth" | "scale" | "unknown" | "free";
 
   const router = useRouter();
   const pathname = usePathname();
@@ -124,9 +124,21 @@ export default function Topbar({ email }: { email?: string }) {
   const { bootstrap, resolvedUi, loading: billingUiLoading } = useBillingBootstrap();
   const matrix = bootstrap?.plan_feature_matrix;
   const isMaxPlan = resolveBootstrapPlanTier(bootstrap ?? null) === "scale";
+  const canPrefetchDataQuality = useMemo(
+    () => bootstrap?.effective_plan === "growth" || bootstrap?.effective_plan === "scale",
+    [bootstrap?.effective_plan]
+  );
 
   const { currentPlan, currentPlanStatus, currentPlanUntil, neutralPaidPlan } = useMemo(() => {
     const sub = bootstrap?.subscription;
+    if (bootstrap?.experience_tier === "free") {
+      return {
+        currentPlan: "free" as const,
+        currentPlanStatus: "unknown",
+        currentPlanUntil: null as string | null,
+        neutralPaidPlan: false,
+      };
+    }
     const tier = resolveBootstrapPlanTier(bootstrap ?? null);
     if (tier) {
       return {
@@ -153,9 +165,28 @@ export default function Topbar({ email }: { email?: string }) {
   }, [bootstrap]);
 
   const planTheme = useMemo(() => {
+    /* Первый запрос: пока нет bootstrap — не показываем «No plan» */
+    if (billingUiLoading && bootstrap == null) {
+      return {
+        label: "Загрузка...",
+        dot: "rgba(148,163,184,0.55)",
+        border: "rgba(148,163,184,0.22)",
+        bg: "rgba(148,163,184,0.08)",
+        dotGlow: "rgba(148,163,184,0.12)",
+      };
+    }
+    if (currentPlan === "free") {
+      return {
+        label: "Free",
+        dot: "rgba(251,191,36,0.95)",
+        border: "rgba(251,191,36,0.4)",
+        bg: "rgba(251,191,36,0.12)",
+        dotGlow: "rgba(251,191,36,0.22)",
+      };
+    }
     if (currentPlan === "starter") {
       return {
-        label: "Starter",
+        label: "Базовый",
         dot: "rgba(200,200,210,0.95)",
         border: "rgba(255,255,255,0.16)",
         bg: "rgba(255,255,255,0.06)",
@@ -196,7 +227,7 @@ export default function Topbar({ email }: { email?: string }) {
       bg: "rgba(148,163,184,0.14)",
       dotGlow: "rgba(148,163,184,0.2)",
     };
-  }, [currentPlan, neutralPaidPlan]);
+  }, [billingUiLoading, bootstrap, currentPlan, neutralPaidPlan]);
 
   type DataQualityPayload = {
     has_data: boolean;
@@ -282,6 +313,10 @@ export default function Topbar({ email }: { email?: string }) {
   const unreadCount = useMemo(() => notices.filter((n) => n.unread).length, [notices]);
 
   useEffect(() => {
+    if (!canPrefetchDataQuality) {
+      setDataQuality(null);
+      return;
+    }
     async function loadDataQuality() {
       if (!projectId) {
         setDataQuality(null);
@@ -331,7 +366,7 @@ export default function Topbar({ email }: { email?: string }) {
       }
     }
     loadDataQuality();
-  }, [projectId]);
+  }, [projectId, canPrefetchDataQuality]);
 
   // ✅ Закрытие попапа по клику вне
   useEffect(() => {

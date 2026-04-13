@@ -1,6 +1,6 @@
 /**
  * Разрешить только внутренние пути под `/app` (без open-redirect).
- * Используется в proxy, auth callback и редиректах после логина.
+ * Используется в proxy, auth callback, письме подтверждения email и редиректах после логина.
  */
 export function safeAppNextTarget(raw: string | null, origin: string): string | null {
   if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return null;

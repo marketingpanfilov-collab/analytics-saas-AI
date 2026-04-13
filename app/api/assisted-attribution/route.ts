@@ -5,10 +5,8 @@
  * (first_touch, assist, last_touch), plus aggregated channels table.
  */
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { requireAttributionDebuggerApiAccess } from "@/app/lib/auth/requireAttributionDebuggerAccess";
 import { buildAssistedAttribution } from "@/app/lib/assistedAttribution";
-import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
-import { billingAnalyticsReadGateFromAccess } from "@/app/lib/auth/requireBillingAccess";
 
 const DEFAULT_DAYS = 30;
 const ALLOWED_DAYS = [7, 30, 90];
@@ -52,13 +50,9 @@ export async function GET(req: Request) {
         { status: 400 }
       );
     }
-    const access = await requireProjectAccessOrInternal(req, projectId);
-    if (!access.allowed) return NextResponse.json(access.body, { status: access.status });
-
-    const billing = await billingAnalyticsReadGateFromAccess(access);
-    if (!billing.ok) return billing.response;
-
-    const admin = supabaseAdmin();
+    const gate = await requireAttributionDebuggerApiAccess(req, projectId);
+    if (!gate.ok) return gate.response;
+    const admin = gate.admin;
     const { conversions, channels, diagnostics } = await buildAssistedAttribution(admin, {
       project_id: projectId,
       days,

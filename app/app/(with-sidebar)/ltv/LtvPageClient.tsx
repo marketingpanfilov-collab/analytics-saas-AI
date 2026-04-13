@@ -12,7 +12,9 @@ import { LTV_HELP_CROSS_BOARD_PARITY } from "./ltvHelpCopy";
 import { resolveLtvWidgetState } from "@/app/lib/billingWidgetState";
 import { useBillingBootstrap } from "../../components/BillingBootstrapProvider";
 import BillingWidgetPlaceholder from "../../components/BillingWidgetPlaceholder";
+import { PLAN_RESTRICTED_ANALYTICS_MESSAGE } from "@/app/lib/planRestrictedCopy";
 import PlanRestrictedOverlay from "../../components/PlanRestrictedOverlay";
+import { bumpIntentCounter } from "@/app/lib/freeTierIntentSession";
 
 const pillStyle = (active: boolean) => ({
   padding: "6px 16px",
@@ -524,6 +526,12 @@ export default function LtvPageClient() {
     () => resolveLtvWidgetState(resolvedUi, bootstrap?.plan_feature_matrix),
     [resolvedUi, bootstrap?.plan_feature_matrix]
   );
+
+  useEffect(() => {
+    if (bootstrap?.experience_tier !== "free") return;
+    bumpIntentCounter("ltv_page_view");
+  }, [bootstrap?.experience_tier]);
+
   const selectedSources = useMemo(
     () =>
       (searchParams.get("sources") ?? "")
@@ -1007,7 +1015,7 @@ export default function LtvPageClient() {
   return (
     <PlanRestrictedOverlay
       allowedPlans={["growth", "scale"]}
-      message="Полная аналитика доступна на тарифах Growth и Scale. Обновите тариф, чтобы открыть эти данные."
+      message={PLAN_RESTRICTED_ANALYTICS_MESSAGE}
       upgradeSource="plan_restricted_ltv"
     >
     <div style={{ background: "#0a0a0a", minHeight: "100%", padding: "24px 24px 40px", maxWidth: 1280, margin: "0 auto" }}>

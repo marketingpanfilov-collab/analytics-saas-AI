@@ -12,6 +12,7 @@ import {
 } from "@/app/lib/billingUiContract";
 import type { PlanFeatureMatrix } from "@/app/lib/planConfig";
 import type { OnboardingProgress } from "@/app/lib/billingCurrentPlan";
+import type { ExperienceTier } from "@/app/lib/billingExperienceTier";
 
 export const BILLING_BOOTSTRAP_RETRY_DELAYS_MS = [1000, 3000, 5000] as const;
 export const BILLING_LAST_KNOWN_TTL_MS = 5 * 60 * 1000;
@@ -129,6 +130,8 @@ export type BillingBootstrapApiOk = {
   has_org_membership?: boolean;
   onboarding_progress?: OnboardingProgress | null;
   plan_feature_matrix?: PlanFeatureMatrix;
+  /** Продуктовый Free-tier поверх `access_state` (null = не Free). */
+  experience_tier?: ExperienceTier;
   /** Включённые рекламные аккаунты в организации (см. bootstrap). */
   org_enabled_ad_accounts?: number | null;
   resolved_ui_state: ResolvedUiStateV1;
@@ -166,6 +169,7 @@ export function logBillingBootstrapSnapshot(tag: string, payload: BillingBootstr
       request_id: payload.request_id,
       primary_org_id: payload.primary_org_id ?? null,
       access_state: payload.access_state ?? null,
+      experience_tier: payload.experience_tier ?? null,
       effective_plan: payload.effective_plan ?? null,
       requires_post_checkout_onboarding: payload.requires_post_checkout_onboarding ?? null,
       post_checkout_onboarding_step: payload.post_checkout_onboarding_step ?? null,
@@ -280,6 +284,9 @@ export function isBootstrapResponseValid(json: unknown): json is BillingBootstra
     if (typeof fr.over_limit_ui !== "boolean") return false;
     if (typeof fr.pending_plan_banner !== "boolean") return false;
     if (typeof fr.client_gating !== "boolean") return false;
+  }
+  if (o.experience_tier !== undefined && o.experience_tier !== null && o.experience_tier !== "free") {
+    return false;
   }
   return true;
 }

@@ -110,51 +110,74 @@ function BillingPricingModalProviderInner({ children }: { children: ReactNode })
                 style={{
                   position: "relative",
                   maxWidth: "min(880px, calc(100vw - 40px))",
+                  maxHeight: "min(92vh, calc(100vh - 40px))",
                   width: "100%",
                   borderRadius: 18,
                   border: "1px solid rgba(255,255,255,0.12)",
                   background: "rgba(18,18,26,0.98)",
-                  padding: "32px 32px 30px",
                   boxShadow: "0 24px 80px rgba(0,0,0,0.65)",
                   boxSizing: "border-box",
+                  display: "flex",
+                  flexDirection: "column",
+                  overflow: "hidden",
                 }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <button
-                  type="button"
-                  onClick={close}
+                <div
                   style={{
-                    position: "absolute",
-                    top: 18,
-                    right: 18,
+                    position: "sticky",
+                    top: 0,
                     zIndex: 20,
-                    width: 40,
-                    height: 40,
-                    margin: 0,
-                    padding: 0,
-                    border: "1px solid rgba(255,255,255,0.2)",
-                    background: "rgba(255,255,255,0.06)",
-                    color: "white",
-                    borderRadius: 10,
-                    cursor: "pointer",
+                    flexShrink: 0,
                     display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    lineHeight: 0,
+                    justifyContent: "flex-end",
+                    padding: "14px 14px 0",
+                    background: "linear-gradient(to bottom, rgba(18,18,26,0.98) 70%, rgba(18,18,26,0))",
                   }}
-                  aria-label="Закрыть"
                 >
-                  <span style={{ fontSize: 18, lineHeight: 1, display: "block" }}>✕</span>
-                </button>
-                <BillingInlinePricingSuspended
-                  projectId={projectId}
-                  suggestPlan={suggestUpgradePlanId(bootstrap?.plan_feature_matrix?.plan)}
-                  showComparisonLink
-                  widePlanGrid
-                  pricingModalEntrySource={pricingModalEntrySource}
-                  onAfterCheckoutCompleted={close}
-                  variant={resolvedUi?.screen === ScreenId.OVER_LIMIT_FULLSCREEN ? "over_limit" : "default"}
-                />
+                  <button
+                    type="button"
+                    onClick={close}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      margin: 0,
+                      padding: 0,
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      background: "rgba(255,255,255,0.06)",
+                      color: "white",
+                      borderRadius: 10,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      lineHeight: 0,
+                    }}
+                    aria-label="Закрыть"
+                  >
+                    <span style={{ fontSize: 18, lineHeight: 1, display: "block" }}>✕</span>
+                  </button>
+                </div>
+                <div
+                  className="scrollbar-hidden"
+                  style={{
+                    flex: "1 1 auto",
+                    minHeight: 0,
+                    overflowY: "auto",
+                    padding: "4px 32px 30px",
+                    boxSizing: "border-box",
+                  }}
+                >
+                  <BillingInlinePricingSuspended
+                    projectId={projectId}
+                    suggestPlan={suggestUpgradePlanId(bootstrap?.plan_feature_matrix?.plan)}
+                    showComparisonLink
+                    widePlanGrid
+                    pricingModalEntrySource={pricingModalEntrySource}
+                    onAfterCheckoutCompleted={close}
+                    variant={resolvedUi?.screen === ScreenId.OVER_LIMIT_FULLSCREEN ? "over_limit" : "default"}
+                  />
+                </div>
               </div>
             </div>,
             document.body

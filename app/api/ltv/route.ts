@@ -23,8 +23,12 @@ import { NextResponse } from "next/server";
 import { createServerSupabase } from "@/app/lib/supabaseServer";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
 import { requireProjectAccess } from "@/app/lib/auth/requireProjectAccess";
-import { resolveBillingGateContext } from "@/app/lib/billingCurrentPlan";
-import { accessStateAllowsAnalyticsRead } from "@/app/lib/accessState";
+import { billingGateUnavailableResponse } from "@/app/lib/auth/requireBillingAccess";
+import {
+  resolveBillingGateContext,
+  resolvePlanFeatureMatrixForBillingGate,
+} from "@/app/lib/billingCurrentPlan";
+import { canReadAnalytics } from "@/app/lib/billingExperienceTier";
 import { getCanonicalSummary } from "@/app/lib/dashboardCanonical";
 import {
   buildVisitorAndSessionMaps,
@@ -69,6 +73,31 @@ function maxIsoDate(a: string, b: string): string {
 }
 function minIsoDate(a: string, b: string): string {
   return a <= b ? a : b;
+}
+
+/** Starter / Free: cap KPI window so API cannot return wider LTV than UI (ltv_full_history false). */
+const LTV_LIMITED_WINDOW_DAYS = 30;
+
+function clampLtvDateRangeForPlan(
+  paramStart: string,
+  paramEnd: string,
+  ltvFullHistory: boolean
+): { start: string; end: string; range_capped: boolean } {
+  if (ltvFullHistory) {
+    return { start: paramStart, end: paramEnd, range_capped: false };
+  }
+  const endMs = Date.parse(`${paramEnd}T12:00:00Z`);
+  const startMs = Date.parse(`${paramStart}T12:00:00Z`);
+  if (!Number.isFinite(endMs) || !Number.isFinite(startMs) || startMs > endMs) {
+    return { start: paramStart, end: paramEnd, range_capped: false };
+  }
+  const maxSpanMs = (LTV_LIMITED_WINDOW_DAYS - 1) * 86400000;
+  if (endMs - startMs <= maxSpanMs) {
+    return { start: paramStart, end: paramEnd, range_capped: false };
+  }
+  const capStartMs = endMs - maxSpanMs;
+  const capStart = new Date(capStartMs).toISOString().slice(0, 10);
+  return { start: capStart, end: paramEnd, range_capped: true };
 }
 
 type PurchaseRow = {
@@ -127,8 +156,8 @@ function isPlatformSource(v: string): v is (typeof PLATFORM_SOURCES)[number] {
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const projectId = searchParams.get("project_id")?.trim() ?? "";
-  const start = toISODate(searchParams.get("start"));
-  const end = toISODate(searchParams.get("end"));
+  const paramStart = toISODate(searchParams.get("start"));
+  const paramEnd = toISODate(searchParams.get("end"));
   const cohortMonth = searchParams.get("cohort_month")?.trim() ?? ""; // YYYY-MM
   const acquisitionSourceParam = searchParams.get("acquisition_source")?.trim().toLowerCase() ?? "";
   const sourcesRaw = searchParams.get("sources")?.trim() ?? "";
@@ -149,7 +178,7 @@ export async function GET(req: Request) {
   if (!projectId) {
     return NextResponse.json({ success: false, error: "project_id required" }, { status: 400 });
   }
-  if (!start || !end) {
+  if (!paramStart || !paramEnd) {
     return NextResponse.json(
       { success: false, error: "start and end required (YYYY-MM-DD)" },
       { status: 400 }
@@ -172,7 +201,10 @@ export async function GET(req: Request) {
     const admin = supabaseAdmin();
     const email = (user.email ?? "").trim().toLowerCase() || null;
     const gate = await resolveBillingGateContext(admin, user.id, email, { projectId });
-    if (!accessStateAllowsAnalyticsRead(gate.access_state)) {
+    if (!gate.ok) {
+      return billingGateUnavailableResponse();
+    }
+    if (!canReadAnalytics({ access_state: gate.access_state, experience_tier: gate.experience_tier })) {
       return NextResponse.json(
         {
           success: false,
@@ -184,6 +216,16 @@ export async function GET(req: Request) {
         { status: 402 }
       );
     }
+
+    const planMatrix = resolvePlanFeatureMatrixForBillingGate({
+      effective_plan: gate.effective_plan,
+      experience_tier: gate.experience_tier,
+    });
+
+    const ltvWindow = clampLtvDateRangeForPlan(paramStart, paramEnd, planMatrix.ltv_full_history);
+    const start = ltvWindow.start;
+    const end = ltvWindow.end;
+    const ltvRangeCapped = ltvWindow.range_capped;
 
     // Project currency: conversion_events.value is stored in project currency. Expose for frontend formatting.
     const { data: projectRow } = await admin
@@ -1249,6 +1291,11 @@ export async function GET(req: Request) {
       cohortRevenueRows,
       currency_diagnostics: currencyDiagnostics,
       ltv_curve_mode: ltvCurveMode,
+      billing_plan_hints: {
+        ltv_full_history: planMatrix.ltv_full_history,
+        plan: planMatrix.plan,
+        ltv_range_capped: ltvRangeCapped,
+      },
     });
   } catch (e) {
     console.error("[LTV_FATAL]", e);

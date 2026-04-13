@@ -7,7 +7,7 @@
 - **`reloadBootstrap(): Promise<ResolvedUiStateV1 | null>`** + single-flight в [`BillingBootstrapProvider.tsx`](../../app/app/components/BillingBootstrapProvider.tsx); свежий `resolved_ui_state` после каждого await для polling.
 - **Очистка маршрутов:** `clearBillingRouteStorage()` при logout (Topbar, shell gate), при **смене user id** и **SIGNED_OUT** (listener в провайдере).
 - **Триггеры** ([`BillingPricingModalProvider.tsx`](../../app/app/components/BillingPricingModalProvider.tsx)): dashboard Full re-sync, ConnectSourcesModal, Weekly report Export — при блокировке и `isBillingBlocking` открывается одна модалка (guard от повторного open в read-only баннере).
-- **Аналитика** [`app/lib/billingCjmAnalytics.ts`](../../app/lib/billingCjmAnalytics.ts): `paywall_shown`, `checkout_opened`, `checkout_success` / `checkout_cancel`, `upgrade_clicked`; дедуп по `request_id` + screen для paywall/checkout_opened.
+- **Аналитика** [`app/lib/billingCjmAnalytics.ts`](../../app/lib/billingCjmAnalytics.ts): `paywall_shown`, `checkout_opened`, `checkout_success` / `checkout_cancel`, `upgrade_clicked`; дедуп по `request_id` + screen для paywall/checkout_opened. Событие **`paywall_shown`** ожидается при фактическом экране **`PAYWALL`**; **новый Free** после signup с **`no_subscription`** обычно **не** проходит через этот экран (резолвер отдаёт **`DASHBOARD` + `OK`**).
 - **Матрица аудита:** [`docs/billing/CJM_AUDIT_MATRIX.md`](CJM_AUDIT_MATRIX.md).
 
 ## 2. Обработка задержки webhook (webhook delay)

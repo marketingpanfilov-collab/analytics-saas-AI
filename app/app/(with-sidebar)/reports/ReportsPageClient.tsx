@@ -38,6 +38,9 @@ import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
 import { resolveReportsWidgetState } from "@/app/lib/billingWidgetState";
 import { useBillingBootstrap } from "../../components/BillingBootstrapProvider";
 import BillingWidgetPlaceholder from "../../components/BillingWidgetPlaceholder";
+import { PLAN_RESTRICTED_ANALYTICS_MESSAGE } from "@/app/lib/planRestrictedCopy";
+import PlanRestrictedOverlay from "../../components/PlanRestrictedOverlay";
+import { bumpIntentCounter } from "@/app/lib/freeTierIntentSession";
 import { ignoreAbortRejection, isAbortError, safeAbortController } from "@/app/lib/abortUtils";
 import { getSharedCached } from "@/app/lib/sharedDataCache";
 import { parseDashboardRangeParams } from "@/app/lib/dashboardRangeParams";
@@ -971,6 +974,12 @@ export default function ReportsPageClient() {
     () => resolveReportsWidgetState(resolvedUi, bootstrap?.plan_feature_matrix),
     [resolvedUi, bootstrap?.plan_feature_matrix]
   );
+
+  useEffect(() => {
+    if (bootstrap?.experience_tier !== "free") return;
+    bumpIntentCounter("reports_page_view");
+  }, [bootstrap?.experience_tier]);
+
   const [data, setData] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1443,21 +1452,24 @@ export default function ReportsPageClient() {
     ]
   );
 
-  const handleDateBlur = () => {
-    const nextFrom = projectMinDate && draftDateFrom < projectMinDate ? projectMinDate : draftDateFrom;
-    const nextTo = projectMinDate && draftDateTo < projectMinDate ? projectMinDate : draftDateTo;
-    if (nextFrom > nextTo) return;
-    if (nextFrom !== draftDateFrom) setDraftDateFrom(nextFrom);
-    if (nextTo !== draftDateTo) setDraftDateTo(nextTo);
-    if (nextFrom === appliedDateFrom && nextTo === appliedDateTo) return;
-    setAppliedDateFrom(nextFrom);
-    setAppliedDateTo(nextTo);
-    const params = new URLSearchParams(searchParams.toString());
-    if (projectId) params.set("project_id", projectId);
-    params.set("start", nextFrom);
-    params.set("end", nextTo);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-  };
+  const applyDraftDateRange = useCallback(
+    (from: string, to: string) => {
+      const nextFrom = projectMinDate && from < projectMinDate ? projectMinDate : from;
+      const nextTo = projectMinDate && to < projectMinDate ? projectMinDate : to;
+      if (nextFrom > nextTo) return;
+      setDraftDateFrom(nextFrom);
+      setDraftDateTo(nextTo);
+      if (nextFrom === appliedDateFrom && nextTo === appliedDateTo) return;
+      setAppliedDateFrom(nextFrom);
+      setAppliedDateTo(nextTo);
+      const params = new URLSearchParams(searchParams.toString());
+      if (projectId) params.set("project_id", projectId);
+      params.set("start", nextFrom);
+      params.set("end", nextTo);
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [projectMinDate, appliedDateFrom, appliedDateTo, searchParams, router, pathname, projectId]
+  );
 
   useLayoutEffect(() => {
     if (!projectId) return;
@@ -1910,34 +1922,28 @@ export default function ReportsPageClient() {
     return [base * 0.4, base * 0.6, base * 0.8, base, base * 0.9, base].map((v) => v * 100);
   };
 
+  let reportsBody: ReactNode;
+
   if (!projectId) {
-    return (
+    reportsBody = (
       <div style={{ padding: 24, color: COLOR_TEXT, textAlign: "center" }}>
         <p>
           Выберите проект: <code style={{ background: "rgba(255,255,255,0.1)", padding: "2px 8px", borderRadius: 6 }}>?project_id=...</code>
         </p>
       </div>
     );
-  }
-
-  if (reportsPack.state === "LOADING") {
-    return <ReportsPageSkeleton />;
-  }
-
-  if (reportsPack.state === "BLOCKED") {
-    return (
+  } else if (reportsPack.state === "LOADING") {
+    reportsBody = <ReportsPageSkeleton />;
+  } else if (reportsPack.state === "BLOCKED") {
+    reportsBody = (
       <div style={{ padding: 24, color: COLOR_TEXT }}>
         <BillingWidgetPlaceholder pack={reportsPack} minHeight={220} />
       </div>
     );
-  }
-
-  if (loading && !data) {
-    return <ReportsPageSkeleton />;
-  }
-
-  if (!data) {
-    return (
+  } else if (loading && !data) {
+    reportsBody = <ReportsPageSkeleton />;
+  } else if (!data) {
+    reportsBody = (
       <div style={{ padding: 24, color: COLOR_RED, textAlign: "center" }}>
         {error ?? "Нет данных"}
         <button
@@ -1961,8 +1967,7 @@ export default function ReportsPageClient() {
         </button>
       </div>
     );
-  }
-
+  } else {
   const { plan, kpi, budget, campaign_table, forecast, canonical_ad_row_count, channel_summary } = data;
   const channelRows = channel_summary ?? [];
 
@@ -2010,7 +2015,7 @@ export default function ReportsPageClient() {
       ? kpi.average_touches_before_purchase.toFixed(1)
       : "—";
 
-  return (
+  reportsBody = (
     <div style={{ background: REPORT_PAGE_BG, minHeight: "100%" }} className="mx-auto max-w-7xl space-y-5 px-6 py-6">
       {reportsPack.state === "LIMITED" ? (
         <BillingWidgetPlaceholder pack={reportsPack} minHeight={72} />
@@ -2221,13 +2226,16 @@ export default function ReportsPageClient() {
             >
               <div
                 className="dashboard-native-date-range"
+                role="group"
+                title="Фильтр по дате"
+                aria-label="Фильтр по дате"
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 6,
+                  gap: 4,
                   height: 40,
                   boxSizing: "border-box",
-                  padding: "0 10px",
+                  padding: "0 8px",
                   borderRadius: 12,
                   border: "1px solid rgba(255,255,255,0.10)",
                   background: "rgba(255,255,255,0.04)",
@@ -2237,41 +2245,43 @@ export default function ReportsPageClient() {
                 <input
                   type="date"
                   value={draftDateFrom}
-                  onChange={(e) => setDraftDateFrom(e.target.value)}
-                  onBlur={handleDateBlur}
+                  onChange={(e) => applyDraftDateRange(e.target.value, draftDateTo)}
                   min={projectMinDate ?? undefined}
+                  aria-label="Дата начала периода"
                   style={{
                     background: "transparent",
                     border: "none",
                     color: "white",
                     outline: "none",
-                    fontSize: 13,
+                    fontSize: 12,
                     lineHeight: 1,
-                    height: 24,
-                    padding: 0,
-                    minWidth: 120,
-                    width: 120,
+                    height: 22,
+                    minWidth: 108,
+                    width: 108,
+                    maxWidth: 108,
                     cursor: "pointer",
                   }}
                 />
-                <span style={{ opacity: 0.6, fontSize: 11, cursor: "pointer" }}>—</span>
+                <span style={{ opacity: 0.6, fontSize: 11, cursor: "pointer" }} aria-hidden="true">
+                  —
+                </span>
                 <input
                   type="date"
                   value={draftDateTo}
-                  onChange={(e) => setDraftDateTo(e.target.value)}
-                  onBlur={handleDateBlur}
+                  onChange={(e) => applyDraftDateRange(draftDateFrom, e.target.value)}
                   min={projectMinDate ?? undefined}
+                  aria-label="Дата окончания периода"
                   style={{
                     background: "transparent",
                     border: "none",
                     color: "white",
                     outline: "none",
-                    fontSize: 13,
+                    fontSize: 12,
                     lineHeight: 1,
-                    height: 24,
-                    padding: 0,
-                    minWidth: 120,
-                    width: 120,
+                    height: 22,
+                    minWidth: 108,
+                    width: 108,
+                    maxWidth: 108,
                     cursor: "pointer",
                   }}
                 />
@@ -3101,5 +3111,16 @@ export default function ReportsPageClient() {
         </div>
       )}
     </div>
+  );
+  }
+
+  return (
+    <PlanRestrictedOverlay
+      allowedPlans={["starter", "growth", "scale"]}
+      message={PLAN_RESTRICTED_ANALYTICS_MESSAGE}
+      upgradeSource="reports_marketing_plan"
+    >
+      {reportsBody}
+    </PlanRestrictedOverlay>
   );
 }

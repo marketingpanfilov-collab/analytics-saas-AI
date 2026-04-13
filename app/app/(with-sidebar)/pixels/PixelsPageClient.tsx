@@ -45,15 +45,8 @@ type StatusKind = "green" | "yellow" | "red";
 
 const TABS = [
   { id: "pixel" as const, label: "Pixel installation", icon: "🛜" },
-  { id: "gtm" as const, label: "Google Tag Manager", icon: "📦" },
   { id: "conversion" as const, label: "Conversion events", icon: "📊" },
   { id: "crm" as const, label: "CRM integration", icon: "🔗" },
-];
-
-const AUTO_COLLECTED = [
-  "visitor_id", "session_id", "click_id", "page_url", "referrer",
-  "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
-  "fbclid", "gclid", "ttclid", "fbc", "fbp",
 ];
 
 const GTM_STEPS = [
@@ -205,6 +198,7 @@ export default function PixelsPageClient() {
 
   const [origin, setOrigin] = useState("");
   const [activeTab, setActiveTab] = useState<(typeof TABS)[number]["id"]>("pixel");
+  const [pixelInstallSource, setPixelInstallSource] = useState<"code" | "gtm">("code");
   const [copied, setCopied] = useState(false);
   const [visitStatus, setVisitStatus] = useState<VisitStatus | null>(null);
   const [visitLoading, setVisitLoading] = useState(true);
@@ -630,37 +624,62 @@ ${generatedPurchaseJson}`;
       <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-5 shadow-lg">
         {activeTab === "pixel" && (
           <>
-            <h2 className="text-base font-semibold text-white">Установка пикселя</h2>
-            <p className="mt-1 text-xs text-neutral-400">Скрипт перед <code className="rounded bg-neutral-800 px-1">&lt;/body&gt;</code></p>
-            <div className="mt-3">
-              <CodeBlock code={snippetPixel} onCopy={copyToClipboard} copied={copied} copyLabel="Copy code" />
-            </div>
-            <div className="mt-4 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
-              <div className="text-xs font-medium text-emerald-200">Automatic tracking</div>
-              <p className="mt-0.5 text-xs text-neutral-400">Визиты и UTM фиксируются без доп. кода.</p>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {AUTO_COLLECTED.map((k) => (
-                  <span key={k} className="rounded border border-neutral-700 bg-neutral-800/80 px-2 py-0.5 font-mono text-[10px] text-neutral-300">{k}</span>
-                ))}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="text-base font-semibold text-white">Установка пикселя</h2>
+              <div className="flex shrink-0 gap-1 rounded-lg bg-neutral-900/80 p-1 ring-1 ring-neutral-800">
+                <button
+                  type="button"
+                  onClick={() => setPixelInstallSource("code")}
+                  className={
+                    pixelInstallSource === "code"
+                      ? "rounded-md bg-neutral-800 px-3 py-1.5 text-xs font-medium text-white sm:text-sm"
+                      : "rounded-md px-3 py-1.5 text-xs text-neutral-400 hover:text-neutral-200 sm:text-sm"
+                  }
+                >
+                  Код
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPixelInstallSource("gtm")}
+                  className={
+                    pixelInstallSource === "gtm"
+                      ? "rounded-md bg-neutral-800 px-3 py-1.5 text-xs font-medium text-white sm:text-sm"
+                      : "rounded-md px-3 py-1.5 text-xs text-neutral-400 hover:text-neutral-200 sm:text-sm"
+                  }
+                >
+                  Google Tag Manager
+                </button>
               </div>
             </div>
-          </>
-        )}
-
-        {activeTab === "gtm" && (
-          <>
-            <h2 className="text-base font-semibold text-white">Google Tag Manager</h2>
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              {GTM_STEPS.map((step, i) => (
-                <span key={i} className="flex items-center gap-2">
-                  <span className="rounded-full bg-neutral-700 px-2.5 py-1 text-xs font-medium text-white">{i + 1}. {step}</span>
-                  {i < GTM_STEPS.length - 1 && <span className="text-neutral-600">→</span>}
-            </span>
-              ))}
-            </div>
-            <div className="mt-4">
-              <CodeBlock code={snippetGTM} onCopy={copyToClipboard} copied={copied} copyLabel="Copy code" />
-            </div>
+            {pixelInstallSource === "code" ? (
+              <>
+                <p className="mt-1 text-xs text-neutral-400">
+                  Скопируйте код ниже и вставьте его в конец страницы сайта (перед{" "}
+                  <code className="rounded bg-neutral-800 px-1">&lt;/body&gt;</code>
+                  ).
+                </p>
+                <div className="mt-3">
+                  <CodeBlock code={snippetPixel} onCopy={copyToClipboard} copied={copied} copyLabel="Copy code" />
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="mt-1 text-xs text-neutral-400">Вставьте тот же скрипт через тег Custom HTML в GTM.</p>
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  {GTM_STEPS.map((step, i) => (
+                    <span key={i} className="flex items-center gap-2">
+                      <span className="rounded-full bg-neutral-700 px-2.5 py-1 text-xs font-medium text-white">
+                        {i + 1}. {step}
+                      </span>
+                      {i < GTM_STEPS.length - 1 && <span className="text-neutral-600">→</span>}
+                    </span>
+                  ))}
+                </div>
+                <div className="mt-4">
+                  <CodeBlock code={snippetGTM} onCopy={copyToClipboard} copied={copied} copyLabel="Copy code" />
+                </div>
+              </>
+            )}
           </>
         )}
 

@@ -4,7 +4,7 @@
  * anomalies + data quality (rule-based, no LLM).
  */
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { requireAttributionDebuggerApiAccess } from "@/app/lib/auth/requireAttributionDebuggerAccess";
 import { getAttributionAnomalies } from "@/app/lib/attributionAnomalies";
 import { computeDataQualityScore } from "@/app/lib/dataQualityScore";
 import { buildAttributionAssistant } from "@/app/lib/attributionAssistant";
@@ -30,7 +30,9 @@ export async function GET(req: Request) {
       );
     }
 
-    const admin = supabaseAdmin();
+    const gate = await requireAttributionDebuggerApiAccess(req, projectId);
+    if (!gate.ok) return gate.response;
+    const admin = gate.admin;
 
     const [anomalies, dataQuality] = await Promise.all([
       getAttributionAnomalies(admin, {

@@ -22,7 +22,12 @@ import {
   resolveEffectivePlan,
 } from "@/app/lib/accessState";
 import { resolveBillingShell, type InvitePendingShell } from "@/app/lib/billingShellResolver";
-import { isCompleteResolvedUiStateV1, type ResolvedUiStateV1 } from "@/app/lib/billingUiContract";
+import {
+  ActionId,
+  isCompleteResolvedUiStateV1,
+  type ResolvedUiStateV1,
+} from "@/app/lib/billingUiContract";
+import { computeExperienceTier, canRunSync, type ExperienceTier } from "@/app/lib/billingExperienceTier";
 import {
   getPlanFeatureMatrix,
   normalizeMaxSeatsForEnforcement,
@@ -82,6 +87,8 @@ export type BillingCurrentPlanPayload = {
   has_org_membership: boolean;
   onboarding_progress: OnboardingProgress | null;
   plan_feature_matrix: PlanFeatureMatrix;
+  /** Продуктовый tier поверх `access_state` (Free = no_subscription + есть проект). */
+  experience_tier: ExperienceTier;
   /** Сколько рекламных аккаунтов включено в организации (каноническая семантика дашборда). */
   org_enabled_ad_accounts: number | null;
   feature_flags: BillingFeatureFlagsPayload;
@@ -157,12 +164,11 @@ export async function isCompanyProfileCompleteForOrg(
   return true;
 }
 
-async function ensurePostCheckoutRowForNewPayer(
+/** Создаёт строку onboarding при отсутствии (paid checkout или free company flow). */
+async function ensurePostCheckoutOnboardingRowIfMissing(
   admin: SupabaseClient,
-  userId: string,
-  paddleActive: boolean
+  userId: string
 ): Promise<void> {
-  if (!paddleActive) return;
   const { data: row } = await admin
     .from("user_post_checkout_onboarding")
     .select("user_id, completed_at")
@@ -179,6 +185,29 @@ async function ensurePostCheckoutRowForNewPayer(
   if (error && (error as { code?: string }).code !== "23505") {
     console.warn("[POST_CHECKOUT_ONBOARDING_INSERT]", error.message);
   }
+}
+
+async function ensurePostCheckoutRowForNewPayer(
+  admin: SupabaseClient,
+  userId: string,
+  paddleActive: boolean
+): Promise<void> {
+  if (!paddleActive) return;
+  await ensurePostCheckoutOnboardingRowIfMissing(admin, userId);
+}
+
+async function userIsOwnerOfOrganization(
+  admin: SupabaseClient,
+  userId: string,
+  organizationId: string
+): Promise<boolean> {
+  const { data: mem } = await admin
+    .from("organization_members")
+    .select("role")
+    .eq("user_id", userId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  return String(mem?.role) === "owner";
 }
 
 function demoModeFromEnv(): boolean {
@@ -201,15 +230,55 @@ export function getBillingFeatureFlagsPayload(): BillingFeatureFlagsPayload {
   };
 }
 
-function accessStateAllowsOverLimitCheck(a: AccessState): boolean {
-  return (
-    a === "active" ||
-    a === "trialing" ||
-    a === "canceled_until_end" ||
-    a === "past_due" ||
-    a === "grace_past_due" ||
-    a === "paused"
-  );
+function matrixHasEnforceableMaxLimits(matrix: PlanFeatureMatrix): boolean {
+  if (matrix.max_projects != null) return true;
+  if (normalizeMaxSeatsForEnforcement(matrix.max_seats) != null) return true;
+  if (matrix.max_ad_accounts != null) return true;
+  return false;
+}
+
+/**
+ * Over-limit vs plan matrix: не зависит от «зелёности» Paddle, кроме состояний,
+ * где shell уже READ_ONLY / refunded (не дублировать блокировку).
+ */
+function shouldComputeOverLimitViolations(
+  accessState: AccessState,
+  orgId: string | null,
+  matrix: PlanFeatureMatrix
+): boolean {
+  if (!orgId || !matrixHasEnforceableMaxLimits(matrix)) return false;
+  if (
+    accessState === "paused" ||
+    accessState === "unpaid" ||
+    accessState === "expired" ||
+    accessState === "refunded"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/** Все ActionId кроме sync и wildcard — для замены wildcard при запрете sync (см. canRunSync). */
+const BILLING_ACTION_IDS_EXCEPT_SYNC: string[] = (Object.values(ActionId) as string[]).filter(
+  (id) => id !== ActionId.sync_refresh && id !== ActionId.wildcard
+);
+
+function applySyncPolicyToResolvedUi(
+  resolved: ResolvedUiStateV1,
+  accessState: AccessState,
+  experienceTier: ExperienceTier
+): ResolvedUiStateV1 {
+  if (canRunSync({ access_state: accessState, experience_tier: experienceTier })) {
+    return resolved;
+  }
+  const actions = resolved.allowed_actions;
+  if (actions.includes(ActionId.wildcard)) {
+    return { ...resolved, allowed_actions: [...BILLING_ACTION_IDS_EXCEPT_SYNC] };
+  }
+  return {
+    ...resolved,
+    allowed_actions: actions.filter((a) => a !== ActionId.sync_refresh),
+  };
 }
 
 const INVITE_SHELL_TIMEOUT_MS = 7000;
@@ -295,6 +364,27 @@ async function computeOverLimitViolations(
   return out;
 }
 
+/** Feature matrix aligned with bootstrap and API gates: paid slug → Free virtual → unknown. */
+export function resolvePlanFeatureMatrixForBillingGate(input: {
+  effective_plan: EffectivePlan;
+  experience_tier: ExperienceTier;
+}): PlanFeatureMatrix {
+  if (
+    input.effective_plan === "starter" ||
+    input.effective_plan === "growth" ||
+    input.effective_plan === "scale"
+  ) {
+    return getPlanFeatureMatrix(input.effective_plan);
+  }
+  if (input.effective_plan === "free") {
+    return getPlanFeatureMatrix("free");
+  }
+  if (input.experience_tier === "free") {
+    return getPlanFeatureMatrix("free");
+  }
+  return getPlanFeatureMatrix("unknown");
+}
+
 async function buildShellEnrichment(
   admin: SupabaseClient,
   userId: string,
@@ -302,7 +392,8 @@ async function buildShellEnrichment(
   orgId: string | null,
   access_state: AccessState,
   effective_plan: EffectivePlan,
-  hasAnyAccessibleProject: boolean
+  hasAnyAccessibleProject: boolean,
+  hasOrgMembership: boolean
 ): Promise<{
   invite_pending: InvitePendingShell;
   over_limit_violations: NonNullable<ResolvedUiStateV1["over_limit_details"]>;
@@ -313,13 +404,21 @@ async function buildShellEnrichment(
     email,
     hasAnyAccessibleProject
   );
+  const experience_tier_shell = computeExperienceTier({
+    access_state,
+    has_any_accessible_project: hasAnyAccessibleProject,
+    has_org_membership: hasOrgMembership,
+    demo_mode: demoModeFromEnv(),
+  });
   const matrixPlan: BillingPlanId =
     effective_plan === "starter" || effective_plan === "growth" || effective_plan === "scale"
       ? effective_plan
-      : "unknown";
+      : effective_plan === "free" || experience_tier_shell === "free"
+        ? "free"
+        : "unknown";
   const matrix = getPlanFeatureMatrix(matrixPlan);
   let over_limit_violations: NonNullable<ResolvedUiStateV1["over_limit_details"]> = [];
-  if (orgId && accessStateAllowsOverLimitCheck(access_state)) {
+  if (orgId && shouldComputeOverLimitViolations(access_state, orgId, matrix)) {
     over_limit_violations = await computeOverLimitViolations(admin, orgId, matrix);
   }
   return { invite_pending, over_limit_violations };
@@ -344,7 +443,14 @@ function assembleBillingPayload(
   },
   requestId: string
 ): BillingCurrentPlanPayload | BillingCurrentPlanError {
-  const resolved = resolveBillingShell({
+  const experience_tier = computeExperienceTier({
+    access_state: input.access_state,
+    has_any_accessible_project: input.has_any_accessible_project,
+    has_org_membership: input.has_org_membership,
+    demo_mode: demoModeFromEnv(),
+  });
+
+  let resolved = resolveBillingShell({
     access_state: input.access_state,
     requires_post_checkout_onboarding: input.requires_post_checkout_onboarding,
     invite_pending: input.invite_pending,
@@ -356,18 +462,17 @@ function assembleBillingPayload(
     request_id: requestId,
   });
 
+  resolved = applySyncPolicyToResolvedUi(resolved, input.access_state, experience_tier);
+
   const resolvedWithRid = { ...resolved, request_id: requestId };
   if (!isCompleteResolvedUiStateV1(resolvedWithRid)) {
     return { success: false, error: "resolved_ui_state contract violation" };
   }
 
-  const matrixPlan: BillingPlanId =
-    input.effective_plan === "starter" ||
-    input.effective_plan === "growth" ||
-    input.effective_plan === "scale"
-      ? input.effective_plan
-      : "unknown";
-  const plan_feature_matrix = getPlanFeatureMatrix(matrixPlan);
+  const plan_feature_matrix = resolvePlanFeatureMatrixForBillingGate({
+    effective_plan: input.effective_plan,
+    experience_tier,
+  });
 
   const step = Math.min(3, Math.max(1, input.post_checkout_onboarding_step)) as 1 | 2 | 3;
   const onboarding_progress: OnboardingProgress | null = input.requires_post_checkout_onboarding
@@ -388,6 +493,7 @@ function assembleBillingPayload(
     has_any_accessible_project: input.has_any_accessible_project,
     has_org_membership: input.has_org_membership,
     plan_feature_matrix,
+    experience_tier,
     org_enabled_ad_accounts: input.org_enabled_ad_accounts,
     onboarding_progress,
     feature_flags: getBillingFeatureFlagsPayload(),
@@ -468,7 +574,8 @@ export async function loadBillingCurrentPlan(
       billingOrgId,
       access_state,
       effective_plan,
-      has_any_accessible_project
+      has_any_accessible_project,
+      has_org_membership
     );
     return assembleBillingPayload(
       {
@@ -527,24 +634,76 @@ export async function loadBillingCurrentPlan(
 
   if (!list.length) {
     const access_state: AccessState = "no_subscription";
+    const freeProductEligible = has_org_membership || has_any_accessible_project;
+    const effective_plan_no_sub: EffectivePlan = freeProductEligible ? "free" : null;
     const shell = await buildShellEnrichment(
       admin,
       userId,
       email,
       billingOrgId,
       access_state,
-      null,
-      has_any_accessible_project
+      effective_plan_no_sub,
+      has_any_accessible_project,
+      has_org_membership
     );
+
+    const isNetNewNoWorkspace =
+      !billingOrgId && !has_org_membership && !has_any_accessible_project;
+
+    let eligibleFreeOwnerCompanyOnboarding = false;
+    if (isNetNewNoWorkspace) {
+      eligibleFreeOwnerCompanyOnboarding = true;
+    } else if (
+      freeProductEligible &&
+      effective_plan_no_sub === "free" &&
+      billingOrgId &&
+      (await userIsOwnerOfOrganization(admin, userId, billingOrgId))
+    ) {
+      eligibleFreeOwnerCompanyOnboarding = true;
+    }
+
+    /**
+     * Free company wizard использует ту же таблицу user_post_checkout_onboarding, что и paid post-checkout.
+     * После save_company на шаге 2 профиль уже полный (company_profile_completed), но шаг 3 ещё должен
+     * вызвать complete — поэтому держим requires_post_checkout_onboarding, пока completed_at пустой,
+     * а не только пока профиль неполный.
+     */
+    const freeOnboardingHost =
+      shell.invite_pending === "none" && eligibleFreeOwnerCompanyOnboarding;
+
+    let requires_post_checkout_onboarding = false;
+    let post_checkout_onboarding_step = 1;
+    let onboarding_state = "no_subscription";
+
+    if (freeOnboardingHost && !company_profile_completed) {
+      await ensurePostCheckoutOnboardingRowIfMissing(admin, userId);
+    }
+
+    if (freeOnboardingHost) {
+      const { data: pcRowFree } = await admin
+        .from("user_post_checkout_onboarding")
+        .select("current_step, completed_at")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (pcRowFree && !pcRowFree.completed_at) {
+        requires_post_checkout_onboarding = true;
+        post_checkout_onboarding_step = Math.min(
+          3,
+          Math.max(1, Number(pcRowFree.current_step) || 1)
+        );
+        onboarding_state = "post_checkout_required_onboarding";
+      }
+    }
+
     return assembleBillingPayload(
       {
         subscription: null,
         access_state,
-        effective_plan: null,
-        requires_post_checkout_onboarding: false,
-        post_checkout_onboarding_step: 1,
+        effective_plan: effective_plan_no_sub,
+        requires_post_checkout_onboarding,
+        post_checkout_onboarding_step,
         company_profile_completed,
-        onboarding_state: "no_subscription",
+        onboarding_state,
         has_any_accessible_project,
         has_org_membership,
         pending_plan_change_db: false,
@@ -637,7 +796,8 @@ export async function loadBillingCurrentPlan(
     billingOrgId,
     access_state,
     effective_plan,
-    has_any_accessible_project
+    has_any_accessible_project,
+    has_org_membership
   );
   return assembleBillingPayload(
     {
@@ -660,16 +820,32 @@ export async function loadBillingCurrentPlan(
   );
 }
 
+export type BillingGateContext =
+  | {
+      ok: true;
+      access_state: AccessState;
+      effective_plan: EffectivePlan;
+      experience_tier: ExperienceTier;
+    }
+  | { ok: false };
+
 export async function resolveBillingGateContext(
   admin: SupabaseClient,
   userId: string,
   email: string | null,
   opts?: { projectId?: string | null }
-): Promise<{ access_state: AccessState; effective_plan: EffectivePlan }> {
+): Promise<BillingGateContext> {
   const r = await loadBillingCurrentPlan(admin, userId, email, {
     requestId: `gate-${randomUUID()}`,
     projectId: opts?.projectId ?? null,
   });
-  if (!r.success) return { access_state: "no_subscription", effective_plan: null };
-  return { access_state: r.access_state, effective_plan: r.effective_plan };
+  if (!r.success) {
+    return { ok: false };
+  }
+  return {
+    ok: true,
+    access_state: r.access_state,
+    effective_plan: r.effective_plan,
+    experience_tier: r.experience_tier,
+  };
 }

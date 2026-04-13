@@ -15,7 +15,8 @@ export type AccessState =
   | "expired"
   | "refunded";
 
-export type EffectivePlan = "starter" | "growth" | "scale" | null;
+/** Paid slugs + виртуальный `free` (нет Paddle-подписки, но есть доступ к продукту — орг и/или проект). */
+export type EffectivePlan = "starter" | "growth" | "scale" | "free" | null;
 
 export type SubscriptionLike = {
   status: string;

@@ -8,6 +8,7 @@ import { getPaddle } from "@/app/lib/paddle";
 import { BaseButton, cn } from "@/components/landing/BaseButton";
 import { LandingDemoSection } from "@/components/landing/LandingDemoBoard";
 import { LandingFaqSection } from "@/components/landing/LandingFaqSection";
+import { LandingHowItWorksSection } from "@/components/landing/LandingHowItWorks";
 import { LandingPartnershipCta } from "@/components/landing/LandingPartnershipCta";
 import { PartnershipLeadProvider } from "@/components/landing/PartnershipLeadProvider";
 import { AdvantagesSection, DataInsightsSection, DDASection } from "@/components/landing/LandingMidSections";
@@ -35,6 +36,65 @@ function yearlySavingsUsd(monthlyUsd: number, discountPercent: number) {
   return yearlyPriceFullUsd(monthlyUsd) - yearlyPriceDiscountedUsd(monthlyUsd, discountPercent);
 }
 
+function FreePricingCard() {
+  const items = [
+    "Первые данные по рекламе и продажам",
+    "Понимание каналов привлечения клиентов",
+    "Быстрый старт без сложной настройки",
+  ];
+  return (
+    <div
+      className={cn(
+        "landing-pricing-card group/pricing relative flex h-full flex-col overflow-hidden rounded-2xl border p-6",
+        "border-white/10 bg-white/[0.03] transition-all duration-300 ease-out will-change-transform",
+        "hover:-translate-y-0.5 hover:scale-[1.008] hover:border-white/18 hover:bg-white/[0.045] hover:shadow-[0_20px_50px_rgba(0,0,0,0.35)]"
+      )}
+    >
+      <div className="relative z-[1] flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-[28px] items-center justify-between gap-2">
+          <div className="inline-flex max-w-full rounded-full border border-white/20 bg-white/[0.06] px-3 py-1 text-[11px] font-bold leading-tight text-white/85 ring-1 ring-white/12 sm:text-xs">
+            Бесплатный тариф
+          </div>
+        </div>
+        <div className="mt-4 flex flex-col gap-1.5">
+          <div className="flex min-h-[48px] items-center justify-between gap-3 md:min-h-[52px]">
+            <div className="text-[40px] leading-none font-extrabold text-white/95 md:text-[44px]">Free</div>
+            <div className="text-[38px] font-extrabold leading-none text-white/90 tabular-nums md:text-[42px]">$0</div>
+          </div>
+          <div className="flex justify-end">
+            <p className="text-right text-[12px] font-medium leading-snug text-white/45 sm:text-[13px] md:text-[14px]">
+              Навсегда
+            </p>
+          </div>
+          {/* Вторая строка как у платных тарифов («Экономия»), чтобы списки преимуществ совпали по вертикали */}
+          <div className="flex justify-end">
+            <p
+              className="invisible text-right text-[13px] font-medium leading-snug tabular-nums sm:text-[14px] md:text-[15px]"
+              aria-hidden
+            >
+              {`Экономия\u00A0$000`}
+            </p>
+          </div>
+        </div>
+        <ul className="mt-6 min-h-[132px] space-y-3 text-sm text-white/70">
+          {items.map((it) => (
+            <li key={it} className="flex items-start gap-2">
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-white/55 group-hover/pricing:bg-white/80" />
+              <span>{it}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-auto w-full pt-8">
+          <div className="mb-6 h-px w-full bg-gradient-to-r from-transparent via-white/18 to-transparent opacity-70 group-hover/pricing:via-white/26" />
+          <BaseButton href="/login?signup=1" variant="primary" full>
+            Начать бесплатно
+          </BaseButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PricingCard({
   name,
   planId,
@@ -43,21 +103,23 @@ function PricingCard({
   billing,
   monthlyUsd,
   yearlyDiscountPercent,
+  ctaLabel,
 }: {
   name: string;
   planId: PricingPlanId;
   items: string[];
-  /** popular — зелёная карточка «Популярный / Компания»; scale — жёлтый бейдж Scale; startup — серый бейдж «Стартап / Фриланс» (Starter) */
-  highlight?: "popular" | "scale" | "startup";
+  /** popular — зелёная карточка Growth; scale — жёлтый бейдж Scale */
+  highlight?: "popular" | "scale";
   billing: BillingPeriod;
   monthlyUsd: number;
   yearlyDiscountPercent: number;
+  ctaLabel: string;
 }) {
   const isPopular = highlight === "popular";
   const isScaleTier = highlight === "scale";
-  const isStartup = highlight === "startup";
   const showYearlyDiscountBadge = billing === "yearly" && yearlyDiscountPercent > 0;
   const yearlyNet = yearlyPriceDiscountedUsd(monthlyUsd, yearlyDiscountPercent);
+  const yearlyPerMonthUsd = Math.round(yearlyNet / 12);
   return (
     <div
       className={cn(
@@ -94,14 +156,9 @@ function PricingCard({
                 Популярный / Компания
               </div>
             ) : null}
-            {isStartup ? (
-              <div className="inline-flex max-w-full rounded-full border border-zinc-500/35 bg-zinc-500/[0.08] px-3 py-1 text-[11px] font-bold leading-tight text-zinc-400 ring-1 ring-zinc-500/25 sm:text-xs">
-                Стартап / Фриланс
-              </div>
-            ) : null}
             {isScaleTier ? (
               <div className="inline-flex max-w-full rounded-full border border-amber-400/45 bg-amber-500/[0.14] px-3 py-1 text-[11px] font-bold leading-tight text-amber-50 ring-1 ring-amber-400/30 sm:text-xs">
-                Холдинг / Scale
+                Холдинг / Агентство
               </div>
             ) : null}
           </div>
@@ -136,8 +193,20 @@ function PricingCard({
                     : "text-[40px] md:text-[44px]"
                 )}
               >
-                {billing === "monthly" ? formatUsd(monthlyUsd) : formatUsd(yearlyNet)}
+                {billing === "monthly" ? formatUsd(monthlyUsd) : formatUsd(yearlyPerMonthUsd)}
               </div>
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <div
+              key={`${billing}-per-mo`}
+              className={cn(
+                "pricing-billing-enter text-right text-[12px] font-medium leading-snug sm:text-[13px] md:text-[14px]",
+                billing === "yearly" ? "text-white/45" : "invisible"
+              )}
+              aria-hidden={billing === "monthly"}
+            >
+              В месяц при оплате за год
             </div>
           </div>
           <div className="flex justify-end">
@@ -173,7 +242,7 @@ function PricingCard({
         <div className="mt-auto w-full pt-8">
           <div className="mb-6 h-px w-full bg-gradient-to-r from-transparent via-white/18 to-transparent opacity-70 group-hover/pricing:via-white/26" />
           <BaseButton href={buildLoginPurchaseHref(planId, billing)} variant={isPopular ? "primaryEmerald" : "primary"} full>
-            Приобрести
+            {ctaLabel}
           </BaseButton>
         </div>
       </div>
@@ -242,23 +311,21 @@ const PRICING_PLANS: {
   monthlyUsd: number;
   yearlyDiscountPercent: number;
   items: string[];
-  highlight?: "popular" | "scale" | "startup";
+  highlight?: "popular" | "scale";
+  ctaLabel: string;
 }[] = [
-  {
-    id: "starter",
-    name: "Starter",
-    monthlyUsd: 39,
-    yearlyDiscountPercent: 10,
-    highlight: "startup",
-    items: ["До 3 источников", "1 проект · 1 участник", "Базовые отчёты"],
-  },
   {
     id: "growth",
     name: "Growth",
     monthlyUsd: 99,
     yearlyDiscountPercent: 15,
     highlight: "popular",
-    items: ["До 10 источников", "До 3 проектов · 10 участников", "Управленческие отчёты"],
+    ctaLabel: "Приобрести Growth",
+    items: [
+      "Полный контроль рекламы и прибыли",
+      "Расширенная аналитика по каналам",
+      "Работа с несколькими источниками и проектами",
+    ],
   },
   {
     id: "scale",
@@ -266,10 +333,11 @@ const PRICING_PLANS: {
     monthlyUsd: 249,
     yearlyDiscountPercent: 20,
     highlight: "scale",
+    ctaLabel: "Приобрести Scale",
     items: [
-      "Без лимита по источникам",
-      "Без лимита по проектам и участникам",
-      "Максимальная аналитика",
+      "Масштабирование без ограничений",
+      "Объединение проектов и источников данных",
+      "API и приоритетная поддержка",
     ],
   },
 ];
@@ -281,17 +349,6 @@ export default function Page() {
     // Public-facing initialization for Paddle.js + Retain entry points.
     void getPaddle();
   }, []);
-
-  const scrollToPricing = () => {
-    const section = document.getElementById("pricing");
-    if (!section) return;
-    const headingTarget = section.querySelector("h2, h1");
-    const targetEl = (headingTarget instanceof HTMLElement ? headingTarget : section) as HTMLElement;
-    const headerEl = document.querySelector("header");
-    const headerOffset = headerEl ? headerEl.getBoundingClientRect().height : 72;
-    const top = targetEl.getBoundingClientRect().top + window.scrollY - headerOffset - 30;
-    window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-  };
 
   useEffect(() => {
     const target = window.sessionStorage.getItem("landing-scroll-target");
@@ -370,20 +427,13 @@ export default function Page() {
               </div>
 
               <p className="mx-auto mt-5 max-w-xl text-[1.08rem] leading-relaxed text-white/58 md:text-lg">
-              Единая прозрачная аналитика, которая помогает принимать решения и управлять прибылью
+                Единая прозрачная аналитика, которая помогает принимать решения и управлять прибылью
               </p>
 
               <div className="mt-8 flex flex-wrap items-center justify-center gap-3 md:justify-center">
-              <button
-                type="button"
-                onClick={scrollToPricing}
-                className={cn(
-                  "inline-flex h-12 min-w-[148px] cursor-pointer items-center justify-center rounded-xl px-6",
-                  "border border-[rgba(34,197,94,0.36)] bg-[rgba(34,197,94,0.18)] text-sm font-extrabold text-white shadow-[0_10px_30px_rgba(34,197,94,0.14)] transition hover:bg-[rgba(34,197,94,0.26)] hover:shadow-[0_0_30px_rgba(34,197,94,0.18)]"
-                )}
-              >
-                Приобрести
-              </button>
+              <BaseButton href="/login?signup=1" variant="primary">
+                Начать бесплатно
+              </BaseButton>
               <BaseButton href="#demo" variant="secondary">
                 Демо
               </BaseButton>
@@ -397,6 +447,8 @@ export default function Page() {
           <LandingHeroTicker />
         </div>
       </section>
+
+      <LandingHowItWorksSection />
 
       <AdvantagesSection density="spacious" />
       <DataInsightsSection density="spacious" />
@@ -453,6 +505,7 @@ export default function Page() {
           </div>
 
           <div className="grid items-stretch gap-6 md:grid-cols-3">
+            <FreePricingCard />
             {PRICING_PLANS.map((plan) => (
               <PricingCard
                 key={plan.id}
@@ -463,6 +516,7 @@ export default function Page() {
                 billing={billing}
                 monthlyUsd={plan.monthlyUsd}
                 yearlyDiscountPercent={plan.yearlyDiscountPercent}
+                ctaLabel={plan.ctaLabel}
               />
             ))}
           </div>

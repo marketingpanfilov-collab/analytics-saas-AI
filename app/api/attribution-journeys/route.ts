@@ -5,7 +5,7 @@
  * Fetches chains (up to JOURNEY_CHAINS_LIMIT), builds journeys in memory, returns paginated journeys.
  */
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { requireAttributionDebuggerApiAccess } from "@/app/lib/auth/requireAttributionDebuggerAccess";
 import { buildAttributionChains } from "@/app/lib/attributionDebugger";
 import { buildJourneysFromChains } from "@/app/lib/attributionJourney";
 
@@ -53,7 +53,9 @@ export async function GET(req: Request) {
       );
     }
 
-    const admin = supabaseAdmin();
+    const gate = await requireAttributionDebuggerApiAccess(req, projectId);
+    if (!gate.ok) return gate.response;
+    const admin = gate.admin;
     const chainResult = await buildAttributionChains(admin, {
       project_id: projectId,
       days,
