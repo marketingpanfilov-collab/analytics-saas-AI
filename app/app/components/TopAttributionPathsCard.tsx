@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import Link from "next/link";
 import { InsightTooltip } from "./InsightTooltip";
 import { fmtProjectCurrency, type ProjectCurrency } from "@/app/lib/currency";
 import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
@@ -274,24 +273,6 @@ export default function TopAttributionPathsCard({ projectId, days = 30, limit = 
             })}
           </ul>
 
-          {/* 5. CTA */}
-          <Link
-            href={projectId ? `/app/attribution-debugger?project_id=${encodeURIComponent(projectId)}` : "/app/attribution-debugger"}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              padding: "8px 14px",
-              borderRadius: 10,
-              border: "1px solid rgba(255,255,255,0.10)",
-              background: "rgba(255,255,255,0.04)",
-              color: "rgba(255,255,255,0.82)",
-              fontSize: 12,
-              fontWeight: 600,
-              textDecoration: "none",
-            }}
-          >
-            Смотреть все цепочки
-          </Link>
         </>
       )}
     </div>

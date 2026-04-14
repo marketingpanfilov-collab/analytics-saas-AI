@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect, useCallback, useLayoutEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import LtvChart, { type Point } from "../../components/LtvChart";
 import CohortHeatmap, { type CohortRow } from "../../components/CohortHeatmap";
@@ -550,6 +550,16 @@ export default function LtvPageClient() {
   );
 
   const [metric, setMetric] = useState<"money" | "users" | "percent">("percent");
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(max-width: 1023px)");
+    const apply = () => setIsMobileViewport(media.matches);
+    apply();
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, []);
 
   const { start: defaultStart, end: defaultEnd } = defaultDateRange();
   const [dateRange] = useState({ start: defaultStart, end: defaultEnd });
@@ -961,10 +971,13 @@ export default function LtvPageClient() {
     Number.isFinite(data.usd_to_kzt_rate_used);
   const showCurrencyBanner = showKztRateLine || showCurrencyWarning;
 
+  const pagePadding = isMobileViewport ? "14px 14px 96px" : "24px 24px 40px";
+  const sectionMb = isMobileViewport ? 24 : 32;
+
   if (!projectId) {
     return (
-      <div style={{ padding: 24 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 900, margin: 0 }}>LTV / Retention</h1>
+      <div style={{ padding: pagePadding, boxSizing: "border-box" }}>
+        <h1 style={{ fontSize: isMobileViewport ? 22 : 28, fontWeight: 900, margin: 0 }}>LTV / Retention</h1>
         <div style={{ opacity: 0.75, marginTop: 12 }}>Выберите проект в сайдбаре.</div>
       </div>
     );
@@ -972,8 +985,8 @@ export default function LtvPageClient() {
 
   if (ltvPack.state === "LOADING") {
     return (
-      <div style={{ padding: 24, background: "#0a0a0a", minHeight: "100%" }}>
-        <h1 style={{ fontSize: 28, fontWeight: 900, margin: 0 }}>LTV / Retention</h1>
+      <div style={{ padding: pagePadding, background: "#0a0a0a", minHeight: "100%", boxSizing: "border-box" }}>
+        <h1 style={{ fontSize: isMobileViewport ? 22 : 28, fontWeight: 900, margin: 0 }}>LTV / Retention</h1>
         <div style={{ marginTop: 16 }}>
           <BillingWidgetPlaceholder pack={ltvPack} minHeight={200} />
         </div>
@@ -983,8 +996,8 @@ export default function LtvPageClient() {
 
   if (ltvPack.state === "BLOCKED") {
     return (
-      <div style={{ padding: 24, background: "#0a0a0a", minHeight: "100%" }}>
-        <h1 style={{ fontSize: 28, fontWeight: 900, margin: 0 }}>LTV / Retention</h1>
+      <div style={{ padding: pagePadding, background: "#0a0a0a", minHeight: "100%", boxSizing: "border-box" }}>
+        <h1 style={{ fontSize: isMobileViewport ? 22 : 28, fontWeight: 900, margin: 0 }}>LTV / Retention</h1>
         <div style={{ marginTop: 16 }}>
           <BillingWidgetPlaceholder pack={ltvPack} minHeight={200} />
         </div>
@@ -994,8 +1007,8 @@ export default function LtvPageClient() {
 
   if (loading && !data) {
     return (
-      <div style={{ padding: 24 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 900, margin: 0 }}>LTV / Retention</h1>
+      <div style={{ padding: pagePadding, boxSizing: "border-box" }}>
+        <h1 style={{ fontSize: isMobileViewport ? 22 : 28, fontWeight: 900, margin: 0 }}>LTV / Retention</h1>
         <div style={{ opacity: 0.75, marginTop: 12 }}>Загрузка…</div>
       </div>
     );
@@ -1003,8 +1016,8 @@ export default function LtvPageClient() {
 
   if (error) {
     return (
-      <div style={{ padding: 24 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 900, margin: 0 }}>LTV / Retention</h1>
+      <div style={{ padding: pagePadding, boxSizing: "border-box" }}>
+        <h1 style={{ fontSize: isMobileViewport ? 22 : 28, fontWeight: 900, margin: 0 }}>LTV / Retention</h1>
         <div style={{ opacity: 0.75, marginTop: 12, color: "rgba(239,68,68,0.9)" }}>{error}</div>
       </div>
     );
@@ -1018,9 +1031,30 @@ export default function LtvPageClient() {
       message={PLAN_RESTRICTED_ANALYTICS_MESSAGE}
       upgradeSource="plan_restricted_ltv"
     >
-    <div style={{ background: "#0a0a0a", minHeight: "100%", padding: "24px 24px 40px", maxWidth: 1280, margin: "0 auto" }}>
-      <header style={{ marginBottom: 32, display: "flex", flexDirection: "column", gap: 4 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 600, margin: 0, letterSpacing: "-0.02em", display: "flex", alignItems: "center", flexWrap: "wrap" }}>
+    <div
+      style={{
+        background: "#0a0a0a",
+        minHeight: "100%",
+        padding: pagePadding,
+        maxWidth: 1280,
+        margin: "0 auto",
+        boxSizing: "border-box",
+        width: "100%",
+      }}
+    >
+      <header style={{ marginBottom: sectionMb, display: "flex", flexDirection: "column", gap: 4 }}>
+        <h1
+          style={{
+            fontSize: isMobileViewport ? 22 : 26,
+            fontWeight: 600,
+            margin: 0,
+            letterSpacing: "-0.02em",
+            display: "flex",
+            alignItems: "center",
+            flexWrap: "wrap",
+            lineHeight: 1.15,
+          }}
+        >
           LTV / Retention
           {showDemoBadgeInHeader && <span style={demoBadgeStyle}>Demo Data</span>}
         </h1>
@@ -1196,13 +1230,25 @@ export default function LtvPageClient() {
         </div>
       ) : null}
 
-      <section style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: 16, marginBottom: 32 }}>
-        <div style={ltvFilterColumnStyle}>
+      <section
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: isMobileViewport ? "stretch" : "flex-end",
+          flexDirection: isMobileViewport ? "column" : "row",
+          gap: isMobileViewport ? 12 : 16,
+          marginBottom: sectionMb,
+        }}
+      >
+        <div style={{ ...ltvFilterColumnStyle, ...(isMobileViewport ? { width: "100%" } : {}) }}>
           <label style={ltvFilterLabelRowStyle}>
             Источник
             <HelpTooltip content={<><strong>Источник</strong><br />Канал определяется по <strong>первой покупке</strong> клиента. На графике остаются только те, кто пришёл с выбранного канала. Реклама на удержание в этот фильтр не входит.</>} />
           </label>
-          <div className="filter-dropdown-wrap" style={filterDropdownWrapStyle}>
+          <div
+            className="filter-dropdown-wrap"
+            style={{ ...filterDropdownWrapStyle, ...(isMobileViewport ? { width: "100%", minWidth: 0 } : {}) }}
+          >
             <select value={acquisitionSource} onChange={(e) => setAcquisitionSource(e.target.value)} style={filterSelectStyle}>
               <option value="all" style={{ background: "#1c1c1c" }}>{ACQUISITION_SOURCE_LABELS.all}</option>
               {(data?.acquisition_sources ?? ["meta", "google", "tiktok", "yandex", "direct", "organic_search", "referral"]).map((s) => (
@@ -1216,12 +1262,15 @@ export default function LtvPageClient() {
             </span>
           </div>
         </div>
-        <div style={ltvFilterColumnStyle}>
+        <div style={{ ...ltvFilterColumnStyle, ...(isMobileViewport ? { width: "100%" } : {}) }}>
           <label style={ltvFilterLabelRowStyle}>
             Когорта
             <HelpTooltip content={<><strong>Когорта</strong><br />Все пользователи, у которых первая покупка в выбранном календарном месяце. M0, M1… — следующие месяцы после этого месяца.</>} />
           </label>
-          <div className="filter-dropdown-wrap" style={filterDropdownWrapStyle}>
+          <div
+            className="filter-dropdown-wrap"
+            style={{ ...filterDropdownWrapStyle, ...(isMobileViewport ? { width: "100%", minWidth: 0 } : {}) }}
+          >
             <select value={cohortMonth} onChange={(e) => setCohortMonth(e.target.value)} style={filterSelectStyle}>
               {cohortMonths.map((m) => (
                 <option key={m} value={m} style={{ background: "#1c1c1c" }}>
@@ -1238,8 +1287,14 @@ export default function LtvPageClient() {
         </div>
       </section>
 
-      <section style={{ marginBottom: 32 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20 }}>
+      <section style={{ marginBottom: sectionMb }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: isMobileViewport ? "minmax(0, 1fr)" : "repeat(3, 1fr)",
+            gap: isMobileViewport ? 12 : 20,
+          }}
+        >
           <div style={{ ...cardStyle, minHeight: 170, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
@@ -1251,7 +1306,15 @@ export default function LtvPageClient() {
               </div>
               <div style={kpiLargeStyle}>{usersMi.toLocaleString("ru-RU")}</div>
             </div>
-            <div style={{ marginTop: 24, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 16px", fontSize: 11 }}>
+            <div
+              style={{
+                marginTop: 24,
+                display: "grid",
+                gridTemplateColumns: isMobileViewport ? "minmax(0, 1fr)" : "1fr 1fr",
+                gap: "8px 16px",
+                fontSize: 11,
+              }}
+            >
               <div style={{ display: "flex", flexDirection: "column" }}>
                 <span style={{ opacity: 0.6, fontSize: 12, fontWeight: 700, textTransform: "uppercase", display: "flex", alignItems: "center" }}>First<HelpTooltip content={<><strong>Первые покупки</strong><br />Сколько оплат в выбранном периоде были для клиента самыми первыми за всё время.</>} /></span>
                 <span style={{ fontWeight: 500 }}>{firstPurchaseCount}</span>
@@ -1318,15 +1381,30 @@ export default function LtvPageClient() {
         </div>
       </section>
 
-      <section style={{ marginBottom: 32 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1.35fr 1fr", gap: 20 }}>
+      <section style={{ marginBottom: sectionMb }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: isMobileViewport ? "minmax(0, 1fr)" : "1.35fr 1fr",
+            gap: isMobileViewport ? 12 : 20,
+          }}
+        >
           <div style={{ ...revenueCardStyle, minHeight: 240 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                marginBottom: 24,
+                flexDirection: isMobileViewport ? "column" : "row",
+                gap: isMobileViewport ? 12 : 0,
+              }}
+            >
               <div>
                 <p style={{ ...metricLabelStyle, margin: 0, display: "flex", alignItems: "center" }}>Revenue composition<HelpTooltip content={<><strong>Состав выручки</strong><br />Как распределилась выручка в датах из шапки: первая покупка клиента, обычные повторы и оплаты, пришедшие с рекламы на удержание.</>} /></p>
                 <p style={{ fontSize: 11, opacity: 0.55, margin: "2px 0 0" }}>Период: {boardRangeLabel}</p>
               </div>
-              <div style={{ textAlign: "right" }}>
+              <div style={{ textAlign: isMobileViewport ? "left" : "right", width: isMobileViewport ? "100%" : undefined }}>
                 <p style={{ fontSize: 11, opacity: 0.5, margin: 0 }}>First: {fmtMoney(firstRevenue)}</p>
                 <p style={{ fontSize: 11, opacity: 0.5, margin: "2px 0 0" }}>Repeat: {fmtMoney(repeatRevenueExcludingRetention)}</p>
                 <p style={{ fontSize: 11, opacity: 0.5, margin: "2px 0 0" }}>Retention campaign: {fmtMoney(retentionRevenue)}</p>
@@ -1433,7 +1511,16 @@ export default function LtvPageClient() {
                 </div>
               </div>
             </div>
-            <div style={{ paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.05)", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 12 }}>
+            <div
+              style={{
+                paddingTop: 12,
+                borderTop: "1px solid rgba(255,255,255,0.05)",
+                display: "grid",
+                gridTemplateColumns: isMobileViewport ? "minmax(0, 1fr)" : "1fr 1fr",
+                gap: 12,
+                fontSize: 12,
+              }}
+            >
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <span style={{ opacity: 0.5 }}>First</span>
                 <span>{safePct(firstRevShare * 100)}</span>
@@ -1485,8 +1572,15 @@ export default function LtvPageClient() {
         </div>
       </section>
 
-      <section style={{ marginBottom: 32 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "0.9fr 1.1fr 1.2fr", gap: 20, alignItems: "stretch" }}>
+      <section style={{ marginBottom: sectionMb }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: isMobileViewport ? "minmax(0, 1fr)" : "0.9fr 1.1fr 1.2fr",
+            gap: isMobileViewport ? 12 : 20,
+            alignItems: "stretch",
+          }}
+        >
           <div style={{ ...cardStyle, minHeight: 220, height: "100%", display: "flex", flexDirection: "column", gap: 24, boxSizing: "border-box" as const }}>
             <p style={{ ...metricLabelStyle, margin: 0, display: "flex", alignItems: "center" }}>CPR<HelpTooltip content={<><strong>CPR — стоимость повторной продажи</strong><br /><strong>План:</strong> плановый бюджет на повторные продажи делим на запланированное их количество (как в помесячном плане). Месяц плана совпадает с когортой, если она выбрана.<br /><strong>Факт:</strong> расход по кампаниям, которые мы отнесли к удержанию по ссылке в объявлении (та же пометка, что в конструкторе ссылок), делим на число оплат с пометкой удержания.</>} /></p>
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -1517,7 +1611,15 @@ export default function LtvPageClient() {
               {kpiWindowFullCohortMonth ? " (полный месяц когорты)" : kpiWindowCohortScoped ? " (часть месяца когорты)" : ""}; LTV в блоке —
               с кривой когорты (см. подсказку у LTV).
             </p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, flex: 1, alignContent: "start" }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: isMobileViewport ? "minmax(0, 1fr)" : "1fr 1fr",
+                gap: isMobileViewport ? 16 : 24,
+                flex: 1,
+                alignContent: "start",
+              }}
+            >
               <div>
                 <p style={{ ...sectionLabel, borderBottom: "1px solid rgba(255,255,255,0.05)", paddingBottom: 4, marginBottom: 8 }}>Costs</p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 12 }}>
@@ -1809,9 +1911,19 @@ export default function LtvPageClient() {
         </div>
       </section>
 
-      <section style={{ marginBottom: 32 }}>
-        <div style={{ ...customCardStyle, padding: "20px 20px 24px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 24 }}>
+      <section style={{ marginBottom: sectionMb }}>
+        <div style={{ ...customCardStyle, padding: isMobileViewport ? "14px 14px 18px" : "20px 20px 24px" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-start",
+              flexWrap: "wrap",
+              gap: 12,
+              marginBottom: 24,
+              flexDirection: isMobileViewport ? "column" : "row",
+            }}
+          >
             <div>
               <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
                 <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>LTV Dynamics</h3>
@@ -1826,7 +1938,7 @@ export default function LtvPageClient() {
                 </p>
               )}
             </div>
-            <div style={{ display: "flex", gap: 16 }}>
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ width: 12, height: 2, background: "rgb(16,185,129)", borderRadius: 1 }} />
                 <span style={{ fontSize: 11, opacity: 0.6 }}>LTV</span>
@@ -1845,24 +1957,63 @@ export default function LtvPageClient() {
             cohortLabel={cohortMonth ? formatCohortLabel(cohortMonth) : "—"}
             isDemo={isDemoLtv}
             formatMoney={fmtMoney}
+            chartHeight={isMobileViewport ? 240 : 300}
           />
         </div>
       </section>
 
-      <section style={{ marginBottom: 32 }}>
+      <section style={{ marginBottom: sectionMb }}>
         <div style={{ ...customCardStyle, overflow: "hidden", padding: 0 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-            <div style={{ padding: 16, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", borderRight: "1px solid rgba(255,255,255,0.08)" }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: isMobileViewport ? "minmax(0, 1fr)" : "1fr 1fr 1fr",
+              borderBottom: "1px solid rgba(255,255,255,0.08)",
+            }}
+          >
+            <div
+              style={{
+                padding: isMobileViewport ? 14 : 16,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                textAlign: "center",
+                borderRight: isMobileViewport ? "none" : "1px solid rgba(255,255,255,0.08)",
+                borderBottom: isMobileViewport ? "1px solid rgba(255,255,255,0.08)" : "none",
+              }}
+            >
               <p style={{ fontSize: 11, opacity: 0.55, fontWeight: 700, textTransform: "uppercase", margin: "0 0 4px" }}>True CAC</p>
               <p style={{ fontSize: 20, fontWeight: 600, margin: 0 }}>{trueCac != null && Number.isFinite(trueCac) ? fmtMoney(trueCac) : "—"}</p>
             </div>
-            <div style={{ padding: 16, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", borderRight: "1px solid rgba(255,255,255,0.08)" }}>
+            <div
+              style={{
+                padding: isMobileViewport ? 14 : 16,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                textAlign: "center",
+                borderRight: isMobileViewport ? "none" : "1px solid rgba(255,255,255,0.08)",
+                borderBottom: isMobileViewport ? "1px solid rgba(255,255,255,0.08)" : "none",
+              }}
+            >
               <p style={{ fontSize: 11, opacity: 0.55, fontWeight: 700, textTransform: "uppercase", margin: "0 0 4px" }}>
                 {realizedLtvCurve ? "LTV (к end периода)" : "LTV (накоп., D90)"}
               </p>
               <p style={{ fontSize: 20, fontWeight: 600, margin: 0 }}>{Number.isFinite(ltv) ? fmtMoney(ltv) : "—"}</p>
             </div>
-            <div style={{ padding: 16, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", background: "rgba(255,255,255,0.02)" }}>
+            <div
+              style={{
+                padding: isMobileViewport ? 14 : 16,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                textAlign: "center",
+                background: "rgba(255,255,255,0.02)",
+              }}
+            >
               <p style={{ fontSize: 11, opacity: 0.55, fontWeight: 700, textTransform: "uppercase", margin: "0 0 4px", display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>Break-even point<HelpTooltip content={<><strong>Окупаемость</strong><br />Первый день на графике LTV, когда накопленная выручка на клиента сравнялась с полной стоимостью привлечения (True CAC).</>} /></p>
               <p style={{ fontSize: 13, fontWeight: 500, margin: 0, fontStyle: "italic", color: breakEvenPoint ? "rgb(16,185,129)" : undefined }}>
                 {breakEvenPoint
@@ -1874,7 +2025,7 @@ export default function LtvPageClient() {
         </div>
       </section>
 
-      <section style={{ marginBottom: 32 }}>
+      <section style={{ marginBottom: sectionMb }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 16 }}>
           <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
             <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0, display: "flex", alignItems: "center" }}>Cohort Analysis<HelpTooltip content={<><strong>Когорты</strong><br />Строки — месяцы первой оплаты (с учётом канала). Колонки M0–M6 — следующие календарные месяцы жизни когорты. Для графика и выручки учитываются покупки и за пределами дат в шапке, чтобы кривая не обрывалась.</>} /></h3>
@@ -1887,14 +2038,36 @@ export default function LtvPageClient() {
             Недостаточно реальных данных когорт за период — показаны демо-ряды.
           </p>
         )}
-        <div style={{ display: "flex", background: "rgba(255,255,255,0.05)", padding: 4, borderRadius: 8, width: "fit-content", marginBottom: 16 }}>
-          <button style={pillStyle(metric === "money")} onClick={() => setMetric("money")} type="button">
+        <div
+          style={{
+            background: "rgba(255,255,255,0.05)",
+            padding: 4,
+            borderRadius: 8,
+            marginBottom: 16,
+            ...(isMobileViewport
+              ? { display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 4, width: "100%" }
+              : { display: "flex", width: "fit-content" }),
+          }}
+        >
+          <button
+            style={{ ...pillStyle(metric === "money"), ...(isMobileViewport ? { width: "100%", textAlign: "center" as const } : {}) }}
+            onClick={() => setMetric("money")}
+            type="button"
+          >
             Выручка
           </button>
-          <button style={pillStyle(metric === "users")} onClick={() => setMetric("users")} type="button">
+          <button
+            style={{ ...pillStyle(metric === "users"), ...(isMobileViewport ? { width: "100%", textAlign: "center" as const } : {}) }}
+            onClick={() => setMetric("users")}
+            type="button"
+          >
             Пользователи
           </button>
-          <button style={pillStyle(metric === "percent")} onClick={() => setMetric("percent")} type="button">
+          <button
+            style={{ ...pillStyle(metric === "percent"), ...(isMobileViewport ? { width: "100%", textAlign: "center" as const } : {}) }}
+            onClick={() => setMetric("percent")}
+            type="button"
+          >
             Retention %
           </button>
         </div>

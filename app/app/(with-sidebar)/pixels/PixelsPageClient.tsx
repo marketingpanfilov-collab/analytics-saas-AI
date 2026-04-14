@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useLayoutEffect, useState, useCallback, useMemo } from "react";
 import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
 import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
 import { ActionId } from "@/app/lib/billingUiContract";
@@ -125,24 +125,28 @@ function ActivityCard({
 }
 
 // ——— CodeBlock ———
+/** Одна карточка: строка с Copy + код. Горизонтальный скролл на обёртке вокруг pre — иначе длинные строки раздувают flex и вылезают за экран. */
 function CodeBlock({ code, onCopy, copied, copyLabel = "Copy code" }: { code: string; onCopy: (t: string) => void; copied: boolean; copyLabel?: string }) {
   return (
-    <div className="relative">
-      <div className="absolute right-2 top-2 z-10">
+    <div className="min-w-0 w-full max-w-full rounded-xl border border-neutral-800 bg-neutral-950">
+      <div className="sticky top-0 z-10 flex items-center justify-end rounded-t-xl border-b border-neutral-800/80 bg-neutral-950 px-3 py-2">
         <button
           type="button"
           onClick={() => onCopy(code)}
           className={cx(
-            "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+            "shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
             copied ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/30" : "bg-neutral-800 text-neutral-300 ring-1 ring-neutral-700 hover:bg-neutral-700"
           )}
         >
           {copied ? "Скопировано" : copyLabel}
         </button>
       </div>
-      <pre className="overflow-x-auto rounded-xl border border-neutral-800 bg-neutral-950 px-4 py-3 pr-28 text-sm leading-relaxed text-neutral-300 whitespace-pre">
-        <code>{code}</code>
-      </pre>
+      {/* Обёртка с overflow-x-auto + pre по ширине контента (inline-block w-max) — длинные строки не раздувают flex-родителей */}
+      <div className="min-w-0 max-w-full overflow-x-auto rounded-b-xl">
+        <pre className="m-0 inline-block w-max max-w-none max-h-[min(70vh,560px)] overflow-y-auto px-3 py-3 text-[13px] leading-relaxed text-neutral-300 whitespace-pre sm:text-sm">
+          <code>{code}</code>
+        </pre>
+      </div>
     </div>
   );
 }
@@ -152,8 +156,8 @@ function EventTable({ events, loading }: { events: Array<{ time: string; event_t
   if (loading) return <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 text-center text-sm text-neutral-500">Загрузка…</div>;
   if (!events.length) return <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 text-center text-sm text-neutral-500">Событий пока нет</div>;
   return (
-    <div className="overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900/60">
-      <table className="w-full text-left text-sm">
+    <div className="overflow-x-auto rounded-xl border border-neutral-800 bg-neutral-900/60">
+      <table className="w-full min-w-[520px] text-left text-sm">
         <thead>
           <tr className="border-b border-neutral-800 bg-neutral-950/80">
             <th className="px-3 py-2 font-medium text-neutral-400">time</th>
@@ -190,7 +194,17 @@ type Activity = {
 export default function PixelsPageClient() {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project_id")?.trim() ?? null;
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const { resolvedUi } = useBillingBootstrap();
+
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(max-width: 1023px)");
+    const apply = () => setIsMobileViewport(media.matches);
+    apply();
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, []);
   const canMutatePixel = useMemo(
     () => billingActionAllowed(resolvedUi, ActionId.sync_refresh),
     [resolvedUi]
@@ -561,7 +575,12 @@ ${generatedPurchaseJson}`;
 
   if (!projectId) {
     return (
-      <div className="flex min-h-[280px] items-center justify-center p-6">
+      <div
+        className={cx(
+          "flex min-h-[280px] items-center justify-center",
+          isMobileViewport ? "box-border px-3.5 pb-24 pt-4" : "p-6"
+        )}
+      >
         <div className="text-center">
           <div className="text-base font-semibold text-neutral-300">Проект не выбран</div>
           <div className="mt-2 text-sm text-neutral-500">
@@ -575,11 +594,28 @@ ${generatedPurchaseJson}`;
   const eventCount = activity?.recentEvents?.length ?? 0;
 
   return (
-    <div className="mx-auto w-full max-w-7xl p-6 pb-12">
+    <div
+      className={cx(
+        "mx-auto box-border w-full min-w-0 max-w-7xl overflow-x-hidden",
+        isMobileViewport ? "px-3.5 pb-20 pt-3.5" : "p-6 pb-12"
+      )}
+    >
       {/* Hero */}
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight text-white">Pixel &amp; CRM</h1>
-        <p className="mt-1 max-w-2xl text-sm text-neutral-400">
+        <h1
+          className={cx(
+            "font-semibold tracking-tight text-white",
+            isMobileViewport ? "text-[26px] leading-[1.12]" : "text-2xl"
+          )}
+        >
+          Pixel &amp; CRM
+        </h1>
+        <p
+          className={cx(
+            "mt-1 max-w-2xl text-neutral-400",
+            isMobileViewport ? "text-sm leading-relaxed" : "text-sm"
+          )}
+        >
           Подключите пиксель для отслеживания визитов, регистраций и покупок. Это позволит считать CAC, ROAS и реальную эффективность каналов.
         </p>
         <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -591,9 +627,26 @@ ${generatedPurchaseJson}`;
 
       {/* Pixel activity */}
       <section className="mb-6 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 shadow">
-        <div className="flex items-center justify-between">
+        <div
+          className={cx(
+            "flex items-center gap-2",
+            isMobileViewport ? "flex-col items-stretch" : "justify-between"
+          )}
+        >
           <h3 className="text-sm font-semibold text-white">Pixel activity</h3>
-          <button type="button" onClick={() => { fetchVisitStatus(); fetchActivity(); }} className="rounded px-2 py-1 text-xs text-neutral-400 hover:bg-neutral-800">Обновить</button>
+          <button
+            type="button"
+            onClick={() => {
+              fetchVisitStatus();
+              fetchActivity();
+            }}
+            className={cx(
+              "rounded px-2 py-1.5 text-xs text-neutral-400 hover:bg-neutral-800",
+              isMobileViewport && "w-full text-center"
+            )}
+          >
+            Обновить
+          </button>
         </div>
         <div className="mt-3 grid gap-3 sm:grid-cols-3">
           <ActivityCard title="Last visit" at={activity?.lastVisit?.at ?? null} recency={visitRecency} loading={activityLoading} />
@@ -603,15 +656,21 @@ ${generatedPurchaseJson}`;
       </section>
 
       {/* Tabs */}
-      <div className="mb-4 flex gap-1 rounded-xl bg-neutral-900/80 p-1 ring-1 ring-neutral-800">
+      <div
+        className={cx(
+          "mb-4 flex gap-1 rounded-xl bg-neutral-900/80 p-1 ring-1 ring-neutral-800",
+          isMobileViewport && "flex-col"
+        )}
+      >
         {TABS.map((tab) => (
             <button
               key={tab.id}
               type="button"
             onClick={() => setActiveTab(tab.id)}
               className={cx(
-              "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-              activeTab === tab.id ? "bg-neutral-800 text-white shadow-sm" : "text-neutral-400 hover:text-neutral-200"
+              "flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+              activeTab === tab.id ? "bg-neutral-800 text-white shadow-sm" : "text-neutral-400 hover:text-neutral-200",
+              isMobileViewport && "w-full min-h-[44px]"
             )}
           >
             <span>{tab.icon}</span>
@@ -621,31 +680,43 @@ ${generatedPurchaseJson}`;
       </div>
 
       {/* Tab content */}
-      <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-5 shadow-lg">
+      <div
+        className={cx(
+          "min-w-0 rounded-xl border border-neutral-800 bg-neutral-900/60 shadow-lg",
+          isMobileViewport ? "p-4" : "p-5"
+        )}
+      >
         {activeTab === "pixel" && (
           <>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <h2 className="text-base font-semibold text-white">Установка пикселя</h2>
-              <div className="flex shrink-0 gap-1 rounded-lg bg-neutral-900/80 p-1 ring-1 ring-neutral-800">
+              <h2 className="min-w-0 text-base font-semibold text-white">Установка пикселя</h2>
+              <div
+                className={cx(
+                  "flex shrink-0 gap-1 rounded-lg bg-neutral-900/80 p-1 ring-1 ring-neutral-800",
+                  isMobileViewport && "w-full"
+                )}
+              >
                 <button
                   type="button"
                   onClick={() => setPixelInstallSource("code")}
-                  className={
+                  className={cx(
                     pixelInstallSource === "code"
                       ? "rounded-md bg-neutral-800 px-3 py-1.5 text-xs font-medium text-white sm:text-sm"
-                      : "rounded-md px-3 py-1.5 text-xs text-neutral-400 hover:text-neutral-200 sm:text-sm"
-                  }
+                      : "rounded-md px-3 py-1.5 text-xs text-neutral-400 hover:text-neutral-200 sm:text-sm",
+                    isMobileViewport && "min-h-[40px] flex-1"
+                  )}
                 >
                   Код
                 </button>
                 <button
                   type="button"
                   onClick={() => setPixelInstallSource("gtm")}
-                  className={
+                  className={cx(
                     pixelInstallSource === "gtm"
                       ? "rounded-md bg-neutral-800 px-3 py-1.5 text-xs font-medium text-white sm:text-sm"
-                      : "rounded-md px-3 py-1.5 text-xs text-neutral-400 hover:text-neutral-200 sm:text-sm"
-                  }
+                      : "rounded-md px-3 py-1.5 text-xs text-neutral-400 hover:text-neutral-200 sm:text-sm",
+                    isMobileViewport && "min-h-[40px] flex-1"
+                  )}
                 >
                   Google Tag Manager
                 </button>
@@ -665,13 +736,20 @@ ${generatedPurchaseJson}`;
             ) : (
               <>
                 <p className="mt-1 text-xs text-neutral-400">Вставьте тот же скрипт через тег Custom HTML в GTM.</p>
-                <div className="mt-4 flex flex-wrap items-center gap-2">
+                <div
+                  className={cx(
+                    "mt-4 flex flex-wrap items-center gap-2",
+                    isMobileViewport && "flex-col items-stretch"
+                  )}
+                >
                   {GTM_STEPS.map((step, i) => (
-                    <span key={i} className="flex items-center gap-2">
-                      <span className="rounded-full bg-neutral-700 px-2.5 py-1 text-xs font-medium text-white">
+                    <span key={i} className={cx("flex items-center gap-2", isMobileViewport && "w-full")}>
+                      <span className="rounded-full bg-neutral-700 px-2.5 py-1.5 text-xs font-medium text-white">
                         {i + 1}. {step}
                       </span>
-                      {i < GTM_STEPS.length - 1 && <span className="text-neutral-600">→</span>}
+                      {i < GTM_STEPS.length - 1 && (
+                        <span className={cx("text-neutral-600", isMobileViewport && "hidden")}>→</span>
+                      )}
                     </span>
                   ))}
                 </div>
@@ -701,14 +779,19 @@ ${generatedPurchaseJson}`;
             {/* Public ingest key — inside Conversion events */}
             <div className="mt-4 rounded-xl border border-neutral-700 bg-neutral-900/60 px-4 py-3">
               <div className="text-xs font-semibold text-white">Public ingest key</div>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
+              <div
+                className={cx(
+                  "mt-2 flex flex-wrap items-center gap-2",
+                  isMobileViewport && "flex-col items-stretch"
+                )}
+              >
                 {ingestKeyLoading ? (
                   <span className="text-xs text-neutral-500">Загрузка…</span>
                 ) : ingestKey ? (
                   <>
-                    <code className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1 font-mono text-[11px] text-neutral-300 max-w-full truncate">
-                      {ingestKey}
-                    </code>
+                    <div className="min-w-0 w-full max-w-full overflow-x-auto rounded border border-neutral-700 bg-neutral-950 px-2 py-1.5">
+                      <code className="block font-mono text-[11px] text-neutral-300 whitespace-pre">{ingestKey}</code>
+                    </div>
                     {canManageIngestKey && (
                       <>
             <button
@@ -716,7 +799,8 @@ ${generatedPurchaseJson}`;
                           onClick={() => copyToClipboard(ingestKey)}
               className={cx(
                             "rounded px-2 py-1 text-xs font-medium",
-                            copied ? "bg-emerald-500/20 text-emerald-300" : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
+                            copied ? "bg-emerald-500/20 text-emerald-300" : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700",
+                            isMobileViewport && "min-h-[40px] w-full"
                           )}
                         >
                           {copied ? "Скопировано" : "Copy"}
@@ -726,7 +810,10 @@ ${generatedPurchaseJson}`;
                             type="button"
                             onClick={regenerateIngestKey}
                             disabled={!canMutatePixel || regenerateIngestLoading}
-                            className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-200 hover:bg-amber-500/20 disabled:opacity-50"
+                            className={cx(
+                              "rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-200 hover:bg-amber-500/20 disabled:opacity-50",
+                              isMobileViewport && "min-h-[40px] w-full"
+                            )}
                           >
                             {regenerateIngestLoading ? "…" : "Regenerate"}
                           </button>
@@ -742,10 +829,13 @@ ${generatedPurchaseJson}`;
                         type="button"
                         onClick={regenerateIngestKey}
                         disabled={!canMutatePixel || regenerateIngestLoading}
-                        className="rounded bg-neutral-700 px-2 py-1 text-xs text-white hover:bg-neutral-600 disabled:opacity-50"
+                        className={cx(
+                          "rounded bg-neutral-700 px-2 py-1 text-xs text-white hover:bg-neutral-600 disabled:opacity-50",
+                          isMobileViewport && "min-h-[40px] w-full"
+                        )}
                       >
                         {regenerateIngestLoading ? "…" : "Generate key"}
-            </button>
+                      </button>
                     )}
                   </>
                 )}
@@ -755,33 +845,43 @@ ${generatedPurchaseJson}`;
               )}
               {!canManageIngestKey && ingestKey && (
                 <p className="mt-1.5 text-[11px] text-neutral-500">Only project admins can view or regenerate the full ingest key.</p>
-        )}
-      </div>
+              )}
+            </div>
 
             <div className="mt-4 rounded-lg border-2 border-amber-500/40 bg-amber-500/10 px-3 py-3">
               <div className="text-sm font-semibold text-amber-200">Authentication</div>
               <p className="mt-1.5 text-xs text-neutral-300">
                 Use the project public ingest key in request headers. Do not place the token in the URL. Do not use admin or service tokens on the frontend.
               </p>
-              <div className="mt-2 rounded border border-neutral-700/80 bg-neutral-900/60 px-2 py-2 font-mono text-[11px] text-neutral-200">
+              <div className="mt-2 min-w-0 overflow-x-auto rounded border border-neutral-700/80 bg-neutral-900/60 px-2 py-2 font-mono text-[11px] text-neutral-200">
                 <div className="text-neutral-500">Headers</div>
-                <div>Content-Type: application/json</div>
-                <div>X-BoardIQ-Key: {ingestKeyDisplay}</div>
+                <div className="break-words">Content-Type: application/json</div>
+                <div className="break-all">X-BoardIQ-Key: {ingestKeyDisplay}</div>
               </div>
             </div>
 
-            <div className="mt-4 flex gap-2">
+            <div className={cx("mt-4 flex gap-2", isMobileViewport && "flex-col")}>
               <button
                 type="button"
                 onClick={() => setConversionTab("registration")}
-                className={conversionTab === "registration" ? "rounded-md bg-neutral-800 px-3 py-1.5 text-sm font-medium text-white" : "rounded-md bg-neutral-900 px-3 py-1.5 text-sm text-neutral-400 hover:text-neutral-200"}
+                className={cx(
+                  conversionTab === "registration"
+                    ? "rounded-md bg-neutral-800 px-3 py-1.5 text-sm font-medium text-white"
+                    : "rounded-md bg-neutral-900 px-3 py-1.5 text-sm text-neutral-400 hover:text-neutral-200",
+                  isMobileViewport && "min-h-[44px] w-full"
+                )}
               >
                 Registration
               </button>
           <button
             type="button"
                 onClick={() => setConversionTab("purchase")}
-                className={conversionTab === "purchase" ? "rounded-md bg-neutral-800 px-3 py-1.5 text-sm font-medium text-white" : "rounded-md bg-neutral-900 px-3 py-1.5 text-sm text-neutral-400 hover:text-neutral-200"}
+                className={cx(
+                  conversionTab === "purchase"
+                    ? "rounded-md bg-neutral-800 px-3 py-1.5 text-sm font-medium text-white"
+                    : "rounded-md bg-neutral-900 px-3 py-1.5 text-sm text-neutral-400 hover:text-neutral-200",
+                  isMobileViewport && "min-h-[44px] w-full"
+                )}
           >
                 Purchase
           </button>
@@ -789,7 +889,12 @@ ${generatedPurchaseJson}`;
 
             {/* Test conversion event */}
             <div className="mt-4 rounded-lg border border-neutral-700 bg-neutral-800/40 px-3 py-2">
-            <div className="flex flex-wrap items-center gap-2">
+            <div
+              className={cx(
+                "flex flex-wrap items-center gap-2",
+                isMobileViewport && "flex-col items-stretch gap-3"
+              )}
+            >
                 <span className="text-xs font-semibold text-white">Test conversion event</span>
                 {canManageIngestKey && ingestKey ? (
                   <>
@@ -797,20 +902,28 @@ ${generatedPurchaseJson}`;
                       type="button"
                       onClick={sendTestEvent}
                       disabled={!canMutatePixel || testEventStatus === "loading"}
-                      className="rounded bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-60"
+                      className={cx(
+                        "rounded bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-500 disabled:opacity-60",
+                        isMobileViewport && "min-h-[40px] w-full"
+                      )}
                     >
                       {testEventStatus === "loading" ? "Sending…" : conversionTab === "registration" ? "Send test registration" : "Send test purchase"}
                     </button>
-                    <span className="text-neutral-600">|</span>
+                    <span className={cx("text-neutral-600", isMobileViewport && "hidden")}>|</span>
                     <button
                       type="button"
                       onClick={() => setDeleteTestConfirmOpen(true)}
                       disabled={!canMutatePixel || deleteTestLoading}
-                      className="rounded bg-amber-500/90 px-2.5 py-1 text-xs font-medium text-neutral-900 hover:bg-amber-500 disabled:opacity-60"
+                      className={cx(
+                        "rounded bg-amber-500/90 px-2.5 py-1 text-xs font-medium text-neutral-900 hover:bg-amber-500 disabled:opacity-60",
+                        isMobileViewport && "min-h-[40px] w-full"
+                      )}
                     >
                       {deleteTestLoading ? "…" : "Удалить тестовые конверсии"}
                     </button>
-                    {testEventStatus === "success" && <span className="text-xs text-emerald-400">Event sent successfully. Check Pixel activity or Recent pixel events below.</span>}
+                    {testEventStatus === "success" && (
+                      <span className="text-xs text-emerald-400">Event sent successfully. Check Pixel activity or Recent pixel events below.</span>
+                    )}
                     {testEventStatus === "error" && <span className="text-xs text-red-400">Failed to send test event.</span>}
                   </>
                 ) : (
@@ -855,7 +968,8 @@ ${generatedPurchaseJson}`;
             {toastMessage && (
               <div
                 className={cx(
-                  "fixed bottom-4 right-4 z-[100] rounded-lg border px-4 py-2 text-sm font-medium shadow-lg",
+                  "fixed z-[100] rounded-lg border px-4 py-2 text-sm font-medium shadow-lg",
+                  isMobileViewport ? "bottom-24 left-4 right-4" : "bottom-4 right-4",
                   toastMessage.type === "success"
                     ? "border-emerald-600/50 bg-emerald-900/90 text-emerald-100"
                     : "border-neutral-600 bg-neutral-800 text-neutral-200"
@@ -887,7 +1001,7 @@ ${generatedPurchaseJson}`;
                     </ul>
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-4">
+                <div className={cx("flex min-w-0 max-w-full flex-wrap gap-4", isMobileViewport && "flex-col")}>
                   <div className="rounded border border-neutral-700 bg-neutral-900/60 px-3 py-2">
                     <div className="text-[10px] font-semibold uppercase text-neutral-500 mb-1.5">Include in example</div>
                     <label className="flex items-center gap-2 text-xs text-neutral-400"><input type="checkbox" checked disabled className="rounded" /> project_id</label>
@@ -898,20 +1012,43 @@ ${generatedPurchaseJson}`;
                     <label className="flex items-center gap-2 text-xs text-neutral-400"><input type="checkbox" checked={regOptional.phone} onChange={(e) => setRegOptional((o) => ({ ...o, phone: e.target.checked }))} className="rounded" /> phone</label>
                     <label className="flex items-center gap-2 text-xs text-neutral-400"><input type="checkbox" checked={regOptional.metadata} onChange={(e) => setRegOptional((o) => ({ ...o, metadata: e.target.checked }))} className="rounded" /> metadata</label>
                   </div>
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 max-w-full flex-1">
                     <div className="text-[10px] font-semibold uppercase text-neutral-500 mb-0.5">Full request example</div>
                     <p className="text-[11px] text-neutral-500 mb-1">Complete HTTP request structure.</p>
-                    <div className="overflow-x-auto rounded-lg border border-neutral-700 bg-neutral-950">
-                      <CodeBlock code={fullRequestReg} onCopy={copyToClipboard} copied={copied} copyLabel="Copy" />
-                    </div>
-                    <div className="mt-2 flex gap-1 rounded-lg bg-neutral-900/80 p-1">
-                      <button type="button" onClick={() => setConversionCodeTab("fetch")} className={cx("rounded px-2 py-1 text-xs font-medium", conversionCodeTab === "fetch" ? "bg-neutral-700 text-white" : "text-neutral-400 hover:text-neutral-200")}>Client-side (JavaScript)</button>
-                      <button type="button" onClick={() => setConversionCodeTab("curl")} className={cx("rounded px-2 py-1 text-xs font-medium", conversionCodeTab === "curl" ? "bg-neutral-700 text-white" : "text-neutral-400 hover:text-neutral-200")}>Server-side / API test (cURL)</button>
+                    <CodeBlock code={fullRequestReg} onCopy={copyToClipboard} copied={copied} copyLabel="Copy" />
+                    <div
+                      className={cx(
+                        "mt-2 flex gap-1 rounded-lg bg-neutral-900/80 p-1",
+                        isMobileViewport && "flex-col"
+                      )}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setConversionCodeTab("fetch")}
+                        className={cx(
+                          "rounded px-2 py-1 text-xs font-medium",
+                          conversionCodeTab === "fetch" ? "bg-neutral-700 text-white" : "text-neutral-400 hover:text-neutral-200",
+                          isMobileViewport && "min-h-[40px] w-full"
+                        )}
+                      >
+                        Client-side (JavaScript)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConversionCodeTab("curl")}
+                        className={cx(
+                          "rounded px-2 py-1 text-xs font-medium",
+                          conversionCodeTab === "curl" ? "bg-neutral-700 text-white" : "text-neutral-400 hover:text-neutral-200",
+                          isMobileViewport && "min-h-[40px] w-full"
+                        )}
+                      >
+                        Server-side / API test (cURL)
+                      </button>
                     </div>
                     <p className="mt-1 text-[11px] text-neutral-500">
                       {conversionCodeTab === "fetch" ? "Use on website frontend after registration/purchase." : "Use for backend integration or quick testing."}
                     </p>
-                    <div className="mt-0.5 overflow-x-auto rounded-lg border border-neutral-800 bg-neutral-950">
+                    <div className="mt-0.5 min-w-0">
                       <CodeBlock code={conversionCodeTab === "fetch" ? snippetRegFetch : snippetRegCurl} onCopy={copyToClipboard} copied={copied} copyLabel="Copy" />
                     </div>
                   </div>
@@ -949,7 +1086,7 @@ ${generatedPurchaseJson}`;
                   <p className="mt-0.5 text-[11px] text-neutral-400">USD, KZT</p>
                   <p className="text-[11px] text-neutral-500">currency is required for purchase events. Currently supported: USD and KZT.</p>
                 </div>
-                <div className="flex flex-wrap gap-4">
+                <div className={cx("flex min-w-0 max-w-full flex-wrap gap-4", isMobileViewport && "flex-col")}>
                   <div className="rounded border border-neutral-700 bg-neutral-900/60 px-3 py-2">
                     <div className="text-[10px] font-semibold uppercase text-neutral-500 mb-1.5">Include in example</div>
                     <label className="flex items-center gap-2 text-xs text-neutral-400"><input type="checkbox" checked disabled className="rounded" /> project_id</label>
@@ -963,20 +1100,43 @@ ${generatedPurchaseJson}`;
                     <label className="flex items-center gap-2 text-xs text-neutral-400"><input type="checkbox" checked={purchaseOptional.phone} onChange={(e) => setPurchaseOptional((o) => ({ ...o, phone: e.target.checked }))} className="rounded" /> phone</label>
                     <label className="flex items-center gap-2 text-xs text-neutral-400"><input type="checkbox" checked={purchaseOptional.metadata} onChange={(e) => setPurchaseOptional((o) => ({ ...o, metadata: e.target.checked }))} className="rounded" /> metadata</label>
                   </div>
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 max-w-full flex-1">
                     <div className="text-[10px] font-semibold uppercase text-neutral-500 mb-0.5">Full request example</div>
                     <p className="text-[11px] text-neutral-500 mb-1">Complete HTTP request structure.</p>
-                    <div className="overflow-x-auto rounded-lg border border-neutral-700 bg-neutral-950">
-                      <CodeBlock code={fullRequestPurchase} onCopy={copyToClipboard} copied={copied} copyLabel="Copy" />
-                    </div>
-                    <div className="mt-2 flex gap-1 rounded-lg bg-neutral-900/80 p-1">
-                      <button type="button" onClick={() => setConversionCodeTab("fetch")} className={cx("rounded px-2 py-1 text-xs font-medium", conversionCodeTab === "fetch" ? "bg-neutral-700 text-white" : "text-neutral-400 hover:text-neutral-200")}>Client-side (JavaScript)</button>
-                      <button type="button" onClick={() => setConversionCodeTab("curl")} className={cx("rounded px-2 py-1 text-xs font-medium", conversionCodeTab === "curl" ? "bg-neutral-700 text-white" : "text-neutral-400 hover:text-neutral-200")}>Server-side / API test (cURL)</button>
+                    <CodeBlock code={fullRequestPurchase} onCopy={copyToClipboard} copied={copied} copyLabel="Copy" />
+                    <div
+                      className={cx(
+                        "mt-2 flex gap-1 rounded-lg bg-neutral-900/80 p-1",
+                        isMobileViewport && "flex-col"
+                      )}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setConversionCodeTab("fetch")}
+                        className={cx(
+                          "rounded px-2 py-1 text-xs font-medium",
+                          conversionCodeTab === "fetch" ? "bg-neutral-700 text-white" : "text-neutral-400 hover:text-neutral-200",
+                          isMobileViewport && "min-h-[40px] w-full"
+                        )}
+                      >
+                        Client-side (JavaScript)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConversionCodeTab("curl")}
+                        className={cx(
+                          "rounded px-2 py-1 text-xs font-medium",
+                          conversionCodeTab === "curl" ? "bg-neutral-700 text-white" : "text-neutral-400 hover:text-neutral-200",
+                          isMobileViewport && "min-h-[40px] w-full"
+                        )}
+                      >
+                        Server-side / API test (cURL)
+                      </button>
                     </div>
                     <p className="mt-1 text-[11px] text-neutral-500">
                       {conversionCodeTab === "fetch" ? "Use on website frontend after registration/purchase." : "Use for backend integration or quick testing."}
                     </p>
-                    <div className="mt-0.5 overflow-x-auto rounded-lg border border-neutral-800 bg-neutral-950">
+                    <div className="mt-0.5 min-w-0">
                       <CodeBlock code={conversionCodeTab === "fetch" ? snippetPurchaseFetch : snippetPurchaseCurl} onCopy={copyToClipboard} copied={copied} copyLabel="Copy" />
                     </div>
                   </div>
@@ -990,7 +1150,14 @@ ${generatedPurchaseJson}`;
           <>
             <h2 className="text-base font-semibold text-white">CRM integration</h2>
             <div className="mt-4">
-              <button type="button" disabled className="cursor-not-allowed rounded-lg border border-neutral-600 bg-neutral-800 px-4 py-2 text-sm font-medium text-neutral-500">
+              <button
+                type="button"
+                disabled
+                className={cx(
+                  "cursor-not-allowed rounded-lg border border-neutral-600 bg-neutral-800 px-4 py-2 text-sm font-medium text-neutral-500",
+                  isMobileViewport && "w-full min-h-[44px]"
+                )}
+              >
                 Connect CRM — Coming soon
               </button>
             </div>
@@ -1027,7 +1194,16 @@ ${generatedPurchaseJson}`;
           <span className="text-sm font-semibold text-white">Recent pixel events</span>
           <span className="flex items-center gap-2 text-xs text-neutral-500">
             {eventCount}
-            <span className={cx("transition-transform", eventsOpen && "rotate-180")}>▼</span>
+            <span
+              className={cx(
+                "inline-flex transition-transform leading-none text-neutral-400",
+                eventsOpen && "rotate-180",
+                isMobileViewport ? "text-xl" : "text-sm"
+              )}
+              aria-hidden
+            >
+              ▼
+            </span>
               </span>
         </button>
         {eventsOpen && (

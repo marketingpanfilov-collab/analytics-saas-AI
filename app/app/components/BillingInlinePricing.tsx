@@ -1048,11 +1048,11 @@ export default function BillingInlinePricing({
   const useWideDefaultGrid = Boolean(widePlanGrid) && !compact && !isOverLimit;
   /** Чуть крупнее типографика в широкой модалке и на экране over-limit. */
   const fsModal = !compact && (widePlanGrid || isOverLimit);
-  /** Вертикальные отступы между блоками в широкой модалке смены тарифа. */
-  const wideSectionGap = useWideDefaultGrid ? 34 : gap;
-  const wideGridGap = useWideDefaultGrid ? 26 : gap;
-  const widePlanCardPad = useWideDefaultGrid ? "26px 22px" : pad;
-  const widePayBtnMt = useWideDefaultGrid ? "mt-8" : "mt-4";
+  /** Вертикальные отступы в широкой модалке: на узких экранах — меньше за счёт clamp. */
+  const wideBlockGap = useWideDefaultGrid ? ("clamp(20px, 5vw, 34px)" as const) : gap;
+  const wideGridGapCss = useWideDefaultGrid ? ("clamp(16px, 4vw, 26px)" as const) : undefined;
+  const widePlanCardPad = useWideDefaultGrid ? "clamp(16px, 4vw, 26px) clamp(14px, 3vw, 22px)" : pad;
+  const widePayBtnMt = useWideDefaultGrid ? "mt-6 sm:mt-8" : "mt-4";
   const widePayBtnPad = useWideDefaultGrid ? "0 18px" : "0 14px";
 
   const matrixForComparison = useMemo((): PlanFeatureMatrix => {
@@ -1901,15 +1901,29 @@ export default function BillingInlinePricing({
         <div
           style={{
             textAlign: "center",
-            padding: "0 52px",
-            marginBottom: wideSectionGap,
+            padding: "0 clamp(16px, 5vw, 52px)",
+            marginBottom: wideBlockGap,
             boxSizing: "border-box",
           }}
         >
-          <div style={{ fontWeight: 900, fontSize: 18, lineHeight: 1.4, color: "white" }}>
+          <div
+            style={{
+              fontWeight: 900,
+              fontSize: "clamp(16px, 4.2vw, 18px)",
+              lineHeight: 1.35,
+              color: "white",
+            }}
+          >
             Обновите тариф, чтобы получить больше возможностей
           </div>
-          <p className="text-sm text-white/55" style={{ margin: "18px 0 0", lineHeight: 1.55 }}>
+          <p
+            className="text-white/55"
+            style={{
+              margin: "clamp(12px, 3vw, 18px) 0 0",
+              lineHeight: 1.55,
+              fontSize: "clamp(12px, 3.2vw, 14px)",
+            }}
+          >
             Получите больше данных, расширенные лимиты и полный контроль над аналитикой
           </p>
         </div>
@@ -2028,7 +2042,7 @@ export default function BillingInlinePricing({
 
       <div
         style={{
-          marginBottom: remedialOverLimitModal ? remedialModalVGap : useWideDefaultGrid ? wideSectionGap : gap,
+          marginBottom: remedialOverLimitModal ? remedialModalVGap : wideBlockGap,
           marginTop: useWideDefaultGrid ? 0 : remedialOverLimitModal ? remedialModalVGap : undefined,
         }}
       >
@@ -2137,7 +2151,7 @@ export default function BillingInlinePricing({
         className={useWideDefaultGrid ? "grid w-full grid-cols-1 items-stretch sm:grid-cols-3" : undefined}
         style={
           useWideDefaultGrid
-            ? { display: "grid", gap: wideGridGap, marginBottom: wideSectionGap, alignItems: "stretch" }
+            ? { display: "grid", gap: wideGridGapCss, marginBottom: wideBlockGap, alignItems: "stretch" }
             : {
                 display: "grid",
                 gridTemplateColumns: pricingGridTemplateColumns,
@@ -2948,7 +2962,7 @@ export default function BillingInlinePricing({
           marginTop: remedialOverLimitModal
             ? remedialModalVGap
             : useWideDefaultGrid
-              ? wideSectionGap + 12
+              ? "clamp(32px, 6vw, 46px)"
               : subscribeShellMinimal
                 ? 14
                 : 10,
@@ -2985,7 +2999,7 @@ export default function BillingInlinePricing({
               : isOverLimit
                 ? 16
                 : useWideDefaultGrid
-                  ? wideSectionGap
+                  ? wideBlockGap
                   : subscribeShellMinimal
                     ? 16
                     : 12,

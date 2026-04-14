@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import DevAbortRejectionSuppressor from "../components/DevAbortRejectionSuppressor";
 import { BillingBootstrapProvider } from "../components/BillingBootstrapProvider";
@@ -11,8 +11,12 @@ import {
   PlanChangePendingBanner,
   ReadOnlyPaywallBanner,
 } from "../components/BillingShellBanners";
+import { AppMobileNavProvider, useAppMobileNav } from "../components/AppMobileNavContext";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
+import AppMobileLandingNavDrawer from "../components/mobile/AppMobileLandingNavDrawer";
+import MobileTabBar from "../components/mobile/MobileTabBar";
+import MobileTodayDrawer from "../components/mobile/MobileTodayDrawer";
 import PaddleAppInit from "../components/PaddleAppInit";
 import { AppMainPaneRefProvider } from "../components/AppMainPaneRefContext";
 import { BillingShellGate } from "../components/BillingShellGate";
@@ -44,31 +48,25 @@ function TopbarFallback() {
   );
 }
 
-export default function WithSidebarLayout({ children }: { children: React.ReactNode }) {
+function WithSidebarShell({ children, email }: { children: ReactNode; email: string }) {
   const pathname = usePathname();
   const isSupportPage = pathname === "/app/support" || pathname?.startsWith("/app/support/");
-  const [email, setEmail] = useState<string>("");
   const mainRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-
-    (async () => {
-      const { data } = await supabase.auth.getUser();
-      if (!mounted) return;
-      setEmail(data.user?.email ?? "");
-    })();
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  const { mobileNavOpen, setMobileNavOpen } = useAppMobileNav();
 
   return (
-    <BillingBootstrapProvider>
-      <BillingPricingModalProvider>
+    <>
+      {mobileNavOpen ? (
+        <button
+          type="button"
+          className="app-shell-drawer-backdrop fixed inset-0 z-[36] cursor-pointer border-0 bg-black/55 p-0 lg:hidden"
+          aria-label="Закрыть меню"
+          onClick={() => setMobileNavOpen(false)}
+        />
+      ) : null}
       <div
         className="app-shell-grid"
+        data-mobile-nav-open={mobileNavOpen ? "1" : "0"}
         style={{
           /* Вся оболочка привязана к viewport: 1fr у main не растёт с контентом; скролл — в колонке сайдбара и в main-scroll (кроме /app/support). */
           height: "100dvh",
@@ -141,8 +139,8 @@ export default function WithSidebarLayout({ children }: { children: React.ReactN
               <div
                 className={
                   isSupportPage
-                    ? "app-shell-main-scroll flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-hidden"
-                    : "app-shell-main-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+                    ? "app-shell-main-scroll flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-hidden pb-[calc(72px+env(safe-area-inset-bottom))] md:pb-0"
+                    : "app-shell-main-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-[calc(72px+env(safe-area-inset-bottom))] md:pb-0"
                 }
               >
                 <BillingShellGate>{children}</BillingShellGate>
@@ -151,8 +149,43 @@ export default function WithSidebarLayout({ children }: { children: React.ReactN
           </main>
         </div>
       </div>
+      <Suspense fallback={null}>
+        <AppMobileLandingNavDrawer />
+      </Suspense>
+      <Suspense fallback={null}>
+        <MobileTodayDrawer />
+      </Suspense>
+      <Suspense fallback={null}>
+        <MobileTabBar />
+      </Suspense>
+    </>
+  );
+}
+
+export default function WithSidebarLayout({ children }: { children: React.ReactNode }) {
+  const [email, setEmail] = useState<string>("");
+
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (!mounted) return;
+      setEmail(data.user?.email ?? "");
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  return (
+    <BillingBootstrapProvider>
+      <BillingPricingModalProvider>
+        <AppMobileNavProvider>
+          <WithSidebarShell email={email}>{children}</WithSidebarShell>
+        </AppMobileNavProvider>
       </BillingPricingModalProvider>
     </BillingBootstrapProvider>
   );
 }
-

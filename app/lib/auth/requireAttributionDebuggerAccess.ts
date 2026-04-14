@@ -1,5 +1,5 @@
 /**
- * Страница /app/attribution-debugger и связанные GET API — только Growth / Scale.
+ * GET API с расширенной атрибуцией (дашборд: assisted-attribution, attribution-flow, heatmap) — только Growth / Scale.
  */
 import { NextResponse } from "next/server";
 import {

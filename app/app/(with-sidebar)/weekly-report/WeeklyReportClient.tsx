@@ -455,19 +455,19 @@ export default function WeeklyReportClient() {
             {shareNotice}
           </div>
         )}
-        <section className="rounded-2xl border border-white/10 bg-[rgba(10,10,18,0.96)] p-5">
+        <section className="rounded-2xl border border-white/10 bg-[rgba(10,10,18,0.96)] p-4 sm:p-5">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <h1 className="text-2xl font-extrabold tracking-tight text-white">Shared Board Report</h1>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-xl font-extrabold tracking-tight text-white sm:text-2xl">Shared Board Report</h1>
               <p className="mt-1 text-sm text-white/50">Отчёт за выбранный диапазон</p>
-              <div className="mt-4 flex flex-wrap items-center gap-3">
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
                 <input
                   type="date"
                   value={dateFrom}
                   onChange={(e) => setDateFrom(e.target.value)}
                   max={dateTo}
                   min={projectMinDate ?? undefined}
-                  className="rounded-lg border border-white/15 bg-[rgba(15,15,25,0.95)] px-3 py-2 text-sm text-white"
+                  className="w-full min-w-0 rounded-lg border border-white/15 bg-[rgba(15,15,25,0.95)] px-3 py-2.5 text-sm text-white sm:w-auto sm:py-2"
                 />
                 <input
                   type="date"
@@ -475,20 +475,22 @@ export default function WeeklyReportClient() {
                   onChange={(e) => setDateTo(e.target.value)}
                   min={dateFrom}
                   max={today}
-                  className="rounded-lg border border-white/15 bg-[rgba(15,15,25,0.95)] px-3 py-2 text-sm text-white"
+                  className="w-full min-w-0 rounded-lg border border-white/15 bg-[rgba(15,15,25,0.95)] px-3 py-2.5 text-sm text-white sm:w-auto sm:py-2"
                 />
               </div>
             </div>
 
             <div className="w-full min-w-0 max-w-xl shrink-0 lg:ml-auto">
-              <h2 className="mb-3 text-right text-sm font-semibold uppercase tracking-wide text-white/70">Export &amp; Share</h2>
-              <div className="flex flex-col items-end gap-2.5">
+              <h2 className="mb-3 text-left text-sm font-semibold uppercase tracking-wide text-white/70 lg:text-right">
+                Export &amp; Share
+              </h2>
+              <div className="flex w-full flex-col gap-2.5 max-lg:items-stretch lg:items-end">
                 {canExportReport ? (
                   <a
                     href={`/app/weekly-report/export?project_id=${encodeURIComponent(projectId!)}&start=${encodeURIComponent(dateFrom)}&end=${encodeURIComponent(dateTo)}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex rounded-lg bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white/90 hover:bg-white/14"
+                    className="inline-flex min-h-[44px] w-full items-center justify-center rounded-lg bg-white/10 px-3 py-2.5 text-xs font-medium text-white/90 hover:bg-white/14 sm:min-h-0 sm:w-auto sm:px-2.5 sm:py-1.5"
                   >
                     Export / Print
                   </a>
@@ -496,12 +498,12 @@ export default function WeeklyReportClient() {
                   <button
                     type="button"
                     onClick={() => requestBillingPricingModal("export_click")}
-                    className="inline-flex rounded-lg bg-white/10 px-2.5 py-1.5 text-xs font-medium text-white/90 hover:bg-white/14"
+                    className="inline-flex min-h-[44px] w-full items-center justify-center rounded-lg bg-white/10 px-3 py-2.5 text-xs font-medium text-white/90 hover:bg-white/14 sm:min-h-0 sm:w-auto sm:px-2.5 sm:py-1.5"
                   >
                     Export / Print
                   </button>
                 ) : (
-                  <span className="inline-flex cursor-not-allowed rounded-lg bg-white/5 px-2.5 py-1.5 text-xs font-medium text-white/40">
+                  <span className="inline-flex min-h-[44px] w-full cursor-not-allowed items-center justify-center rounded-lg bg-white/5 px-3 py-2.5 text-xs font-medium text-white/40 sm:min-h-0 sm:w-auto sm:px-2.5 sm:py-1.5">
                     Export / Print
                   </span>
                 )}
@@ -514,7 +516,7 @@ export default function WeeklyReportClient() {
                         setRevokeConfirmOpen(true);
                       }}
                       disabled={!canExportReport || revokeLoading}
-                      className="inline-flex shrink-0 self-start rounded-lg border border-amber-500/30 px-2.5 py-1.5 text-xs text-amber-200 hover:bg-amber-500/12 disabled:opacity-50 sm:self-center"
+                      className="inline-flex min-h-[44px] w-full shrink-0 items-center justify-center rounded-lg border border-amber-500/30 px-3 py-2.5 text-xs text-amber-200 hover:bg-amber-500/12 disabled:opacity-50 sm:min-h-0 sm:w-auto sm:self-center sm:px-2.5 sm:py-1.5"
                     >
                       {revokeLoading ? "Отзыв…" : "Отозвать ссылку"}
                     </button>
@@ -522,13 +524,13 @@ export default function WeeklyReportClient() {
                       type="button"
                       onClick={copyShareUrl}
                       disabled={!canExportReport}
-                      className="inline-flex shrink-0 self-start rounded-lg border border-white/15 px-2.5 py-1.5 text-xs text-white/85 hover:bg-white/8 disabled:opacity-50 sm:self-center"
+                      className="inline-flex min-h-[44px] w-full shrink-0 items-center justify-center rounded-lg border border-white/15 px-3 py-2.5 text-xs text-white/85 hover:bg-white/8 disabled:opacity-50 sm:min-h-0 sm:w-auto sm:self-center sm:px-2.5 sm:py-1.5"
                     >
                       Copy
                     </button>
                     <div
                       className={
-                        "relative min-h-[2.25rem] min-w-0 flex-1 overflow-hidden rounded-lg border px-3 py-2 transition-colors " +
+                        "relative min-h-[2.75rem] min-w-0 w-full flex-1 overflow-x-auto rounded-lg border px-3 py-2.5 transition-colors sm:min-h-[2.25rem] sm:overflow-hidden sm:py-2 " +
                         (shareCopied
                           ? "border-emerald-500/55 bg-emerald-500/[0.12] shadow-[0_0_0_1px_rgba(52,211,153,0.25)]"
                           : "border-white/15 bg-white/5")
@@ -542,7 +544,7 @@ export default function WeeklyReportClient() {
                             : (typeof window !== "undefined" ? window.location.origin : "") + shareStatus.url
                         }
                       >
-                        <span className="block min-w-0 truncate whitespace-nowrap">
+                        <span className="block min-w-0 whitespace-nowrap sm:truncate">
                           {shareStatus.url.startsWith("http")
                             ? shareStatus.url
                             : (typeof window !== "undefined" ? window.location.origin : "") + shareStatus.url}
@@ -563,7 +565,7 @@ export default function WeeklyReportClient() {
                     type="button"
                     onClick={() => setWarningOpen(true)}
                     disabled={!canExportReport || shareCreating || shareLoading}
-                    className="inline-flex rounded-lg border border-white/20 bg-amber-500/12 px-2.5 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-500/18 disabled:opacity-50"
+                    className="inline-flex min-h-[44px] w-full items-center justify-center rounded-lg border border-white/20 bg-amber-500/12 px-3 py-2.5 text-xs font-medium text-amber-200 hover:bg-amber-500/18 disabled:opacity-50 sm:min-h-0 sm:w-auto sm:px-2.5 sm:py-1.5"
                   >
                     {shareCreating ? "Создание…" : "Создать открытую ссылку"}
                   </button>

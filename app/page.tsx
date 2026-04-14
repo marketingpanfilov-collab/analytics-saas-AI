@@ -265,33 +265,11 @@ const HERO_TICKER_LABELS = [
   "Pixel",
 ] as const;
 
-function usePrefersReducedMotion() {
-  const [reduced, setReduced] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const sync = () => setReduced(mq.matches);
-    sync();
-    mq.addEventListener("change", sync);
-    return () => mq.removeEventListener("change", sync);
-  }, []);
-  return reduced;
-}
-
 function LandingHeroTicker() {
-  const reducedMotion = usePrefersReducedMotion();
-  const sequence = reducedMotion
-    ? [...HERO_TICKER_LABELS]
-    : [...HERO_TICKER_LABELS, ...HERO_TICKER_LABELS, ...HERO_TICKER_LABELS];
+  const sequence = [...HERO_TICKER_LABELS, ...HERO_TICKER_LABELS, ...HERO_TICKER_LABELS];
   return (
     <div className="hero-ticker" aria-hidden>
-      <div
-        className={cn(
-          "hero-ticker__track flex flex-nowrap gap-[1.20rem]",
-          reducedMotion
-            ? "hero-ticker__track--static w-full max-w-[56rem] flex-wrap justify-center mx-auto"
-            : "w-max"
-        )}
-      >
+      <div className="hero-ticker__track flex w-max flex-nowrap gap-[1.20rem]">
         {sequence.map((label, i) => (
           <span
             key={`${label}-${i}`}

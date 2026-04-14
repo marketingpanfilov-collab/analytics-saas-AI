@@ -1,8 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
+import { MOBILE_APP_SHEET_Z, MobileSheetHeaderCloseButton } from "./mobile/MobileBottomSheet";
 import { PLAN_RESTRICTED_ANALYTICS_MESSAGE } from "@/app/lib/planRestrictedCopy";
 import { useBillingBootstrap } from "./BillingBootstrapProvider";
 import { useBillingPricingModalRequest } from "./BillingPricingModalProvider";
@@ -66,6 +67,10 @@ type DataHealthMiniProps = {
   projectId: string | null;
   /** Optional preloaded data (e.g. from Topbar). If not provided, data is fetched when panel opens. */
   initialData?: DataQualityPayload | null;
+  /** Пока Topbar грузит /api/data-quality (Growth/Scale) — для mobile context strip */
+  dataQualityPrefetchPending?: boolean;
+  /** Одна строка под primary topbar на mobile; панель — bottom sheet на узкой ширине */
+  variant?: "default" | "mobileContextStrip";
 };
 
 function getStatusFromScore(score: number): { label: string; color: string } {
@@ -126,7 +131,12 @@ function GaugeSvg({ value, size = 72 }: { value: number; size?: number }) {
   );
 }
 
-export default function DataHealthMini({ projectId, initialData = null }: DataHealthMiniProps) {
+export default function DataHealthMini({
+  projectId,
+  initialData = null,
+  dataQualityPrefetchPending = false,
+  variant = "default",
+}: DataHealthMiniProps) {
   const router = useRouter();
   const { bootstrap } = useBillingBootstrap();
   const { requestBillingPricingModal } = useBillingPricingModalRequest();
@@ -137,8 +147,25 @@ export default function DataHealthMini({ projectId, initialData = null }: DataHe
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [data, setData] = useState<DataQualityPayload | null>(initialData ?? null);
   const [loading, setLoading] = useState(false);
+  const [layoutNarrow, setLayoutNarrow] = useState(false);
   const anchorRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const [sheetPortalReady, setSheetPortalReady] = useState(false);
+
+  useLayoutEffect(() => {
+    setSheetPortalReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const sync = () => setLayoutNarrow(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  const useBottomSheet = variant === "mobileContextStrip" && layoutNarrow;
 
   const fetchData = useCallback(async () => {
     if (!projectId) return;
@@ -213,6 +240,24 @@ export default function DataHealthMini({ projectId, initialData = null }: DataHe
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [popoverOpen]);
 
+  useEffect(() => {
+    if (!popoverOpen || !useBottomSheet) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [popoverOpen, useBottomSheet]);
+
+  useEffect(() => {
+    if (!popoverOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setPopoverOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [popoverOpen]);
+
   const score = data?.score ?? 0;
   const hasData = data?.has_data ?? false;
   const v = Math.max(0, Math.min(100, score));
@@ -223,8 +268,288 @@ export default function DataHealthMini({ projectId, initialData = null }: DataHe
     if (!opened) router.push("/app/settings");
   }, [requestBillingPricingModal, router]);
 
+  /**
+   * Mobile context strip: тот же формат, что и desktop (две строки → одна строка «Качество данных: …»).
+   * Процент и label — из getStatusFromScore(v), те же пороги, что у desktop; без новых статусов.
+   */
+  const mobileContextStripDisplay =
+    variant === "mobileContextStrip"
+      ? (() => {
+          const prefetchWait =
+            Boolean(dataQualityPrefetchPending) ||
+            (loading && hasPaidDataQualityAccess && !!projectId && data == null);
+          if (hasPaidDataQualityAccess && projectId && prefetchWait) {
+            return { dot: "rgba(148, 163, 184, 0.85)", text: "Качество данных: Загрузка..." };
+          }
+          if (!hasPaidDataQualityAccess) {
+            return { dot: "rgba(251, 191, 36, 0.95)", text: "Качество данных: 0% · Нет доступа" };
+          }
+          if (!projectId) {
+            return { dot: "rgba(161, 161, 170, 0.85)", text: "Качество данных: Нет проекта" };
+          }
+          if (!hasData) {
+            return { dot: "rgba(161, 161, 170, 0.85)", text: "Качество данных: Нет данных" };
+          }
+          return {
+            dot: status.color,
+            text: `Качество данных: ${Math.round(v)}% · ${status.label}`,
+          };
+        })()
+      : null;
+
+  const panelSurfaceStyle: CSSProperties = {
+    position: useBottomSheet ? "fixed" : "absolute",
+    top: useBottomSheet ? "auto" : "100%",
+    bottom: useBottomSheet ? 0 : "auto",
+    left: useBottomSheet ? 0 : "auto",
+    right: useBottomSheet ? 0 : 0,
+    marginTop: useBottomSheet ? 0 : 6,
+    zIndex: useBottomSheet ? MOBILE_APP_SHEET_Z : 100,
+    width: useBottomSheet ? "100%" : "min(500px, calc(100vw - 24px))",
+    maxWidth: "100%",
+    minWidth: 0,
+    maxHeight: useBottomSheet ? "min(88dvh, 640px)" : "min(80vh, 520px)",
+    display: useBottomSheet ? "flex" : undefined,
+    flexDirection: useBottomSheet ? "column" : undefined,
+    overflow: useBottomSheet ? "hidden" : "auto",
+    WebkitOverflowScrolling: useBottomSheet ? undefined : "touch",
+    boxSizing: "border-box",
+    background: "rgba(18,18,24,0.98)",
+    border: "1px solid rgba(255,255,255,0.1)",
+    borderRadius: useBottomSheet ? "16px 16px 0 0" : 12,
+    boxShadow: useBottomSheet ? "0 -12px 48px rgba(0,0,0,0.55)" : "0 12px 32px rgba(0,0,0,0.45)",
+    padding: 0,
+    fontSize: 13,
+    animation: useBottomSheet ? "dataQualitySheetIn 0.28s cubic-bezier(0.22, 1, 0.36, 1)" : "dataQualityPanelIn 0.15s ease-out",
+  };
+
+  const dataQualityPanelBody = (
+    <>
+      {!hasPaidDataQualityAccess ? (
+        <div className={useBottomSheet ? "px-4 pb-5 pt-5 sm:px-5 sm:pt-6" : "p-5"}>
+          <div className="mb-1.5 text-base font-bold leading-tight text-white sm:text-[16px]">Качество данных</div>
+          <p className="mb-0 text-[14px] leading-snug text-white/65 sm:text-[13px] sm:leading-[1.45]">
+            {PLAN_RESTRICTED_ANALYTICS_MESSAGE}
+          </p>
+          <button
+            type="button"
+            onClick={onDataQualityUpgradeClick}
+            className="mt-4 flex w-full min-h-[48px] cursor-pointer items-center justify-center rounded-xl bg-emerald-600 px-4 py-3 text-[15px] font-semibold text-white transition-colors hover:bg-emerald-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/80 active:bg-emerald-700 sm:mt-3.5 sm:min-h-0 sm:rounded-[10px] sm:py-2.5 sm:text-sm"
+          >
+            Сменить тариф
+          </button>
+        </div>
+      ) : loading ? (
+        <div style={{ padding: 24, textAlign: "center", color: "rgba(255,255,255,0.6)", fontSize: 13 }}>
+          Загрузка…
+        </div>
+      ) : !hasData ? (
+        <div style={{ padding: 20, paddingBottom: 20 }}>
+          <div style={{ fontWeight: 700, fontSize: 16, color: "white", marginBottom: 6 }}>Качество данных</div>
+          <p style={{ color: "rgba(255,255,255,0.65)", margin: 0, lineHeight: 1.45, fontSize: 13 }}>
+            Недостаточно данных для анализа качества.
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* Panel header — compact */}
+          <div
+            style={{
+              display: useBottomSheet ? "flex" : undefined,
+              alignItems: useBottomSheet ? "center" : undefined,
+              gap: useBottomSheet ? 12 : undefined,
+              padding: useBottomSheet ? "14px 12px 12px 18px" : "14px 18px 12px",
+              borderBottom: "1px solid rgba(255,255,255,0.08)",
+            }}
+          >
+            <div style={{ flex: useBottomSheet ? 1 : undefined, minWidth: 0 }}>
+              <h2 style={{ fontWeight: 700, fontSize: 16, color: "white", margin: "0 0 2px" }}>Качество данных</h2>
+              <p style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", margin: 0, lineHeight: 1.35 }}>
+                Показывает, насколько корректно работает атрибуция рекламы.
+              </p>
+            </div>
+            {useBottomSheet ? (
+              <div className="shrink-0">
+                <MobileSheetHeaderCloseButton onClick={() => setPopoverOpen(false)} />
+              </div>
+            ) : null}
+          </div>
+
+          {/* Score area — compact: gauge left, label + status right */}
+          <div style={{ padding: "14px 18px", display: "flex", alignItems: "center", gap: 14, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+            <GaugeSvg value={v} size={72} />
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: "white" }}>Качество данных</div>
+              <div style={{ fontWeight: 600, fontSize: 13, color: status.color, marginTop: 2 }}>{status.label}</div>
+            </div>
+          </div>
+
+          {/* Breakdown — compact */}
+          {data?.breakdown && (
+            <div style={{ padding: "12px 18px" }}>
+              <div style={{ fontWeight: 600, color: "rgba(255,255,255,0.88)", marginBottom: 8, fontSize: 12 }}>
+                Детализация
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {(Object.keys(BREAKDOWN_MAX) as (keyof typeof BREAKDOWN_MAX)[]).map((key) => {
+                  const val = data.breakdown![key];
+                  const max = BREAKDOWN_MAX[key];
+                  const pct = max > 0 ? Math.round((val / max) * 100) : 0;
+                  return (
+                    <div key={key}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2, fontSize: 12 }}>
+                        <span style={{ color: "rgba(255,255,255,0.82)" }}>{BREAKDOWN_LABELS[key]}</span>
+                        <span style={{ color: "rgba(255,255,255,0.65)", fontVariantNumeric: "tabular-nums" }}>
+                          {val} / {max}
+                        </span>
+                      </div>
+                      <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
+                        <div
+                          style={{
+                            height: "100%",
+                            width: `${pct}%`,
+                            background: pct >= 70 ? "#3ddc97" : pct >= 40 ? "#ff9f43" : "#ff5a5a",
+                            borderRadius: 3,
+                            transition: "width 0.25s ease",
+                          }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Issues — compact rows */}
+          {data?.issues && data.issues.length > 0 && (
+            <div style={{ padding: "12px 18px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+              <div style={{ fontWeight: 600, color: "rgba(255,255,255,0.88)", marginBottom: 6, fontSize: 12 }}>
+                Обнаруженные проблемы
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 140, overflowY: "auto" }}>
+                {data.issues.slice(0, 8).map((i) => (
+                  <div
+                    key={i.code}
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      background: "rgba(255,255,255,0.03)",
+                      border: "1px solid rgba(255,255,255,0.05)",
+                    }}
+                  >
+                    <span style={{ fontSize: 14, flexShrink: 0 }} aria-hidden>
+                      ⚠
+                    </span>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, color: "white", fontSize: 12 }}>
+                        {i.percent > 0 ? `${i.percent}% — ` : ""}
+                        {i.title}
+                        {i.low_sample && " (мало событий)"}
+                      </div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", marginTop: 2, lineHeight: 1.35 }}>
+                        {i.description}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Recommendations — compact rows */}
+          {data?.recommendations && data.recommendations.length > 0 && (
+            <div style={{ padding: "12px 18px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+              <div style={{ fontWeight: 600, color: "rgba(255,255,255,0.88)", marginBottom: 6, fontSize: 12 }}>
+                Рекомендации
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 120, overflowY: "auto" }}>
+                {data.recommendations.slice(0, 5).map((r) => (
+                  <div
+                    key={r.code}
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      background: "rgba(61,220,151,0.05)",
+                      border: "1px solid rgba(61,220,151,0.12)",
+                    }}
+                  >
+                    <span style={{ fontSize: 14, flexShrink: 0 }} aria-hidden>
+                      💡
+                    </span>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, color: "rgba(255,255,255,0.92)", fontSize: 12 }}>{r.title}</div>
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.65)", marginTop: 2, lineHeight: 1.35 }}>
+                        {r.description || r.action_text}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+        </>
+      )}
+    </>
+  );
+
+  const panelInnerMarkup = (
+    <>
+      <style>{`
+            @keyframes dataQualityPanelIn {
+              from { opacity: 0; transform: translateY(-6px); }
+              to { opacity: 1; transform: translateY(0); }
+            }
+            @keyframes dataQualitySheetIn {
+              from { opacity: 0; transform: translate3d(0, 18px, 0); }
+              to { opacity: 1; transform: translate3d(0, 0, 0); }
+            }
+          `}</style>
+      {useBottomSheet ? (
+        <>
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              overflow: "auto",
+              WebkitOverflowScrolling: "touch",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "center", paddingTop: 10, paddingBottom: 4, flexShrink: 0 }}>
+              <div style={{ width: 36, height: 4, borderRadius: 999, background: "rgba(255,255,255,0.2)" }} aria-hidden />
+            </div>
+            {dataQualityPanelBody}
+          </div>
+          <div className="shrink-0 border-t border-white/[0.06] px-4 pt-3 pb-[max(16px,env(safe-area-inset-bottom))]">
+            <button
+              type="button"
+              className="w-full rounded-xl border border-red-500/45 bg-red-500/[0.12] py-3 text-center text-[15px] font-semibold leading-snug text-red-200/95 transition-colors hover:border-red-500/55 hover:bg-red-500/[0.18] active:bg-red-500/[0.14]"
+              onClick={() => setPopoverOpen(false)}
+            >
+              Закрыть
+            </button>
+          </div>
+        </>
+      ) : (
+        dataQualityPanelBody
+      )}
+    </>
+  );
+
   return (
-    <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+    <div
+      style={{
+        position: "relative",
+        display: "flex",
+        alignItems: "center",
+        width: variant === "mobileContextStrip" ? "100%" : undefined,
+      }}
+    >
       <div
         ref={anchorRef}
         role="button"
@@ -233,263 +558,169 @@ export default function DataHealthMini({ projectId, initialData = null }: DataHe
         onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setPopoverOpen((o) => !o)}
         aria-expanded={popoverOpen}
         aria-haspopup="dialog"
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "flex-start",
-          justifyContent: "center",
-          minWidth: 98,
-          height: 40,
-          padding: "0 10px",
-          borderRadius: 10,
-          cursor: "pointer",
-          outline: "none",
-          border: "1px solid rgba(255,255,255,0.08)",
-          background: "rgba(255,255,255,0.04)",
-          transition: "background 0.2s ease, box-shadow 0.2s ease",
-          lineHeight: 1.25,
-        }}
+        aria-label={mobileContextStripDisplay?.text ?? "Качество данных"}
+        style={
+          variant === "mobileContextStrip"
+            ? {
+                display: "flex",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "flex-start",
+                gap: 10,
+                width: "100%",
+                minHeight: 36,
+                padding: "8px 14px",
+                borderRadius: 0,
+                cursor: "pointer",
+                outline: "none",
+                border: "none",
+                borderTop: "1px solid rgba(255,255,255,0.07)",
+                background: "linear-gradient(180deg, rgba(255,255,255,0.045) 0%, rgba(255,255,255,0.02) 100%)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
+                transition: "background 0.2s ease",
+                lineHeight: 1.35,
+              }
+            : {
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-start",
+                justifyContent: "center",
+                minWidth: 98,
+                height: 40,
+                padding: "0 10px",
+                borderRadius: 10,
+                cursor: "pointer",
+                outline: "none",
+                border: "1px solid rgba(255,255,255,0.08)",
+                background: "rgba(255,255,255,0.04)",
+                transition: "background 0.2s ease, box-shadow 0.2s ease",
+                lineHeight: 1.25,
+              }
+        }
         onMouseEnter={(e) => {
+          if (variant === "mobileContextStrip") {
+            e.currentTarget.style.background =
+              "linear-gradient(180deg, rgba(255,255,255,0.065) 0%, rgba(255,255,255,0.035) 100%)";
+            return;
+          }
           e.currentTarget.style.background = "rgba(255,255,255,0.08)";
           e.currentTarget.style.boxShadow = "0 0 0 1px rgba(255,255,255,0.06)";
         }}
         onMouseLeave={(e) => {
+          if (variant === "mobileContextStrip") {
+            e.currentTarget.style.background =
+              "linear-gradient(180deg, rgba(255,255,255,0.045) 0%, rgba(255,255,255,0.02) 100%)";
+            return;
+          }
           e.currentTarget.style.background = "rgba(255,255,255,0.04)";
           e.currentTarget.style.boxShadow = "none";
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          <span style={{ color: "rgba(255,255,255,0.9)" }}>
-            <ShieldIcon size={14} />
-          </span>
-          <span style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.9)" }}>Качество данных</span>
-        </div>
-        {!hasPaidDataQualityAccess ? (
-          <span style={{ fontSize: 12, fontWeight: 700, color: "#3ddc97", marginTop: 1, marginLeft: 19 }}>
-            Нет доступа
-          </span>
-        ) : hasData ? (
-          <span style={{ fontSize: 12, fontWeight: 700, color: status.color, marginTop: 1, marginLeft: 19 }}>
-            {Math.round(v)}% · {status.label}
-          </span>
+        {variant === "mobileContextStrip" && mobileContextStripDisplay ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 10,
+              minWidth: 0,
+              flex: 1,
+              fontSize: 11,
+              fontWeight: 500,
+              letterSpacing: "0.01em",
+              color: "rgba(212,212,222,0.92)",
+            }}
+          >
+            <span
+              aria-hidden
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                flexShrink: 0,
+                marginTop: 4,
+                background: mobileContextStripDisplay.dot,
+                boxShadow: "0 0 0 1px rgba(0,0,0,0.35)",
+              }}
+            />
+            <span
+              style={{
+                minWidth: 0,
+                overflow: "hidden",
+                display: "-webkit-box",
+                WebkitBoxOrient: "vertical" as const,
+                WebkitLineClamp: 2,
+                whiteSpace: "normal",
+                lineHeight: 1.35,
+                wordBreak: "break-word",
+              }}
+            >
+              {mobileContextStripDisplay.text}
+            </span>
+          </div>
         ) : (
-          <span style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.5)", marginTop: 1 }}>
-            {projectId ? "—" : "Нет проекта"}
-          </span>
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <span style={{ color: "rgba(255,255,255,0.9)" }}>
+                <ShieldIcon size={14} />
+              </span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.9)" }}>Качество данных</span>
+            </div>
+            {!hasPaidDataQualityAccess ? (
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#3ddc97", marginTop: 1, marginLeft: 19 }}>
+                Нет доступа
+              </span>
+            ) : hasData ? (
+              <span style={{ fontSize: 12, fontWeight: 700, color: status.color, marginTop: 1, marginLeft: 19 }}>
+                {Math.round(v)}% · {status.label}
+              </span>
+            ) : (
+              <span style={{ fontSize: 11, fontWeight: 600, color: "rgba(255,255,255,0.5)", marginTop: 1 }}>
+                {projectId ? "—" : "Нет проекта"}
+              </span>
+            )}
+          </>
         )}
       </div>
 
-      {popoverOpen && (
-        <div
-          ref={panelRef}
-          role="dialog"
-          aria-label="Качество данных"
-          style={{
-            position: "absolute",
-            top: "100%",
-            right: 0,
-            marginTop: 6,
-            zIndex: 100,
-            width: "min(500px, calc(100vw - 24px))",
-            maxHeight: "min(80vh, 520px)",
-            overflow: "auto",
-            background: "rgba(18,18,24,0.98)",
-            border: "1px solid rgba(255,255,255,0.1)",
-            borderRadius: 12,
-            boxShadow: "0 12px 32px rgba(0,0,0,0.45)",
-            padding: 0,
-            fontSize: 13,
-            animation: "dataQualityPanelIn 0.15s ease-out",
-          }}
-        >
-          <style>{`
-            @keyframes dataQualityPanelIn {
-              from { opacity: 0; transform: translateY(-6px); }
-              to { opacity: 1; transform: translateY(0); }
-            }
-          `}</style>
-
-          {!hasPaidDataQualityAccess ? (
-            <div style={{ padding: 20 }}>
-              <div style={{ fontWeight: 700, fontSize: 16, color: "white", marginBottom: 6 }}>Качество данных</div>
-              <p style={{ color: "rgba(255,255,255,0.65)", margin: 0, lineHeight: 1.45, fontSize: 13 }}>
-                {PLAN_RESTRICTED_ANALYTICS_MESSAGE}
-              </p>
-              <button
-                type="button"
-                onClick={onDataQualityUpgradeClick}
-                className="mt-3.5 w-full cursor-pointer rounded-[10px] bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/80"
-              >
-                Сменить тариф
-              </button>
-            </div>
-          ) : loading ? (
-            <div style={{ padding: 24, textAlign: "center", color: "rgba(255,255,255,0.6)", fontSize: 13 }}>
-              Загрузка…
-            </div>
-          ) : !hasData ? (
-            <div style={{ padding: 20 }}>
-              <div style={{ fontWeight: 700, fontSize: 16, color: "white", marginBottom: 6 }}>Качество данных</div>
-              <p style={{ color: "rgba(255,255,255,0.65)", margin: 0, lineHeight: 1.45, fontSize: 13 }}>
-                Недостаточно данных для анализа качества.
-              </p>
-            </div>
-          ) : (
-            <>
-              {/* Panel header — compact */}
-              <div style={{ padding: "14px 18px 12px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
-                <h2 style={{ fontWeight: 700, fontSize: 16, color: "white", margin: "0 0 2px" }}>Качество данных</h2>
-                <p style={{ fontSize: 12, color: "rgba(255,255,255,0.55)", margin: 0, lineHeight: 1.35 }}>
-                  Показывает, насколько корректно работает атрибуция рекламы.
-                </p>
-              </div>
-
-              {/* Score area — compact: gauge left, label + status right */}
-              <div style={{ padding: "14px 18px", display: "flex", alignItems: "center", gap: 14, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                <GaugeSvg value={v} size={72} />
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 15, color: "white" }}>Качество данных</div>
-                  <div style={{ fontWeight: 600, fontSize: 13, color: status.color, marginTop: 2 }}>{status.label}</div>
-                </div>
-              </div>
-
-              {/* Breakdown — compact */}
-              {data?.breakdown && (
-                <div style={{ padding: "12px 18px" }}>
-                  <div style={{ fontWeight: 600, color: "rgba(255,255,255,0.88)", marginBottom: 8, fontSize: 12 }}>
-                    Детализация
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {(Object.keys(BREAKDOWN_MAX) as (keyof typeof BREAKDOWN_MAX)[]).map((key) => {
-                      const val = data.breakdown![key];
-                      const max = BREAKDOWN_MAX[key];
-                      const pct = max > 0 ? Math.round((val / max) * 100) : 0;
-                      return (
-                        <div key={key}>
-                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2, fontSize: 12 }}>
-                            <span style={{ color: "rgba(255,255,255,0.82)" }}>{BREAKDOWN_LABELS[key]}</span>
-                            <span style={{ color: "rgba(255,255,255,0.65)", fontVariantNumeric: "tabular-nums" }}>
-                              {val} / {max}
-                            </span>
-                          </div>
-                          <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,0.08)", overflow: "hidden" }}>
-                            <div
-                              style={{
-                                height: "100%",
-                                width: `${pct}%`,
-                                background: pct >= 70 ? "#3ddc97" : pct >= 40 ? "#ff9f43" : "#ff5a5a",
-                                borderRadius: 3,
-                                transition: "width 0.25s ease",
-                              }}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Issues — compact rows */}
-              {data?.issues && data.issues.length > 0 && (
-                <div style={{ padding: "12px 18px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-                  <div style={{ fontWeight: 600, color: "rgba(255,255,255,0.88)", marginBottom: 6, fontSize: 12 }}>
-                    Обнаруженные проблемы
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 140, overflowY: "auto" }}>
-                    {data.issues.slice(0, 8).map((i) => (
-                      <div
-                        key={i.code}
-                        style={{
-                          display: "flex",
-                          gap: 8,
-                          padding: "8px 10px",
-                          borderRadius: 8,
-                          background: "rgba(255,255,255,0.03)",
-                          border: "1px solid rgba(255,255,255,0.05)",
-                        }}
-                      >
-                        <span style={{ fontSize: 14, flexShrink: 0 }} aria-hidden>⚠</span>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, color: "white", fontSize: 12 }}>
-                            {i.percent > 0 ? `${i.percent}% — ` : ""}{i.title}
-                            {i.low_sample && " (мало событий)"}
-                          </div>
-                          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", marginTop: 2, lineHeight: 1.35 }}>
-                            {i.description}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Recommendations — compact rows */}
-              {data?.recommendations && data.recommendations.length > 0 && (
-                <div style={{ padding: "12px 18px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-                  <div style={{ fontWeight: 600, color: "rgba(255,255,255,0.88)", marginBottom: 6, fontSize: 12 }}>
-                    Рекомендации
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 120, overflowY: "auto" }}>
-                    {data.recommendations.slice(0, 5).map((r) => (
-                      <div
-                        key={r.code}
-                        style={{
-                          display: "flex",
-                          gap: 8,
-                          padding: "8px 10px",
-                          borderRadius: 8,
-                          background: "rgba(61,220,151,0.05)",
-                          border: "1px solid rgba(61,220,151,0.12)",
-                        }}
-                      >
-                        <span style={{ fontSize: 14, flexShrink: 0 }} aria-hidden>💡</span>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, color: "rgba(255,255,255,0.92)", fontSize: 12 }}>{r.title}</div>
-                          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.65)", marginTop: 2, lineHeight: 1.35 }}>
-                            {r.description || r.action_text}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* CTA — compact */}
-              <div style={{ padding: "12px 18px 16px", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
-                <Link
-                  href={projectId ? `/app/attribution-debugger?project_id=${encodeURIComponent(projectId)}` : "/app/attribution-debugger"}
+      {popoverOpen &&
+        (useBottomSheet && sheetPortalReady
+          ? createPortal(
+              <>
+                <button
+                  type="button"
+                  aria-label="Закрыть"
+                  onClick={() => setPopoverOpen(false)}
                   style={{
-                    display: "block",
-                    textAlign: "center",
-                    padding: "10px 16px",
-                    borderRadius: 10,
-                    background: "rgba(255,255,255,0.08)",
-                    border: "1px solid rgba(255,255,255,0.12)",
-                    color: "white",
-                    fontWeight: 600,
-                    fontSize: 13,
-                    textDecoration: "none",
-                    transition: "background 0.2s, border-color 0.2s",
+                    position: "fixed",
+                    inset: 0,
+                    zIndex: MOBILE_APP_SHEET_Z - 1,
+                    background: "rgba(0,0,0,0.55)",
+                    backdropFilter: "blur(3px)",
+                    WebkitBackdropFilter: "blur(3px)",
+                    border: "none",
+                    padding: 0,
+                    margin: 0,
+                    cursor: "pointer",
                   }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "rgba(255,255,255,0.12)";
-                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.2)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "rgba(255,255,255,0.08)";
-                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.12)";
-                  }}
+                />
+                <div
+                  ref={panelRef}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Качество данных"
+                  style={panelSurfaceStyle}
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  Открыть проверку атрибуции
-                </Link>
+                  {panelInnerMarkup}
+                </div>
+              </>,
+              document.body
+            )
+          : !useBottomSheet ? (
+              <div ref={panelRef} role="dialog" aria-label="Качество данных" style={panelSurfaceStyle}>
+                {panelInnerMarkup}
               </div>
-            </>
-          )}
-        </div>
-      )}
+            ) : null)}
     </div>
   );
 }

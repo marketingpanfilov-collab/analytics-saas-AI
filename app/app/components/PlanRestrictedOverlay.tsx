@@ -93,31 +93,45 @@ export default function PlanRestrictedOverlay({
 
   const card = (
     <div
-      className="pointer-events-auto max-w-md shrink-0 rounded-2xl border border-white/10 bg-[#12121a]/95 px-6 py-8 text-center shadow-[0_24px_80px_rgba(0,0,0,0.55)]"
+      className="pointer-events-auto w-[min(28rem,calc(100vw-32px))] max-w-md shrink-0 rounded-2xl border border-white/10 bg-[#12121a]/95 px-4 py-6 text-center shadow-[0_24px_80px_rgba(0,0,0,0.55)] sm:px-6 sm:py-8"
       role="region"
       aria-label="Ограничение по тарифу"
     >
-      <p className="text-[15px] leading-relaxed text-white/90">{cardCopy}</p>
+      <p className="text-[14px] leading-snug text-white/90 sm:text-[15px] sm:leading-relaxed">{cardCopy}</p>
       <button
         type="button"
         onClick={onUpgrade}
-        className="mt-6 w-full cursor-pointer rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/80"
+        className="mt-5 flex w-full min-h-[48px] cursor-pointer items-center justify-center rounded-xl bg-emerald-600 px-4 py-3 text-[15px] font-semibold text-white transition-colors hover:bg-emerald-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/80 active:bg-emerald-700 sm:mt-6 sm:min-h-0 sm:text-sm"
       >
         Обновить тариф
       </button>
     </div>
   );
 
+  /** Как `pb-[calc(72px+…)]` у main-scroll — зона над нижним таббаром на mobile. */
+  const MOBILE_TAB_BAR_RESERVE_PX = 72;
+
+  const cardCenterY = useMemo(() => {
+    if (paneBox == null || paneBox.width < 1) return null;
+    const paneBottom = paneBox.top + paneBox.height;
+    if (typeof window === "undefined") return paneBox.top + paneBox.height / 2;
+    const narrow = window.matchMedia("(max-width: 1023px)").matches;
+    const contentBottom = narrow
+      ? Math.min(paneBottom, window.innerHeight - MOBILE_TAB_BAR_RESERVE_PX)
+      : paneBottom;
+    return (paneBox.top + contentBottom) / 2;
+  }, [paneBox]);
+
   const cardPositionStyle: CSSProperties =
-    paneBox != null && paneBox.width >= 1
+    paneBox != null && paneBox.width >= 1 && cardCenterY != null
       ? {
           left: paneBox.left + paneBox.width / 2,
-          top: "43vh",
+          top: cardCenterY,
           transform: "translate(-50%, -50%)",
         }
       : {
           left: `calc(${APP_SIDEBAR_WIDTH_PX}px + (100vw - ${APP_SIDEBAR_WIDTH_PX}px) / 2)`,
-          top: "43vh",
+          top: "50vh",
           transform: "translate(-50%, -50%)",
         };
 
@@ -134,7 +148,10 @@ export default function PlanRestrictedOverlay({
         {children}
       </div>
       {restricted ? (
-        <div className="pointer-events-none fixed z-[40]" style={cardPositionStyle}>
+        <div
+          className="pointer-events-none fixed z-[40] max-lg:z-[200]"
+          style={cardPositionStyle}
+        >
           {card}
         </div>
       ) : null}

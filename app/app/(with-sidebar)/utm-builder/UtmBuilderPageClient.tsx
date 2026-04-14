@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useLayoutEffect, useMemo, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
 import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
@@ -195,7 +195,17 @@ const SELECT_CLASS =
 export default function UtmBuilderPageClient() {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project_id")?.trim() ?? null;
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const { resolvedUi } = useBillingBootstrap();
+
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const apply = () => setIsMobileViewport(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
   const canSaveRedirectLink = useMemo(
     () => billingActionAllowed(resolvedUi, ActionId.sync_refresh),
     [resolvedUi]
@@ -464,7 +474,12 @@ export default function UtmBuilderPageClient() {
 
   if (!projectId) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center p-6">
+      <div
+        className={clsx(
+          "flex min-h-[40vh] items-center justify-center",
+          isMobileViewport ? "box-border px-3.5 pb-24 pt-4" : "p-6"
+        )}
+      >
         <div className="text-center">
           <p className="text-base font-medium text-neutral-300">Выберите проект</p>
           <p className="mt-2 text-sm text-neutral-500">
@@ -480,18 +495,33 @@ export default function UtmBuilderPageClient() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8 p-6 pb-12">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-white">
+    <div
+      className={clsx(
+        "mx-auto min-w-0 max-w-6xl space-y-8 overflow-x-hidden",
+        isMobileViewport ? "box-border px-3.5 pb-20 pt-3.5" : "p-6 pb-12"
+      )}
+    >
+      <div className="min-w-0">
+        <h1
+          className={clsx(
+            "font-semibold tracking-tight text-white",
+            isMobileViewport ? "text-[26px] leading-[1.12]" : "text-2xl"
+          )}
+        >
           UTM Builder
         </h1>
-        <p className="mt-1 text-sm text-neutral-400">
+        <p
+          className={clsx(
+            "mt-1 text-neutral-400",
+            isMobileViewport ? "text-sm leading-relaxed" : "text-sm"
+          )}
+        >
           Создайте трекинг-ссылки с редиректом. Укажите URL и источник трафика, нажмите Generate link.
         </p>
       </div>
 
       <div
-        className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4"
+        className="min-w-0 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4"
         role="region"
         aria-label="Важное предупреждение по tracking-ссылкам"
       >
@@ -499,15 +529,15 @@ export default function UtmBuilderPageClient() {
           type="button"
           aria-expanded={warningExpanded}
           onClick={() => setWarningExpanded((e) => !e)}
-          className="flex w-full items-center justify-between gap-2 text-left"
+          className="flex w-full items-start justify-between gap-3 text-left sm:items-center"
         >
-          <div>
+          <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-amber-200">⚠️ Важно</p>
             <p className="mt-1 text-sm text-amber-100/90">
               Обязательно используйте сгенерированную tracking-ссылку в рекламных кабинетах.
             </p>
           </div>
-          <span className="shrink-0 text-amber-200/80" aria-hidden>
+          <span className="shrink-0 text-lg leading-none text-amber-200/80 sm:text-base" aria-hidden>
             {warningExpanded ? "▲" : "▼"}
           </span>
         </button>
@@ -530,9 +560,9 @@ export default function UtmBuilderPageClient() {
         )}
       </div>
 
-      <div className="grid gap-8 lg:grid-cols-12">
-        <div className="space-y-6 lg:col-span-7">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+      <div className="grid min-w-0 gap-8 lg:grid-cols-12">
+        <div className="min-w-0 space-y-6 lg:col-span-7">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6">
             <h2 className="text-sm font-medium text-neutral-400">Destination URL</h2>
             <input
               type="text"
@@ -546,7 +576,7 @@ export default function UtmBuilderPageClient() {
             )}
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6">
             <h2 className="text-sm font-medium text-neutral-400 mb-4">Traffic settings</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="sm:col-span-2">
@@ -619,14 +649,14 @@ export default function UtmBuilderPageClient() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6">
             <button
               type="button"
               onClick={() => {
                 if (!customMode) openCustomModeWithDefaults();
                 setCustomOpen((o) => !o);
               }}
-              className="flex w-full items-center justify-between text-left text-sm font-medium text-neutral-400"
+              className="flex w-full min-w-0 items-center justify-between gap-2 text-left text-sm font-medium text-neutral-400"
             >
               Custom tracking setup
               <span className="text-neutral-500">{customOpen ? "▼" : "▶"}</span>
@@ -725,25 +755,34 @@ export default function UtmBuilderPageClient() {
                         </button>
                       </div>
                       {extraParams.map((p, i) => (
-                        <div key={i} className="mt-2 flex gap-2">
+                        <div
+                          key={i}
+                          className={clsx(
+                            "mt-2 flex min-w-0 gap-2",
+                            isMobileViewport ? "flex-col" : "flex-row items-center"
+                          )}
+                        >
                           <input
                             type="text"
                             value={p.key}
                             onChange={(e) => setExtraParam(i, "key", e.target.value)}
                             placeholder="key"
-                            className={clsx(INPUT_CLASS, "flex-1")}
+                            className={clsx(INPUT_CLASS, "min-w-0 flex-1")}
                           />
                           <input
                             type="text"
                             value={p.value}
                             onChange={(e) => setExtraParam(i, "value", e.target.value)}
                             placeholder="value"
-                            className={clsx(INPUT_CLASS, "flex-1")}
+                            className={clsx(INPUT_CLASS, "min-w-0 flex-1")}
                           />
                           <button
                             type="button"
                             onClick={() => removeExtraParam(i)}
-                            className="rounded-lg border border-white/10 px-2 text-neutral-400 hover:text-white"
+                            className={clsx(
+                              "shrink-0 rounded-lg border border-white/10 px-2 py-2 text-neutral-400 hover:text-white",
+                              isMobileViewport && "self-end"
+                            )}
                           >
                             ×
                           </button>
@@ -756,15 +795,15 @@ export default function UtmBuilderPageClient() {
             )}
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6">
             <h2 className="text-sm font-medium text-neutral-400">Recent links</h2>
             {historyLoading ? (
               <p className="mt-4 text-sm text-neutral-500">Загрузка…</p>
             ) : history.length === 0 ? (
               <p className="mt-4 text-sm text-neutral-500">Нет сохранённых ссылок</p>
             ) : (
-              <div className="mt-4 max-h-[300px] overflow-y-auto overflow-x-auto rounded-lg border border-white/5">
-                <table className="min-w-full text-left text-[11px] text-neutral-300">
+              <div className="mt-4 max-h-[300px] min-w-0 overflow-x-auto overflow-y-auto rounded-lg border border-white/5">
+                <table className="min-w-[720px] text-left text-[11px] text-neutral-300">
                   <thead className="sticky top-0 z-10 border-b border-white/10 bg-neutral-900/95 text-neutral-500 shadow-[0_1px_0_0_rgba(255,255,255,0.06)]">
                     <tr>
                       <th className="whitespace-nowrap py-1.5 pr-2 text-[10px] font-medium">Dest. URL</th>
@@ -792,7 +831,7 @@ export default function UtmBuilderPageClient() {
                             <button
                               type="button"
                               onClick={() => copyRecentLinkUrl(link)}
-                              className="absolute right-1 top-1/2 -translate-y-1/2 rounded border border-white/15 bg-neutral-800/90 px-1.5 py-0.5 text-[10px] font-medium text-white opacity-0 transition-opacity group-hover/redirect:opacity-100"
+                              className="absolute right-1 top-1/2 z-[1] -translate-y-1/2 rounded border border-white/15 bg-neutral-800/90 px-1.5 py-0.5 text-[10px] font-medium text-white opacity-100 transition-opacity lg:opacity-0 lg:group-hover/redirect:opacity-100"
                             >
                               {copied === "recent-" + link.id ? "Copied" : "Copy"}
                             </button>
@@ -816,13 +855,13 @@ export default function UtmBuilderPageClient() {
           </div>
         </div>
 
-        <div className="space-y-6 lg:col-span-5">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+        <div className="min-w-0 space-y-6 lg:col-span-5">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-6">
             <h2 className="text-sm font-medium text-neutral-400">Output</h2>
 
             {!isGenerated ? (
               <>
-                <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-6 text-center">
+                <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4 text-center sm:p-6">
                   <p className="text-sm text-neutral-400">
                     Configure destination and traffic above, then click Generate link.
                   </p>
@@ -834,7 +873,7 @@ export default function UtmBuilderPageClient() {
                       type="button"
                       onClick={handleGenerate}
                       disabled={!canSaveRedirectLink || generateLoading || !destinationValid}
-                      className="rounded-xl bg-white/15 px-6 py-3 text-sm font-medium text-white hover:bg-white/25 disabled:opacity-50"
+                      className="w-full max-w-sm rounded-xl bg-white/15 px-6 py-3 text-sm font-medium text-white hover:bg-white/25 disabled:opacity-50 sm:w-auto"
                     >
                       {generateLoading ? "Generating…" : "Generate link"}
                     </button>
@@ -853,30 +892,38 @@ export default function UtmBuilderPageClient() {
                   )}
                   <p className="mt-1 text-xs font-medium text-emerald-400/90">Link saved successfully</p>
                   <div
-                    className="group relative mt-2 max-h-28 overflow-y-auto rounded-lg border border-white/5 bg-black/20 px-3 py-2 pr-16 font-mono text-sm text-white break-all"
+                    className="group relative mt-2 max-h-28 min-w-0 overflow-y-auto rounded-lg border border-white/5 bg-black/20 px-3 py-2 pr-16 font-mono text-sm text-white break-all"
                     title={longRedirectUrl}
                   >
                     {longRedirectUrl}
                     <button
                       type="button"
                       onClick={copyLongUrl}
-                      className="absolute right-2 top-2 rounded border border-white/20 bg-white/10 px-2 py-1 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100"
+                      className={clsx(
+                        "absolute right-2 top-2 rounded border border-white/20 bg-white/10 px-2 py-1 text-xs font-medium text-white transition-opacity",
+                        "opacity-100 lg:opacity-0 lg:group-hover:opacity-100"
+                      )}
                     >
                       {copied === "long" ? "Copied" : "Copy"}
                     </button>
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
+                  <div
+                    className={clsx(
+                      "mt-3 flex flex-wrap gap-2",
+                      isMobileViewport && "flex-col [&>button]:w-full"
+                    )}
+                  >
                     <button
                       type="button"
                       onClick={copyLongUrl}
-                      className="rounded-xl bg-white/15 px-4 py-2 text-sm font-medium text-white hover:bg-white/25"
+                      className="rounded-xl bg-white/15 px-4 py-2.5 text-sm font-medium text-white hover:bg-white/25"
                     >
                       {copied === "long" ? "Copied" : "Copy"}
                     </button>
                     <button
                       type="button"
                       onClick={() => setLastSaved(null)}
-                      className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white hover:bg-white/10"
+                      className="rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white hover:bg-white/10"
                     >
                       Create another
                     </button>

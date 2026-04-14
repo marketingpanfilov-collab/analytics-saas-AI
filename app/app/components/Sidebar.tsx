@@ -6,14 +6,18 @@ import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { setActiveProjectId } from "@/app/lib/activeProjectClient";
 import SalesPlanModal, { type MonthlyPlan } from "./SalesPlanModal";
+import { type ProjectCurrency } from "@/app/lib/currency";
 import {
-  fmtProjectCurrency,
-  type ProjectCurrency,
-} from "@/app/lib/currency";
+  SidebarTodayPanel,
+  MetricRow,
+  type Metric,
+  type TodayPlanState,
+} from "./SidebarTodayPanel";
 import { SIDEBAR_TODAY_REFRESH_EVENT } from "@/app/lib/sidebarTodayRefreshEvent";
 import { getSharedCached } from "@/app/lib/sharedDataCache";
 import { POST_REFRESH_GUARD_MS, REFRESH_BASELINE_SESSION_KEY } from "@/app/lib/refreshOrchestration";
 import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
+import { useOptionalAppMobileNav } from "@/app/app/components/AppMobileNavContext";
 import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
 import { ActionId } from "@/app/lib/billingUiContract";
 
@@ -28,256 +32,6 @@ const itemStyle = (active: boolean) => ({
   background: active ? "rgba(255,255,255,0.10)" : "transparent",
   border: active ? "1px solid rgba(255,255,255,0.10)" : "1px solid transparent",
 });
-
-const cardStyle = {
-  borderRadius: 18,
-  border: "1px solid rgba(255,255,255,0.10)",
-  background:
-    "radial-gradient(700px 240px at 30% 0%, rgba(120,120,255,0.18), transparent 60%), rgba(255,255,255,0.03)",
-  boxShadow: "0 18px 60px rgba(0,0,0,0.45)",
-  padding: 14,
-  overflow: "hidden", // ✅ фикс: чтобы «Сегодня» не раздувал/не ломал ширину сайдбара
-};
-
-type DeviationStatus = "good" | "warn" | "bad" | "neutral";
-
-/** Продажи: >=100% green, 80-99% yellow, below red. */
-function classifySalesDeviation(ratio: number): DeviationStatus {
-  if (!Number.isFinite(ratio) || ratio < 0) return "neutral";
-  if (ratio >= 1) return "good";
-  if (ratio >= 0.8) return "warn";
-  return "bad";
-}
-
-function badgeColors(status: DeviationStatus): { bg: string; border: string; text: string } {
-  switch (status) {
-    case "good":
-      return {
-        bg: "rgba(34,197,94,0.12)",
-        border: "rgba(34,197,94,0.4)",
-        text: "rgba(187,247,208,0.95)",
-      };
-    case "warn":
-      return {
-        bg: "rgba(234,179,8,0.12)",
-        border: "rgba(234,179,8,0.4)",
-        text: "rgba(254,249,195,0.95)",
-      };
-    case "bad":
-      return {
-        bg: "rgba(239,68,68,0.14)",
-        border: "rgba(239,68,68,0.5)",
-        text: "rgba(254,202,202,0.98)",
-      };
-    default:
-      return {
-        bg: "rgba(148,163,184,0.10)",
-        border: "rgba(148,163,184,0.35)",
-        text: "rgba(226,232,240,0.9)",
-      };
-  }
-}
-
-function fmtPct(n: number) {
-  const clamped = Math.max(-199, Math.min(199, n));
-  return clamped.toFixed(0).replace(".", ",") + "%";
-}
-
-type MetricKey = "spend" | "sales" | "roas" | "cac" | "cpr";
-type TodayPlanState = "loadingFact" | "activePlan" | "planExhausted" | "noPlan";
-
-type Metric = {
-  key: MetricKey;
-  title: string;
-  fact: number | null;
-  plan: number | null;
-  format: "money" | "num" | "roas";
-  state: TodayPlanState;
-};
-
-function classifyRoasDeviation(ratio: number): DeviationStatus {
-  if (!Number.isFinite(ratio) || ratio < 0) return "neutral";
-  if (ratio >= 1) return "good";
-  if (ratio >= 0.8) return "warn";
-  return "bad";
-}
-
-function classifyLowerIsBetterStrict(ratio: number): DeviationStatus {
-  if (!Number.isFinite(ratio) || ratio < 0) return "neutral";
-  return ratio <= 1 ? "good" : "bad";
-}
-
-function classifySpendByRatio(ratio: number): DeviationStatus {
-  if (!Number.isFinite(ratio) || ratio < 0) return "neutral";
-  if (ratio > 1.03) return "bad";
-  if (ratio >= 0.9) return "good";
-  return "warn";
-}
-
-function formatMetricValue(
-  metric: Metric,
-  value: number | null,
-  currency: ProjectCurrency,
-  usdToKztRate: number | null
-) {
-  if (value == null) return "—";
-  if (metric.format === "money") return fmtProjectCurrency(value, currency, usdToKztRate);
-  if (metric.format === "roas") return value.toFixed(2).replace(".", ",");
-  return new Intl.NumberFormat("ru-RU").format(Math.round(value));
-}
-
-function MetricRow({
-  m,
-  currency,
-  usdToKztRate,
-}: {
-  m: Metric;
-  currency: ProjectCurrency;
-  usdToKztRate: number | null;
-}) {
-  const ratio = m.plan != null && m.plan > 0 && m.fact != null ? m.fact / m.plan : null;
-  const delta = m.plan != null && m.plan > 0 && m.fact != null ? ((m.fact - m.plan) / m.plan) * 100 : null;
-
-  const status = (() => {
-    if (m.state === "loadingFact" || m.state === "noPlan") return "neutral";
-    if (m.state === "planExhausted") {
-      if (m.key === "sales") return (m.fact ?? 0) > 0 ? "good" : "neutral";
-      if (m.key === "spend") return (m.fact ?? 0) > 0 ? "bad" : "neutral";
-      return "neutral";
-    }
-    if (ratio == null) return "neutral";
-    if (m.key === "sales") return classifySalesDeviation(ratio);
-    if (m.key === "roas") return classifyRoasDeviation(ratio);
-    if (m.key === "spend") return classifySpendByRatio(ratio);
-    if (m.key === "cac" || m.key === "cpr") return classifyLowerIsBetterStrict(ratio);
-    return "neutral";
-  })();
-
-  const colors = badgeColors(status);
-  const badgeText =
-    m.state === "loadingFact" || m.state === "noPlan" || delta == null
-      ? "—"
-      : `${delta > 0 ? "+" : ""}${fmtPct(delta)}`;
-
-  return (
-    <div
-      style={{
-        padding: 12,
-        borderRadius: 14,
-        border: "1px solid rgba(255,255,255,0.10)",
-        background: "rgba(255,255,255,0.02)",
-        minWidth: 0,
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 10,
-          alignItems: "center",
-          minWidth: 0,
-        }}
-      >
-        <div
-          style={{
-            fontWeight: 900,
-            minWidth: 0,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {m.title}
-        </div>
-
-        <div
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 5,
-            padding: "4px 8px",
-            borderRadius: 999,
-            background: colors.bg,
-            border: `1px solid ${colors.border}`,
-            color: colors.text,
-            fontWeight: 900,
-            fontSize: 11,
-            lineHeight: 1.2,
-            whiteSpace: "nowrap",
-            flexShrink: 0,
-          }}
-          title="Отклонение факт vs план"
-        >
-          {badgeText}
-          <span
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: 999,
-              background: colors.text,
-              opacity: 0.9,
-              flexShrink: 0,
-            }}
-          />
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gap: 6, marginTop: 10, minWidth: 0 }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 10,
-            opacity: 0.75,
-            minWidth: 0,
-          }}
-        >
-          <span style={{ minWidth: 0 }}>Факт</span>
-          <span
-            style={{
-              fontWeight: 900,
-              opacity: 1,
-              whiteSpace: "nowrap",
-              fontVariantNumeric: "tabular-nums",
-              flexShrink: 0,
-            }}
-          >
-            {formatMetricValue(m, m.fact, currency, usdToKztRate)}
-          </span>
-        </div>
-
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 10,
-            opacity: 0.75,
-            minWidth: 0,
-          }}
-        >
-          <span style={{ minWidth: 0 }}>План</span>
-          <span
-            style={{
-              fontWeight: 900,
-              opacity: 1,
-              whiteSpace: "nowrap",
-              fontVariantNumeric: "tabular-nums",
-              flexShrink: 0,
-            }}
-          >
-            {formatMetricValue(m, m.plan, currency, usdToKztRate)}
-          </span>
-        </div>
-        {m.state === "loadingFact" && (
-          <div style={{ fontSize: 11, opacity: 0.55 }}>Загрузка плана...</div>
-        )}
-        {m.state === "planExhausted" && (
-          <div style={{ fontSize: 11, opacity: 0.72 }}>План исчерпан</div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function safeGetProjectIdFromStorage() {
   try {
@@ -321,6 +75,9 @@ export default function Sidebar() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { resolvedUi } = useBillingBootstrap();
+  const mobileNav = useOptionalAppMobileNav();
+  const mobileNavRef = useRef(mobileNav);
+  mobileNavRef.current = mobileNav;
 
   const [todayOpen, setTodayOpen] = useState(false);
   const [todayMetricsFrameOpen, setTodayMetricsFrameOpen] = useState(false);
@@ -360,6 +117,12 @@ export default function Sidebar() {
     const fromStore = safeGetProjectIdFromStorage();
     if (fromStore) setProjectId(fromStore);
   }, [pathname, searchParams]);
+
+  /* Только при смене маршрута. Не завязывать на mobileNav из контекста — объект пересоздаётся при todayDrawerOpen и мгновенно закрывал drawer. */
+  useEffect(() => {
+    mobileNavRef.current?.setMobileNavOpen(false);
+    mobileNavRef.current?.setTodayDrawerOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     let mounted = true;
@@ -787,6 +550,11 @@ export default function Sidebar() {
       ? (projects.find((p) => p.id === projectId)?.name ?? null) || "Проект"
       : null;
 
+  useEffect(() => {
+    const label = activeProjectName ?? (projectId ? "Проект" : "Проект не выбран");
+    mobileNavRef.current?.setTodayDrawerProjectLabel(label);
+  }, [activeProjectName, projectId]);
+
   const handleSelectProject = useCallback(
     (id: string) => {
       setActiveProjectId(id);
@@ -861,6 +629,24 @@ export default function Sidebar() {
 
   const sidebarBackground =
     "radial-gradient(800px 260px at 30% 0%, rgba(120,120,255,0.16), transparent 60%), linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.01))";
+
+  const todayPanelProps = {
+    todayOpen,
+    setTodayOpen,
+    projectId,
+    canEditPlan,
+    planPerformanceState,
+    setPlanModalOpen,
+    totalSalesPlan,
+    factSalesToday,
+    salesPlanState,
+    dailySalesPlan,
+    topMetrics,
+    extendedMetrics,
+    projectCurrency,
+    usdToKztRate,
+    setTodayMetricsFrameOpen,
+  };
 
   useEffect(() => {
     if (!todayMetricsFrameOpen) return;
@@ -1063,238 +849,7 @@ export default function Sidebar() {
       </div>
 
       {/* Сегодня */}
-      <div style={{ ...cardStyle, padding: 14, marginBottom: 14 }}>
-        <button
-          type="button"
-          onClick={() => setTodayOpen((v) => !v)}
-          style={{
-            width: "100%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 10,
-            background: "transparent",
-            border: "none",
-            color: "white",
-            padding: 0,
-            cursor: "pointer",
-            minWidth: 0, // ✅ фикс: кнопка тоже может сжиматься
-          }}
-        >
-          <div style={{ fontSize: 34, fontWeight: 900, lineHeight: 1.05, minWidth: 0 }}>
-            Сегодня
-          </div>
-
-          <div
-            style={{
-              width: 34,
-              height: 34,
-              borderRadius: 12,
-              border: "1px solid rgba(255,255,255,0.10)",
-              background: "rgba(255,255,255,0.03)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              transform: todayOpen ? "rotate(180deg)" : "rotate(0deg)",
-              transition: "transform 160ms ease",
-              flexShrink: 0,
-            }}
-            aria-hidden="true"
-          >
-            <span style={{ lineHeight: 1, fontSize: 14 }}>▾</span>
-          </div>
-        </button>
-
-        {/* Кнопка редактирования плана — только по правам и наличию проекта */}
-        {projectId && canEditPlan && (() => {
-          const dotColor =
-            planPerformanceState === "no_plan"
-              ? "rgba(239,68,68,0.95)"
-              : planPerformanceState === "on_track"
-                ? "rgba(34,197,94,0.95)"
-                : "rgba(234,179,8,0.95)";
-          const tooltip =
-            planPerformanceState === "no_plan"
-              ? "План на текущий месяц не задан.\nДобавьте план продаж для корректной аналитики."
-              : planPerformanceState === "on_track"
-                ? "План выполняется.\nФактические показатели соответствуют плану."
-                : "Ежемесячный план не выполняется.\nРекомендуется откорректировать его на более реалистичный.";
-          return (
-            <div style={{ marginTop: 10 }}>
-              <button
-                type="button"
-                onClick={() => setPlanModalOpen(true)}
-                title={tooltip}
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 8,
-                  padding: "8px 12px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  background: "rgba(255,255,255,0.04)",
-                  color: "rgba(255,255,255,0.85)",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                <span
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: 999,
-                    background: dotColor,
-                    flexShrink: 0,
-                  }}
-                  title={tooltip}
-                  aria-hidden="true"
-                />
-                Редактировать план
-              </button>
-            </div>
-          );
-        })()}
-
-        {/* progress блока плана продаж — только от наличия плана, независимо от прав */}
-        {totalSalesPlan > 0 && (
-          <div
-            style={{
-              marginTop: 16,
-              padding: "12px 14px",
-              borderRadius: 14,
-              border: "1px solid rgba(255,255,255,0.10)",
-              background: "rgba(0,0,0,0.35)",
-              display: "grid",
-              gap: 10,
-              fontSize: 11,
-              color: "rgba(255,255,255,0.85)",
-            }}
-          >
-            {(() => {
-              const fact = factSalesToday ?? 0;
-              const isLoadingPlan = salesPlanState === "loadingFact";
-              const planValue = isLoadingPlan ? null : dailySalesPlan;
-              const raw = (planValue ?? 0) > 0 ? fact / (planValue ?? 1) : 0;
-              const clamped = Math.max(0, Math.min(raw, 1));
-              const pct = (planValue ?? 0) > 0 ? raw * 100 : 0;
-              return (
-                <>
-                  <div
-                    style={{
-                      height: 6,
-                      borderRadius: 999,
-                      background: "rgba(24,24,35,0.9)",
-                      overflow: "hidden",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: `${clamped * 100}%`,
-                        height: "100%",
-                        borderRadius: 999,
-                        background:
-                          planPerformanceState === "no_plan"
-                            ? "rgba(234,179,8,0.65)"
-                            : planPerformanceState === "on_track"
-                              ? "rgba(34,197,94,0.85)"
-                              : "rgba(239,68,68,0.85)",
-                        transition: "width 180ms ease-out",
-                      }}
-                    />
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <span>
-                      {salesPlanState === "planExhausted"
-                        ? "План исчерпан"
-                        : isLoadingPlan
-                          ? "Загрузка..."
-                          : `${pct.toFixed(0)}% плана`}
-                    </span>
-                    <span>
-                      {new Intl.NumberFormat("ru-RU").format(Math.round(fact))} /{" "}
-                      {isLoadingPlan
-                        ? "..."
-                        : new Intl.NumberFormat("ru-RU").format(Math.round(dailySalesPlan))}{" "}
-                      продаж
-                    </span>
-                  </div>
-                </>
-              );
-            })()}
-          </div>
-        )}
-
-        <div style={{ display: "grid", gap: 10, marginTop: 12, minWidth: 0 }}>
-          {topMetrics.map((m) => (
-            <MetricRow key={m.key} m={m} currency={projectCurrency} usdToKztRate={usdToKztRate} />
-          ))}
-
-          {todayOpen ? (
-            <div style={{ display: "grid", gap: 10, minWidth: 0 }}>
-              {extendedMetrics.map((m) => (
-                <MetricRow key={m.key} m={m} currency={projectCurrency} usdToKztRate={usdToKztRate} />
-              ))}
-              <button
-                type="button"
-                onClick={() => setTodayMetricsFrameOpen(true)}
-                style={{
-                  width: "100%",
-                  margin: "4px 0 0",
-                  padding: "8px 10px",
-                  borderRadius: 10,
-                  border: "1px dashed rgba(255,255,255,0.14)",
-                  background: "transparent",
-                  color: "rgba(255,255,255,0.55)",
-                  fontSize: 11,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  textAlign: "center",
-                }}
-              >
-                Открыть на весь экран
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setTodayMetricsFrameOpen(true)}
-              style={{
-                width: "100%",
-                margin: 0,
-                padding: "10px 12px",
-                borderRadius: 12,
-                border: "1px solid rgba(255,255,255,0.10)",
-                background: "rgba(255,255,255,0.04)",
-                color: "rgba(255,255,255,0.72)",
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: "pointer",
-                textAlign: "center",
-                transition: "background 0.15s ease, border-color 0.15s ease",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "rgba(255,255,255,0.08)";
-                e.currentTarget.style.borderColor = "rgba(255,255,255,0.16)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "rgba(255,255,255,0.04)";
-                e.currentTarget.style.borderColor = "rgba(255,255,255,0.10)";
-              }}
-            >
-              Показать ROAS / CAC / CPR
-            </button>
-          )}
-        </div>
-      </div>
+      <SidebarTodayPanel variant="sidebar" {...todayPanelProps} />
 
       {/* Навигация */}
       <div style={{ display: "grid", gap: 8 }}>
@@ -1316,10 +871,6 @@ export default function Sidebar() {
 
         <Link href={withProjectId("/app/conversion-data")} style={itemStyle(pathname.startsWith("/app/conversion-data"))}>
           🧾 Conversion Data
-        </Link>
-
-        <Link href={withProjectId("/app/attribution-debugger")} style={itemStyle(pathname.startsWith("/app/attribution-debugger"))}>
-          🔍 Проверка атрибуции
         </Link>
 
         <div
@@ -1395,6 +946,16 @@ export default function Sidebar() {
       ) : null}
     </aside>
     </div>
+    {mobileNav?.todayDrawerPortalContainer && mobileNav?.todayDrawerOpen
+      ? createPortal(
+          <SidebarTodayPanel
+            variant="mobileDrawer"
+            {...todayPanelProps}
+            onCloseDrawer={() => mobileNavRef.current?.setTodayDrawerOpen(false)}
+          />,
+          mobileNav.todayDrawerPortalContainer
+        )
+      : null}
     {todayMetricsFrameOpen && typeof document !== "undefined"
       ? createPortal(
           <div
@@ -1493,7 +1054,13 @@ export default function Sidebar() {
               </p>
               <div style={{ display: "grid", gap: 12, marginTop: 22, minWidth: 0 }}>
                 {extendedMetrics.map((m) => (
-                  <MetricRow key={m.key} m={m} currency={projectCurrency} usdToKztRate={usdToKztRate} />
+                  <MetricRow
+                    key={m.key}
+                    m={m}
+                    currency={projectCurrency}
+                    usdToKztRate={usdToKztRate}
+                    variant="sidebar"
+                  />
                 ))}
               </div>
             </div>

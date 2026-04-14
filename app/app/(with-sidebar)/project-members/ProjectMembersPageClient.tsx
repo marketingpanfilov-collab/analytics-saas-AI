@@ -613,84 +613,143 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
         </button>
       </div>
     ) : (
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[500px]">
-          <thead>
-            <tr className="border-b border-white/10">
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
-                Пользователь
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
-                Роль
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
-                Добавлен
-              </th>
-              <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
-                Действия
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {members.map((row) => {
-              const isSelf = row.user_id === currentUserId;
-              const cannotRemove = isSelf && row.role === "project_admin";
-              const busy = actionLoadingId === row.id;
-              return (
-                <tr
-                  key={row.id}
-                  className="border-b border-white/5 transition-colors hover:bg-white/[0.04]"
-                >
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="h-9 w-9 shrink-0 rounded-full bg-white/10 flex items-center justify-center text-sm font-medium text-zinc-300"
-                        aria-hidden
-                      >
-                        {(row.email ?? row.user_id).slice(0, 1).toUpperCase()}
+      <>
+        <ul className="divide-y divide-white/10 md:hidden" role="list">
+          {members.map((row) => {
+            const isSelf = row.user_id === currentUserId;
+            const cannotRemove = isSelf && row.role === "project_admin";
+            const busy = actionLoadingId === row.id;
+            return (
+              <li key={row.id} className="px-4 py-4">
+                <div className="flex gap-3">
+                  <div
+                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-medium text-zinc-300"
+                    aria-hidden
+                  >
+                    {(row.email ?? row.user_id).slice(0, 1).toUpperCase()}
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-3">
+                    <p className="break-words text-sm font-medium text-white">{row.email ?? row.user_id}</p>
+                    <div className="mt-2 flex flex-wrap items-start gap-x-8 gap-y-2">
+                      <div className="min-w-0 shrink-0">
+                        <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">Роль</p>
+                        <select
+                          value={row.role}
+                          onChange={(e) => handleRoleChange(row.id, e.target.value)}
+                          disabled={busy || !canMutateProjectMembers}
+                          className={
+                            isEmbedded
+                              ? "settings-page-select settings-page-select-sm max-w-full disabled:opacity-50"
+                              : "max-w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white focus:border-white/20 focus:outline-none disabled:opacity-50"
+                          }
+                        >
+                          {PROJECT_ROLES.map((r) => (
+                            <option key={r.value} value={r.value}>
+                              {r.label}
+                            </option>
+                          ))}
+                        </select>
                       </div>
-                      <span className="text-sm text-white">
-                        {row.email ?? row.user_id}
-                      </span>
+                      <div className="min-w-0">
+                        <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                          Добавлен
+                        </p>
+                        <p className="text-sm text-zinc-400">{formatJoined(row.created_at)}</p>
+                      </div>
                     </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <select
-                      value={row.role}
-                      onChange={(e) => handleRoleChange(row.id, e.target.value)}
-                      disabled={busy || !canMutateProjectMembers}
-                      className={
-                        isEmbedded
-                          ? "settings-page-select settings-page-select-sm min-w-[10rem] disabled:opacity-50"
-                          : "rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white focus:border-white/20 focus:outline-none disabled:opacity-50"
-                      }
-                    >
-                      {PROJECT_ROLES.map((r) => (
-                        <option key={r.value} value={r.value}>
-                          {r.label}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-zinc-400">
-                    {formatJoined(row.created_at)}
-                  </td>
-                  <td className="px-4 py-3 text-right">
                     <button
                       type="button"
                       onClick={() => handleRemove(row)}
                       disabled={cannotRemove || busy || !canMutateProjectMembers}
-                      className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-white/10 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="mt-3 w-full rounded-lg border border-white/10 px-3 py-2.5 text-xs font-medium text-zinc-300 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Удалить
                     </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        <div className="hidden overflow-x-auto md:block">
+          <table className="w-full min-w-[500px]">
+            <thead>
+              <tr className="border-b border-white/10">
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+                  Пользователь
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+                  Роль
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+                  Добавлен
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
+                  Действия
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {members.map((row) => {
+                const isSelf = row.user_id === currentUserId;
+                const cannotRemove = isSelf && row.role === "project_admin";
+                const busy = actionLoadingId === row.id;
+                return (
+                  <tr
+                    key={row.id}
+                    className="border-b border-white/5 transition-colors hover:bg-white/[0.04]"
+                  >
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="h-9 w-9 shrink-0 rounded-full bg-white/10 flex items-center justify-center text-sm font-medium text-zinc-300"
+                          aria-hidden
+                        >
+                          {(row.email ?? row.user_id).slice(0, 1).toUpperCase()}
+                        </div>
+                        <span className="text-sm text-white">
+                          {row.email ?? row.user_id}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <select
+                        value={row.role}
+                        onChange={(e) => handleRoleChange(row.id, e.target.value)}
+                        disabled={busy || !canMutateProjectMembers}
+                        className={
+                          isEmbedded
+                            ? "settings-page-select settings-page-select-sm min-w-[10rem] disabled:opacity-50"
+                            : "rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white focus:border-white/20 focus:outline-none disabled:opacity-50"
+                        }
+                      >
+                        {PROJECT_ROLES.map((r) => (
+                          <option key={r.value} value={r.value}>
+                            {r.label}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-zinc-400">
+                      {formatJoined(row.created_at)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => handleRemove(row)}
+                        disabled={cannotRemove || busy || !canMutateProjectMembers}
+                        className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-white/10 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Удалить
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </>
     );
 
   return (
@@ -791,7 +850,7 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
           )}
 
           {tab === "members" && (
-            <div className="border-t border-white/10 overflow-x-auto">{membersTableInner}</div>
+            <div className="border-t border-white/10 overflow-x-hidden md:overflow-x-auto">{membersTableInner}</div>
           )}
         </section>
       ) : (

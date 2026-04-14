@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { X } from "lucide-react";
 
 import { cn } from "@/components/landing/BaseButton";
 import { PartnershipNavButton } from "@/components/landing/PartnershipLeadProvider";
@@ -13,16 +14,22 @@ const landingNavLinkClass =
   "cursor-pointer rounded-md px-1 py-0.5 text-sm font-semibold !text-white/65 transition-colors duration-200 ease-out hover:!text-white hover:[text-shadow:0_0_20px_rgba(255,255,255,0.45),0_0_36px_rgba(200,230,255,0.2)]";
 
 const mobileNavItemClass =
-  "w-full rounded-xl px-4 py-3.5 text-left text-base font-semibold text-white/90 transition hover:bg-white/[0.06] active:bg-white/[0.08]";
+  "w-full whitespace-nowrap rounded-xl px-4 py-3.5 text-left text-base font-semibold text-white/90 transition hover:bg-white/[0.06] active:bg-white/[0.08]";
 
 const mobileAuthBtnClass =
   "inline-flex h-11 min-h-11 w-full min-w-0 flex-1 cursor-pointer items-center justify-center rounded-xl border border-white/12 bg-transparent px-3 text-sm font-extrabold text-white/90 transition hover:bg-white/[0.06]";
 
+/** Мобильное меню на `/`: вторая кнопка — контурная «Регистрация» (первая — залитый «Вход»). */
+const landingHomeMobileAuthBtnClass =
+  "inline-flex h-11 min-h-11 w-full min-w-0 flex-1 cursor-pointer items-center justify-center rounded-xl border border-white/12 bg-transparent px-3 py-0 text-sm font-extrabold leading-none text-white/90 transition hover:bg-white/[0.06]";
+
 export function LandingHeader() {
   const router = useRouter();
   const pathname = usePathname();
+  const landingHomeMobileMenu = pathname === "/";
   const [mobileOpen, setMobileOpen] = useState(false);
-  const menuId = useId();
+  /** Стабильный id без символов `:` из useId() — надёжнее для aria-controls в браузерах. */
+  const menuId = "landing-mobile-nav-menu";
 
   const closeMobileMenu = useCallback(() => setMobileOpen(false), []);
 
@@ -47,6 +54,15 @@ export function LandingHeader() {
   const scrollToSectionFromMenu = (sectionId: string) => {
     closeMobileMenu();
     scrollToSection(sectionId);
+  };
+
+  const goHomeFromMenu = () => {
+    closeMobileMenu();
+    if (pathname === "/") {
+      if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+    } else {
+      router.push("/");
+    }
   };
 
   useEffect(() => {
@@ -126,17 +142,19 @@ export function LandingHeader() {
 
               <button
                 type="button"
-                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/12 bg-white/[0.04] text-white transition hover:bg-white/[0.08] md:hidden"
+                className={cn(
+                  "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border text-white transition hover:bg-white/[0.08] md:hidden",
+                  landingHomeMobileMenu && mobileOpen
+                    ? "border-sky-400/55 bg-white/[0.05] hover:border-sky-400/70"
+                    : "border-white/12 bg-white/[0.04]"
+                )}
                 aria-expanded={mobileOpen}
                 aria-controls={menuId}
                 aria-label={mobileOpen ? "Закрыть меню" : "Открыть меню"}
                 onClick={() => setMobileOpen((o) => !o)}
               >
-                {mobileOpen ? (
-                  <span className="relative block h-5 w-5" aria-hidden="true">
-                    <span className="absolute left-1/2 top-1/2 block h-0.5 w-4 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-full bg-white" />
-                    <span className="absolute left-1/2 top-1/2 block h-0.5 w-4 -translate-x-1/2 -translate-y-1/2 -rotate-45 rounded-full bg-white" />
-                  </span>
+                {landingHomeMobileMenu && mobileOpen ? (
+                  <X className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden />
                 ) : (
                   <span className="flex h-5 w-5 flex-col justify-center gap-1.5" aria-hidden="true">
                     <span className="block h-0.5 w-full rounded-full bg-white/90" />
@@ -150,78 +168,129 @@ export function LandingHeader() {
         </div>
       </header>
 
-      {/* Мобильное меню: вход / регистрация + nav; в DOM всегда (md:hidden) — для плавного opacity/transform */}
+      {/* Мобильное меню: на `/` — полноширинная панель как на лендинге; на других страницах — узкая слева. */}
       <div
         id={menuId}
         className={cn(
-          "fixed inset-0 top-16 z-40 flex flex-col md:hidden",
+          "fixed inset-0 z-40 md:hidden",
           mobileOpen ? "pointer-events-auto" : "pointer-events-none"
         )}
         role="dialog"
-        aria-modal={mobileOpen}
-        aria-hidden={!mobileOpen}
+        aria-modal={mobileOpen ? true : undefined}
         aria-label="Меню"
+        inert={!mobileOpen ? true : undefined}
       >
         <button
           type="button"
           className={cn(
-            "absolute inset-0 bg-black/55 backdrop-blur-sm transition-opacity duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
+            "absolute inset-0 z-0 bg-black/55 backdrop-blur-sm transition-opacity duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
             mobileOpen ? "opacity-100" : "opacity-0"
           )}
           aria-label="Закрыть меню"
           tabIndex={mobileOpen ? 0 : -1}
           onClick={closeMobileMenu}
         />
-        <div
+        <aside
           className={cn(
-            "relative mt-0 flex max-h-[calc(100dvh-4rem)] flex-col overflow-y-auto border-t border-white/10 bg-black/92 px-5 pb-8 pt-5 shadow-[0_24px_64px_rgba(0,0,0,0.55)] backdrop-blur-xl supports-[backdrop-filter]:bg-black/88",
-            "transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
+            "absolute top-16 z-10 flex h-[calc(100vh-4rem)] min-h-0 flex-col backdrop-blur-xl",
+            "transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
+            landingHomeMobileMenu
+              ? "inset-x-0 w-full border-t border-white/10 bg-black shadow-[0_-12px_48px_rgba(0,0,0,0.65)] supports-[backdrop-filter]:bg-black/98"
+              : "left-0 w-[min(19rem,92vw)] border-r border-white/10 bg-[#0c0c0e]/98 shadow-[8px_0_48px_rgba(0,0,0,0.55)] supports-[backdrop-filter]:bg-[#0c0c0e]/92",
             mobileOpen
-              ? "translate-y-0 opacity-100 motion-reduce:translate-y-0"
-              : "-translate-y-2 opacity-0 motion-reduce:translate-y-0 motion-reduce:opacity-0"
+              ? "translate-x-0"
+              : landingHomeMobileMenu
+                ? "translate-x-full"
+                : "-translate-x-full"
           )}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="grid w-full grid-cols-2 gap-3">
-            <LandingLoginButton
-              variant="outline"
-              label="Вход"
-              onBeforeNavigate={closeMobileMenu}
-              className="!min-h-11 !min-w-0 h-11 w-full !min-w-0 px-3 py-0"
-            />
-            <Link href="/login?signup=1" className={mobileAuthBtnClass} onClick={closeMobileMenu}>
-              Регистрация
-            </Link>
-          </div>
+          {!landingHomeMobileMenu ? (
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+              <span className="truncate text-sm font-bold tracking-tight text-white">Меню</span>
+              <button
+                type="button"
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] text-zinc-200 transition hover:bg-white/[0.08] hover:text-white active:bg-white/[0.07]"
+                aria-label="Закрыть"
+                tabIndex={mobileOpen ? 0 : -1}
+                onClick={closeMobileMenu}
+              >
+                <X className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden />
+              </button>
+            </div>
+          ) : null}
 
-          <nav
-            className="mt-6 flex flex-col gap-1 border-t border-white/10 pt-6"
-            aria-label="Разделы лендинга"
+          <div
+            className={cn(
+              "min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-6 pt-4",
+              landingHomeMobileMenu && "px-4"
+            )}
           >
-            <button type="button" className={mobileNavItemClass} onClick={() => scrollToSectionFromMenu("advantages")}>
-              Преимущества
-            </button>
-            <button type="button" className={mobileNavItemClass} onClick={() => scrollToSectionFromMenu("data")}>
-              Данные
-            </button>
-            <button type="button" className={mobileNavItemClass} onClick={() => scrollToSectionFromMenu("pricing")}>
-              Тарифы
-            </button>
-            <button type="button" className={mobileNavItemClass} onClick={() => scrollToSectionFromMenu("demo")}>
-              Демо
-            </button>
-            <PartnershipNavButton layout="mobile" onBeforeAction={closeMobileMenu} />
-            <button type="button" className={mobileNavItemClass} onClick={() => scrollToSectionFromMenu("faq")}>
-              FAQ
-            </button>
-          </nav>
+            <div
+              className={cn(
+                "grid w-full min-w-0 grid-cols-2 gap-3",
+                landingHomeMobileMenu && "items-stretch"
+              )}
+            >
+              <LandingLoginButton
+                variant={landingHomeMobileMenu ? "secondary" : "outline"}
+                label="Вход"
+                onBeforeNavigate={closeMobileMenu}
+                className={
+                  landingHomeMobileMenu
+                    ? "!h-11 !min-h-11 w-full !min-w-0 !border-white/12 !px-3 !py-0 !shadow-none"
+                    : "!min-h-11 !min-w-0 h-11 w-full !min-w-0 px-3 py-0"
+                }
+              />
+              <Link
+                href="/login?signup=1"
+                className={landingHomeMobileMenu ? landingHomeMobileAuthBtnClass : mobileAuthBtnClass}
+                onClick={closeMobileMenu}
+              >
+                Регистрация
+              </Link>
+            </div>
 
-          <div className="mt-6 border-t border-white/10 pt-4">
-            <p className="text-left text-[11px] leading-snug text-white/40">
-              © {new Date().getFullYear()} BoardIQ analytics — Все права защищены.
-            </p>
+            <nav className="mt-6 flex flex-col gap-1 border-t border-white/10 pt-6" aria-label="Разделы лендинга">
+              {!landingHomeMobileMenu ? (
+                <button type="button" className={mobileNavItemClass} onClick={goHomeFromMenu}>
+                  Главная
+                </button>
+              ) : null}
+              <button type="button" className={mobileNavItemClass} onClick={() => scrollToSectionFromMenu("advantages")}>
+                Преимущества
+              </button>
+              <button type="button" className={mobileNavItemClass} onClick={() => scrollToSectionFromMenu("data")}>
+                Данные
+              </button>
+              <button type="button" className={mobileNavItemClass} onClick={() => scrollToSectionFromMenu("pricing")}>
+                Тарифы
+              </button>
+              <button type="button" className={mobileNavItemClass} onClick={() => scrollToSectionFromMenu("demo")}>
+                Демо
+              </button>
+              <PartnershipNavButton
+                layout="mobile"
+                onBeforeAction={closeMobileMenu}
+                className="whitespace-nowrap"
+              />
+              <button type="button" className={mobileNavItemClass} onClick={() => scrollToSectionFromMenu("faq")}>
+                FAQ
+              </button>
+            </nav>
+
+            <div className="mt-6 border-t border-white/10 pt-4">
+              <p
+                className={cn(
+                  "text-[11px] leading-snug text-white/40",
+                  landingHomeMobileMenu ? "text-center" : "text-left"
+                )}
+              >
+                © {new Date().getFullYear()} BoardIQ analytics — Все права защищены.
+              </p>
+            </div>
           </div>
-        </div>
+        </aside>
       </div>
 
       {/* Reserve space: fixed header doesn’t participate in flow */}

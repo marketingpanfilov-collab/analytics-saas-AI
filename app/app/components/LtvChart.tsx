@@ -108,17 +108,20 @@ export default function LtvChart({
   cohortLabel = "—",
   isDemo = false,
   formatMoney = defaultFormatMoney,
+  chartHeight = 300,
 }: {
   data: Point[];
   cohortLabel?: string;
   isDemo?: boolean;
   formatMoney?: (n: number) => string;
+  /** Высота области графика (px), на узких экранах можно уменьшить. */
+  chartHeight?: number;
 }) {
   const [activeDay, setActiveDay] = React.useState<string | null>(null);
 
   return (
     <div style={{ width: "100%" }}>
-      <div style={{ width: "100%", height: 300 }}>
+      <div style={{ width: "100%", height: chartHeight, minHeight: 200 }}>
         <ResponsiveContainer>
           <LineChart
             data={data}

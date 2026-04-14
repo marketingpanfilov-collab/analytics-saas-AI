@@ -93,48 +93,21 @@ function BillingPricingModalProviderInner({ children }: { children: ReactNode })
               role="dialog"
               aria-modal="true"
               aria-label="Обновление тарифа"
+              className="flex items-center justify-center p-2 pt-[max(8px,env(safe-area-inset-top))] pb-[max(8px,env(safe-area-inset-bottom))] sm:p-5"
               style={{
                 position: "fixed",
                 inset: 0,
                 zIndex: 2100,
                 background: "rgba(8,8,12,0.88)",
                 backdropFilter: "blur(8px)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: 20,
               }}
               onClick={close}
             >
               <div
-                style={{
-                  position: "relative",
-                  maxWidth: "min(880px, calc(100vw - 40px))",
-                  maxHeight: "min(92vh, calc(100vh - 40px))",
-                  width: "100%",
-                  borderRadius: 18,
-                  border: "1px solid rgba(255,255,255,0.12)",
-                  background: "rgba(18,18,26,0.98)",
-                  boxShadow: "0 24px 80px rgba(0,0,0,0.65)",
-                  boxSizing: "border-box",
-                  display: "flex",
-                  flexDirection: "column",
-                  overflow: "hidden",
-                }}
+                className="relative box-border flex min-h-0 w-full max-h-[min(92dvh,calc(100vh-16px))] max-w-[min(880px,calc(100vw-16px))] flex-col overflow-hidden rounded-2xl border border-white/[0.12] bg-[rgba(18,18,26,0.98)] shadow-[0_24px_80px_rgba(0,0,0,0.65)] sm:max-h-[min(92vh,calc(100vh-40px))] sm:max-w-[min(880px,calc(100vw-40px))]"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div
-                  style={{
-                    position: "sticky",
-                    top: 0,
-                    zIndex: 20,
-                    flexShrink: 0,
-                    display: "flex",
-                    justifyContent: "flex-end",
-                    padding: "14px 14px 0",
-                    background: "linear-gradient(to bottom, rgba(18,18,26,0.98) 70%, rgba(18,18,26,0))",
-                  }}
-                >
+                <div className="sticky top-0 z-20 flex shrink-0 justify-end bg-gradient-to-b from-[rgba(18,18,26,0.98)] from-70% to-transparent px-3 pb-3 pt-2 sm:px-3.5 sm:pb-3.5 sm:pt-3.5">
                   <button
                     type="button"
                     onClick={close}
@@ -158,16 +131,7 @@ function BillingPricingModalProviderInner({ children }: { children: ReactNode })
                     <span style={{ fontSize: 18, lineHeight: 1, display: "block" }}>✕</span>
                   </button>
                 </div>
-                <div
-                  className="scrollbar-hidden"
-                  style={{
-                    flex: "1 1 auto",
-                    minHeight: 0,
-                    overflowY: "auto",
-                    padding: "4px 32px 30px",
-                    boxSizing: "border-box",
-                  }}
-                >
+                <div className="scrollbar-hidden box-border min-h-0 flex-1 overflow-y-auto px-3 pb-6 pt-px sm:px-8 sm:pb-8">
                   <BillingInlinePricingSuspended
                     projectId={projectId}
                     suggestPlan={suggestUpgradePlanId(bootstrap?.plan_feature_matrix?.plan)}

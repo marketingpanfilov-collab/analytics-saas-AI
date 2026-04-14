@@ -473,90 +473,167 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
             <p className="text-zinc-400">В организации пока нет участников</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-[500px] w-full">
-              <thead>
-                <tr className="border-b border-white/10">
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
-                    Пользователь
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Роль</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
-                    Добавлен
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
-                    Действия
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {members.map((row) => {
-                  const isOwner = row.role === "owner";
-                  const isSelf = row.user_id === currentUserId;
-                  const cannotRemove = isOwner || (isSelf && currentUserRole === "owner");
-                  const busy = actionLoadingId === row.id;
-                  const removeDisabled = cannotRemove || busy || !canMutateOrgMembers;
-                  const removeTitle = !canMutateOrgMembers
-                    ? "Действие недоступно при текущем статусе подписки"
-                    : isOwner
-                      ? "Нельзя удалить владельца организации"
-                      : isSelf && currentUserRole === "owner"
-                        ? "Владелец не может удалить сам себя"
-                        : "Удалить участника из организации";
-                  return (
-                    <tr key={row.id} className="border-b border-white/5 transition-colors hover:bg-white/[0.04]">
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-medium text-zinc-300"
-                            aria-hidden
-                          >
-                            {(row.email ?? row.user_id).slice(0, 1).toUpperCase()}
+          <>
+            {/* Мобильная раскладка: карточки без горизонтального скролла (как сценарий «Проекты» в настройках) */}
+            <ul className="divide-y divide-white/10 md:hidden" role="list">
+              {members.map((row) => {
+                const isOwner = row.role === "owner";
+                const isSelf = row.user_id === currentUserId;
+                const cannotRemove = isOwner || (isSelf && currentUserRole === "owner");
+                const busy = actionLoadingId === row.id;
+                const removeDisabled = cannotRemove || busy || !canMutateOrgMembers;
+                const removeTitle = !canMutateOrgMembers
+                  ? "Действие недоступно при текущем статусе подписки"
+                  : isOwner
+                    ? "Нельзя удалить владельца организации"
+                    : isSelf && currentUserRole === "owner"
+                      ? "Владелец не может удалить сам себя"
+                      : "Удалить участника из организации";
+                return (
+                  <li key={row.id} className="px-4 py-4">
+                    <div className="flex gap-3">
+                      <div
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-medium text-zinc-300"
+                        aria-hidden
+                      >
+                        {(row.email ?? row.user_id).slice(0, 1).toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-3">
+                        <p className="break-words text-sm font-medium text-white">{row.email ?? row.user_id}</p>
+                        <div className="mt-2 flex flex-wrap items-start gap-x-8 gap-y-2">
+                          <div className="min-w-0 shrink-0">
+                            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">Роль</p>
+                            {isOwner ? (
+                              <span className="text-sm text-zinc-300">{ROLE_LABELS[row.role] ?? row.role}</span>
+                            ) : (
+                              <select
+                                value={row.role}
+                                onChange={(e) => handleRoleChange(row.id, e.target.value)}
+                                disabled={busy || !canMutateOrgMembers}
+                                title={
+                                  !canMutateOrgMembers
+                                    ? "Действие недоступно при текущем статусе подписки"
+                                    : undefined
+                                }
+                                className="settings-page-select settings-page-select-sm max-w-full disabled:opacity-50"
+                              >
+                                {ORG_ROLES_DROPDOWN.map((r) => (
+                                  <option key={r.value} value={r.value}>
+                                    {r.label}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
                           </div>
-                          <span className="text-sm text-white">{row.email ?? row.user_id}</span>
+                          <div className="min-w-0">
+                            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+                              Добавлен
+                            </p>
+                            <p className="text-sm text-zinc-400">{formatJoined(row.created_at)}</p>
+                          </div>
                         </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        {isOwner ? (
-                          <span className="text-sm text-zinc-300">{ROLE_LABELS[row.role] ?? row.role}</span>
-                        ) : (
-                          <select
-                            value={row.role}
-                            onChange={(e) => handleRoleChange(row.id, e.target.value)}
-                            disabled={busy || !canMutateOrgMembers}
-                            title={
-                              !canMutateOrgMembers
-                                ? "Действие недоступно при текущем статусе подписки"
-                                : undefined
-                            }
-                            className="settings-page-select settings-page-select-sm min-w-[10rem] disabled:opacity-50"
-                          >
-                            {ORG_ROLES_DROPDOWN.map((r) => (
-                              <option key={r.value} value={r.value}>
-                                {r.label}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-zinc-400">{formatJoined(row.created_at)}</td>
-                      <td className="px-4 py-3 text-right">
                         <button
                           type="button"
                           onClick={() => void handleRemove(row)}
                           disabled={removeDisabled}
                           title={removeTitle}
-                          className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                          className="mt-3 w-full rounded-lg border border-white/10 px-3 py-2.5 text-xs font-medium text-zinc-300 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           Удалить
                         </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="min-w-[500px] w-full">
+                <thead>
+                  <tr className="border-b border-white/10">
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+                      Пользователь
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+                      Роль
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">
+                      Добавлен
+                    </th>
+                    <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-zinc-500">
+                      Действия
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {members.map((row) => {
+                    const isOwner = row.role === "owner";
+                    const isSelf = row.user_id === currentUserId;
+                    const cannotRemove = isOwner || (isSelf && currentUserRole === "owner");
+                    const busy = actionLoadingId === row.id;
+                    const removeDisabled = cannotRemove || busy || !canMutateOrgMembers;
+                    const removeTitle = !canMutateOrgMembers
+                      ? "Действие недоступно при текущем статусе подписки"
+                      : isOwner
+                        ? "Нельзя удалить владельца организации"
+                        : isSelf && currentUserRole === "owner"
+                          ? "Владелец не может удалить сам себя"
+                          : "Удалить участника из организации";
+                    return (
+                      <tr key={row.id} className="border-b border-white/5 transition-colors hover:bg-white/[0.04]">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-sm font-medium text-zinc-300"
+                              aria-hidden
+                            >
+                              {(row.email ?? row.user_id).slice(0, 1).toUpperCase()}
+                            </div>
+                            <span className="text-sm text-white">{row.email ?? row.user_id}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {isOwner ? (
+                            <span className="text-sm text-zinc-300">{ROLE_LABELS[row.role] ?? row.role}</span>
+                          ) : (
+                            <select
+                              value={row.role}
+                              onChange={(e) => handleRoleChange(row.id, e.target.value)}
+                              disabled={busy || !canMutateOrgMembers}
+                              title={
+                                !canMutateOrgMembers
+                                  ? "Действие недоступно при текущем статусе подписки"
+                                  : undefined
+                              }
+                              className="settings-page-select settings-page-select-sm min-w-[10rem] disabled:opacity-50"
+                            >
+                              {ORG_ROLES_DROPDOWN.map((r) => (
+                                <option key={r.value} value={r.value}>
+                                  {r.label}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-zinc-400">{formatJoined(row.created_at)}</td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => void handleRemove(row)}
+                            disabled={removeDisabled}
+                            title={removeTitle}
+                            className="rounded-lg border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Удалить
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 

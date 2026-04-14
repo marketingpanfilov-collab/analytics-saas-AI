@@ -121,6 +121,7 @@ function Button({
   kind = "primary",
   pending,
   pendingLabel,
+  style: styleProp,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
@@ -128,6 +129,7 @@ function Button({
   kind?: "primary" | "ghost" | "outline";
   pending?: boolean;
   pendingLabel?: string;
+  style?: React.CSSProperties;
 }) {
   const isPrimary = kind === "primary";
   const isOutline = kind === "outline";
@@ -156,6 +158,8 @@ function Button({
         opacity: inactive ? 0.55 : 1,
         whiteSpace: "nowrap",
         transition: "opacity 0.18s ease, transform 0.18s ease, border-color 0.18s ease, background 0.18s ease",
+        boxSizing: "border-box",
+        ...styleProp,
       }}
     >
       <span
@@ -279,6 +283,14 @@ function AccountsPageKeyframes() {
   opacity: 0.45;
   font-size: 12px;
   margin-top: 4px;
+  line-height: 1;
+}
+@media (max-width: 1023px) {
+  .accounts-details > summary::after {
+    font-size: 22px;
+    margin-top: 0;
+    opacity: 0.55;
+  }
 }
 .accounts-details[open] > summary::after {
   content: "▾";
@@ -1074,6 +1086,16 @@ export default function AccountsPageClient() {
   const [disconnectLoading, setDisconnectLoading] = useState(false);
   /** Раскрытый блок выбора аккаунтов для канала (meta | google | tiktok). */
   const [expandedChannel, setExpandedChannel] = useState<string | null>(null);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(max-width: 1023px)");
+    const apply = () => setIsMobileViewport(media.matches);
+    apply();
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, []);
 
   // restore project_id
   useEffect(() => {
@@ -2123,14 +2145,47 @@ export default function AccountsPageClient() {
     }
   }
 
+  const pageWrapResponsive = useMemo(
+    () => ({ ...pageWrap, padding: isMobileViewport ? "14px 14px 96px" : 22, boxSizing: "border-box" as const }),
+    [isMobileViewport]
+  );
+  const headerRowResponsive = useMemo(
+    () => ({
+      ...headerRow,
+      ...(isMobileViewport ? { flexDirection: "column" as const, alignItems: "stretch" as const } : {}),
+    }),
+    [isMobileViewport]
+  );
+  const h1Responsive = useMemo(
+    () => ({ ...h1, fontSize: isMobileViewport ? 26 : 40, lineHeight: isMobileViewport ? 1.12 : 1.05 }),
+    [isMobileViewport]
+  );
+  const subtitleResponsive = useMemo(
+    () => ({
+      ...subtitle,
+      fontSize: isMobileViewport ? 14 : 16,
+      marginTop: isMobileViewport ? 8 : 10,
+      lineHeight: 1.45,
+    }),
+    [isMobileViewport]
+  );
+
   const primaryButtons = (
-    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+    <div
+      style={{
+        display: "flex",
+        gap: 10,
+        alignItems: "center",
+        ...(isMobileViewport ? { flexDirection: "column" as const, alignItems: "stretch" as const, width: "100%" } : {}),
+      }}
+    >
       <Button
         kind="ghost"
         onClick={() => void refresh()}
         disabled={!projectId || !pageIdle}
         pending={pageBusy.kind === "refresh"}
         pendingLabel="Загрузка аккаунтов..."
+        style={isMobileViewport ? { width: "100%" } : undefined}
       >
         Обновить
       </Button>
@@ -2139,22 +2194,23 @@ export default function AccountsPageClient() {
         disabled={!projectId || !pageIdle || !hasAnyEnabledAccounts}
         pending={pageBusy.kind === "sync_all"}
         pendingLabel="Синхронизация..."
+        style={isMobileViewport ? { width: "100%" } : undefined}
       >
-        Запустить sync
+        {isMobileViewport ? "Запустить синк" : "Запустить sync"}
       </Button>
     </div>
   );
 
   if (!projectId) {
     return (
-      <div style={pageWrap}>
+      <div style={pageWrapResponsive}>
         <AccountsPageKeyframes />
         <ToastView toast={toast} onClose={() => setToast(null)} />
 
-        <div style={headerRow}>
-          <div>
-            <h1 style={h1}>Аккаунты и интеграции</h1>
-            <div style={subtitle}>
+        <div style={headerRowResponsive}>
+          <div style={{ minWidth: 0 }}>
+            <h1 style={h1Responsive}>Аккаунты и интеграции</h1>
+            <div style={subtitleResponsive}>
               Статус каналов и аккаунтов. Загрузка списка и синхронизация обычно занимают до 1–2 минут.
             </div>
           </div>
@@ -2179,7 +2235,7 @@ export default function AccountsPageClient() {
   }
 
   return (
-    <div style={pageWrap}>
+    <div style={pageWrapResponsive}>
       <AccountsPageKeyframes />
       <ToastView toast={toast} onClose={() => setToast(null)} />
 
@@ -2431,10 +2487,10 @@ export default function AccountsPageClient() {
         </div>
       ) : null}
 
-      <div style={headerRow}>
-        <div>
-          <h1 style={h1}>Аккаунты и интеграции</h1>
-          <div style={subtitle}>Подключение каналов, выбор кабинетов и синхронизация данных.</div>
+      <div style={headerRowResponsive}>
+        <div style={{ minWidth: 0 }}>
+          <h1 style={h1Responsive}>Аккаунты и интеграции</h1>
+          <div style={subtitleResponsive}>Подключение каналов, выбор кабинетов и синхронизация данных.</div>
         </div>
         {primaryButtons}
       </div>

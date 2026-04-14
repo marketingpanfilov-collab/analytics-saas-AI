@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useLayoutEffect, useState, useMemo, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
 import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
 import { ActionId } from "@/app/lib/billingUiContract";
@@ -24,26 +25,24 @@ export type MonthlyPlan = {
   repeat_avg_check: number | null;
 };
 
-const modalOverlay = {
+/** Выше таб-бара (190) и типичных sheet (200). */
+const MODAL_OVERLAY_Z = 220;
+
+const modalOverlayBase = {
   position: "fixed" as const,
   inset: 0,
   background: "rgba(0,0,0,0.6)",
   display: "flex",
-  alignItems: "center",
   justifyContent: "center",
-  zIndex: 100,
-  padding: 20,
+  zIndex: MODAL_OVERLAY_Z,
 };
 
-const modalPanel = {
-  borderRadius: 18,
+const modalPanelBase = {
   border: "1px solid rgba(255,255,255,0.12)",
   background:
     "radial-gradient(800px 360px at 50% 0%, rgba(80,80,140,0.25), transparent 55%), rgba(18,18,24,0.98)",
   boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
-  maxWidth: 960,
   width: "100%",
-  maxHeight: "90vh",
   overflowY: "auto" as const,
   padding: 0,
 };
@@ -114,6 +113,14 @@ export default function SalesPlanModal({
     () => billingActionAllowed(resolvedUi, ActionId.sync_refresh),
     [resolvedUi]
   );
+  const [narrowLayout, setNarrowLayout] = useState(false);
+  useLayoutEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+    const sync = () => setNarrowLayout(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
   const [tab, setTab] = useState<"plan" | "forecast">("plan");
 
   // Inputs — новая логика "от обратного"
@@ -253,7 +260,25 @@ export default function SalesPlanModal({
     year: "numeric",
   });
 
-  return (
+  const modalOverlay: CSSProperties = {
+    ...modalOverlayBase,
+    alignItems: narrowLayout ? "flex-start" : "center",
+    padding: narrowLayout
+      ? "max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left))"
+      : 20,
+    overflowY: narrowLayout ? "auto" : undefined,
+  };
+
+  const modalPanel: CSSProperties = {
+    ...modalPanelBase,
+    borderRadius: narrowLayout ? 14 : 18,
+    maxWidth: narrowLayout ? "100%" : 960,
+    maxHeight: narrowLayout ? "min(calc(100dvh - 20px), 100%)" : "90vh",
+    marginTop: narrowLayout ? 4 : 0,
+  };
+
+  /* Портал в body: иначе на мобильном fixed позиционируется относительно .app-shell-sidebar с transform: translateX(-100%). */
+  const modalUi = (
     <div
       style={modalOverlay}
       onClick={(e) => e.target === e.currentTarget && onClose()}
@@ -267,11 +292,12 @@ export default function SalesPlanModal({
             position: "sticky",
             top: 0,
             zIndex: 5,
-            minHeight: 68,
-            padding: "12px 28px",
+            minHeight: narrowLayout ? 60 : 68,
+            padding: narrowLayout ? "10px 14px" : "12px 28px",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
+            gap: 12,
             background:
               "linear-gradient(to bottom, rgba(18,18,24,0.98), rgba(18,18,24,0.94))",
             borderBottom: "1px solid rgba(255,255,255,0.08)",
@@ -281,9 +307,11 @@ export default function SalesPlanModal({
             id="sales-plan-modal-title"
             style={{
               margin: 0,
-              fontSize: 22,
+              fontSize: narrowLayout ? 17 : 22,
               fontWeight: 800,
               color: "white",
+              minWidth: 0,
+              lineHeight: 1.2,
             }}
           >
             План на {monthName}
@@ -325,13 +353,14 @@ export default function SalesPlanModal({
           </button>
         </div>
 
-        <div style={{ padding: "10px 28px 28px 28px" }}>
+        <div style={{ padding: narrowLayout ? "8px 14px 20px 14px" : "10px 28px 28px 28px" }}>
         {/* Tabs */}
         <div
           style={{
             display: "flex",
+            flexWrap: narrowLayout ? "wrap" : "nowrap",
             gap: 4,
-            marginBottom: 20,
+            marginBottom: narrowLayout ? 14 : 20,
             borderBottom: "1px solid rgba(255,255,255,0.1)",
             paddingBottom: 12,
           }}
@@ -391,8 +420,8 @@ export default function SalesPlanModal({
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "minmax(0, 1.7fr) minmax(0, 1.3fr)",
-                gap: 20,
+                gridTemplateColumns: narrowLayout ? "minmax(0,1fr)" : "minmax(0, 1.7fr) minmax(0, 1.3fr)",
+                gap: narrowLayout ? 16 : 20,
                 alignItems: "flex-start",
               }}
             >
@@ -633,15 +662,15 @@ export default function SalesPlanModal({
                 </div>
               </div>
 
-              {/* Правая колонка — сводка (marginTop выровнен по верхней границе первого input слева) */}
-              <div style={{ display: "grid", gap: 12, alignSelf: "flex-start", marginTop: 44 }}>
+              {/* Правая колонка — сводка (на широком экране выровнена по верхней границе первого input слева) */}
+              <div style={{ display: "grid", gap: 12, alignSelf: "flex-start", marginTop: narrowLayout ? 0 : 44 }}>
                 <div
                   style={{
-                    borderRadius: 18,
+                    borderRadius: narrowLayout ? 14 : 18,
                     border: "1px solid rgba(255,255,255,0.16)",
                     background:
                       "radial-gradient(340px 220px at 0% 0%, rgba(120,120,255,0.24), transparent 55%), rgba(10,10,18,0.98)",
-                    padding: 16,
+                    padding: narrowLayout ? 12 : 16,
                     display: "grid",
                     gap: 10,
                   }}
@@ -663,11 +692,15 @@ export default function SalesPlanModal({
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
+                      alignItems: "baseline",
+                      flexWrap: narrowLayout ? "wrap" : "nowrap",
+                      gap: narrowLayout ? 6 : 0,
+                      columnGap: 12,
                       fontSize: 13,
                       color: "rgba(255,255,255,0.85)",
                     }}
                   >
-                    <span>Всего продаж</span>
+                    <span style={{ minWidth: 0 }}>Всего продаж</span>
                     <span style={{ fontWeight: 700, color: "white" }}>
                       {summary.totalSales > 0 ? fmtNum(summary.totalSales) : "—"}
                     </span>
@@ -726,12 +759,16 @@ export default function SalesPlanModal({
                         style={{
                           display: "flex",
                           justifyContent: "space-between",
+                          alignItems: "baseline",
+                          flexWrap: narrowLayout ? "wrap" : "nowrap",
+                          gap: narrowLayout ? 6 : 0,
+                          columnGap: 12,
                           fontSize: 13,
                           color: "rgba(255,255,255,0.85)",
                         }}
                       >
-                        <span>Дневной план (остаток / дни)</span>
-                        <span style={{ fontWeight: 700, color: "white" }}>
+                        <span style={{ minWidth: 0 }}>Дневной план (остаток / дни)</span>
+                        <span style={{ fontWeight: 700, color: "white", flexShrink: 0 }}>
                           {summary.totalBudget <= 0
                             ? "—"
                             : showLoading
@@ -889,9 +926,10 @@ export default function SalesPlanModal({
                 <div
                   style={{
                     display: "flex",
+                    flexDirection: narrowLayout ? "column" : "row",
                     gap: 10,
-                    justifyContent: "flex-end",
-                    marginTop: 30,
+                    justifyContent: narrowLayout ? "stretch" : "flex-end",
+                    marginTop: narrowLayout ? 18 : 30,
                     paddingTop: 4,
                   }}
                 >
@@ -907,6 +945,8 @@ export default function SalesPlanModal({
                       fontWeight: 600,
                       fontSize: 14,
                       cursor: "pointer",
+                      width: narrowLayout ? "100%" : undefined,
+                      boxSizing: "border-box",
                     }}
                   >
                     Отмена
@@ -924,6 +964,8 @@ export default function SalesPlanModal({
                       fontWeight: 600,
                       fontSize: 14,
                       cursor: saving ? "wait" : "pointer",
+                      width: narrowLayout ? "100%" : undefined,
+                      boxSizing: "border-box",
                     }}
                   >
                     {saving ? "Сохранение…" : "Сохранить"}
@@ -954,5 +996,7 @@ export default function SalesPlanModal({
       </div>
     </div>
   );
+
+  return typeof document !== "undefined" ? createPortal(modalUi, document.body) : modalUi;
 }
 

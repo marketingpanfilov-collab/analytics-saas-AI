@@ -851,13 +851,14 @@ function DonutChart({
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex w-full flex-col gap-2">
       {title ? <div className="text-[13px] font-semibold text-zinc-400">{title}</div> : null}
-      <div className="flex flex-wrap items-center gap-6">
+      {/* Сетка: кольцо всегда в первой колонке фикс. ширины — совпадает с нижним донатом при любой длине легенды */}
+      <div className="grid w-full grid-cols-[140px_minmax(0,1fr)] items-center gap-x-6 gap-y-3">
         <svg
           width={size}
           height={size}
-          className="shrink-0 overflow-visible"
+          className="shrink-0 justify-self-start overflow-visible"
           onMouseLeave={() => setDonutTip(null)}
         >
           <g>
@@ -876,7 +877,7 @@ function DonutChart({
           </g>
           <circle cx={cx} cy={cy} r={rMid - stroke - 4} fill="rgba(0,0,0,0.2)" pointerEvents="none" />
         </svg>
-        <div className="flex flex-col gap-1.5">
+        <div className="flex min-w-0 flex-col gap-1.5">
           {arcs.map((p) => (
             <div key={p.index} className="flex items-center gap-2 text-[13px]">
               <span className="h-2.5 w-2.5 shrink-0 rounded" style={{ background: p.color }} />
@@ -2694,8 +2695,10 @@ export default function ReportsPageClient() {
       >
         <div className="grid gap-10 lg:grid-cols-2">
           <div>
-            <div className="mb-2 text-[13px] font-semibold text-white/90">Доля расхода</div>
-            <div className="flex min-h-[160px] items-center justify-center">
+            <div className="mb-2 flex min-h-[52px] items-start text-[13px] font-semibold leading-snug text-white/90">
+              Доля расхода
+            </div>
+            <div className="flex min-h-[160px] w-full items-start">
               {budget.by_platform.length > 0 ? (
                 <DonutChart
                   segments={budget.by_platform.map((p) => ({ platform: p.platform, value: p.spend }))}
@@ -2713,11 +2716,11 @@ export default function ReportsPageClient() {
             </div>
           </div>
           <div>
-            <div className="mb-2 flex flex-wrap items-center gap-2 text-[13px] font-semibold text-white/90">
+            <div className="mb-2 flex min-h-[52px] flex-wrap items-start gap-2 text-[13px] font-semibold leading-snug text-white/90">
               <span>Доля выручки по каналу привлечения</span>
               <HelpTooltip content={REPORT_HELP_REVENUE_DONUT} />
             </div>
-            <div className="flex min-h-[160px] items-center justify-center">
+            <div className="flex min-h-[160px] w-full items-start">
               {revenueDonutTotal > 0 ? (
                 <DonutChart
                   segments={revenueByAcquisitionSegments}

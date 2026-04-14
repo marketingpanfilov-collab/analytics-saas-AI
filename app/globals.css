@@ -91,6 +91,72 @@ h3 {
   cursor: pointer !important;
 }
 
+/*
+ * /app dashboard mobile: единый pill диапазона дат — два невидимых input по половинам, без двойных иконок календаря.
+ */
+.dashboard-mobile-date-range input[type="date"] {
+  padding: 0 !important;
+  margin: 0;
+  border: none;
+  appearance: none;
+  -webkit-appearance: none;
+  opacity: 0;
+  cursor: pointer;
+}
+.dashboard-mobile-date-range input[type="date"]::-webkit-calendar-picker-indicator {
+  opacity: 0;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+/*
+ * /app dashboard mobile: date range — тот же filter-pill, что Источники/Аккаунты (compact width).
+ * Дублируем токены в CSS, чтобы контейнер не «терялся» при гидрации/специфичности.
+ */
+.app-dashboard-mobile-date-pill.dashboard-native-date-range {
+  box-sizing: border-box;
+  min-height: 36px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background-color: rgba(255, 255, 255, 0.045);
+  color: rgba(255, 255, 255, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  width: fit-content;
+  max-width: 100%;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 12px;
+  line-height: 1.2;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* /app mobile: единые filter pills — hover/active без смены layout */
+.mobile-dashboard-filter-pill {
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease;
+}
+@media (hover: hover) {
+  .mobile-dashboard-filter-pill:hover {
+    background: rgba(255, 255, 255, 0.065) !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
+  }
+}
+.mobile-dashboard-filter-pill:active {
+  background: rgba(255, 255, 255, 0.085) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
 /* Spinner for dashboard status button (unique name to avoid Tailwind conflict) */
 @keyframes dashboard-spin {
   to {
@@ -182,6 +248,73 @@ h3 {
 
 .app-shell-sidebar::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.18);
+}
+
+/*
+ * Mobile shell (<lg): колонка Sidebar остаётся за экраном; навигация по бургеру — AppMobileLandingNavDrawer.
+ * Desktop: без изменений (две колонки сетки, topbar 64px задаётся в layout).
+ */
+@media (max-width: 1023px) {
+  .app-shell-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: 1fr !important;
+    position: relative;
+  }
+
+  .app-shell-sidebar {
+    grid-column: 1;
+    grid-row: 1;
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: min(260px, 88vw);
+    max-width: 260px;
+    height: 100dvh;
+    max-height: 100dvh;
+    z-index: 40;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease-out;
+    pointer-events: none;
+    box-shadow: none;
+  }
+
+  /* Бургер в /app открывает AppMobileLandingNavDrawer (лендинг), не эту колонку — отдельного правила для data-mobile-nav-open не нужно. */
+
+  .app-shell-main-stack {
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+    min-height: 0;
+    grid-template-rows: auto auto 1fr !important;
+  }
+
+  .app-shell-topbar {
+    height: auto !important;
+    min-height: 0;
+  }
+}
+
+@media (min-width: 1024px) {
+  .app-shell-main-stack {
+    grid-template-rows: auto 64px 1fr !important;
+  }
+}
+
+.app-shell-drawer-backdrop {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Topbar: на узких экранах без фиксированной высоты (контент в Topbar.tsx) */
+@media (max-width: 1023px) {
+  .no-sidebar-app-root {
+    grid-template-rows: auto 1fr !important;
+  }
+
+  .no-sidebar-app-root > .no-sidebar-topbar-slot {
+    height: auto !important;
+    min-height: 0;
+  }
 }
 
 /* ===== ДЕФОЛТНЫЕ СТИЛИ ДЛЯ INPUT/BUTTON (НЕ ЛОМАЮТ TAILWIND) =====
@@ -937,10 +1070,6 @@ button:not([class]):hover {
   backface-visibility: hidden;
 }
 
-.hero-scope .hero-ticker__track--static {
-  animation: none;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .hero-scope .hero-ticker {
     mask-image: none;
@@ -949,6 +1078,17 @@ button:not([class]):hover {
 
   .hero-scope .hero-ticker__track {
     animation: none;
+    width: 100%;
+    max-width: 56rem;
+    margin-left: auto;
+    margin-right: auto;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  /* Три копии сегмента в разметке для бесшовного marquee; при reduced motion — одна сетка */
+  .hero-scope .hero-ticker__track > span:nth-child(n + 13) {
+    display: none;
   }
 }
 

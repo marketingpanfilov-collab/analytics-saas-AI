@@ -1,12 +1,14 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import DevAbortRejectionSuppressor from "../components/DevAbortRejectionSuppressor";
 import { BillingBootstrapProvider } from "../components/BillingBootstrapProvider";
 import { BillingPricingModalProvider } from "../components/BillingPricingModalProvider";
 import { BillingShellGate } from "../components/BillingShellGate";
 import PostCheckoutOnboardingModal from "../components/PostCheckoutOnboardingModal";
 import Topbar from "../components/Topbar";
+import MobileTabBar from "../components/mobile/MobileTabBar";
 import { supabase } from "../../lib/supabaseClient";
 
 function TopbarFallback() {
@@ -23,6 +25,9 @@ function TopbarFallback() {
 }
 
 export default function NoSidebarLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const hideMobileTabBar =
+    pathname === "/app/projects" || pathname === "/app/projects/";
   const [email, setEmail] = useState<string>("");
 
   useEffect(() => {
@@ -43,6 +48,7 @@ export default function NoSidebarLayout({ children }: { children: React.ReactNod
     <BillingBootstrapProvider>
       <BillingPricingModalProvider>
         <div
+          className="no-sidebar-app-root"
           style={{
             minHeight: "100vh",
             background: "#0b0b10",
@@ -52,15 +58,26 @@ export default function NoSidebarLayout({ children }: { children: React.ReactNod
         >
           <DevAbortRejectionSuppressor />
           <PostCheckoutOnboardingModal />
-          <div style={{ height: 64 }}>
+          <div className="no-sidebar-topbar-slot" style={{ height: 64 }}>
             <Suspense fallback={<TopbarFallback />}>
               <Topbar email={email} />
             </Suspense>
           </div>
-          <main style={{ minHeight: 0 }}>
+          <main
+            className={
+              hideMobileTabBar
+                ? "relative z-[1] min-h-0"
+                : "relative z-[1] min-h-0 pb-[calc(72px+env(safe-area-inset-bottom))] md:pb-0"
+            }
+          >
             <BillingShellGate>{children}</BillingShellGate>
           </main>
         </div>
+        {!hideMobileTabBar ? (
+          <Suspense fallback={null}>
+            <MobileTabBar />
+          </Suspense>
+        ) : null}
       </BillingPricingModalProvider>
     </BillingBootstrapProvider>
   );

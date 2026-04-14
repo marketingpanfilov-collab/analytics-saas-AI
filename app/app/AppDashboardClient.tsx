@@ -240,10 +240,10 @@ function MultiMetricLineChart({
   formatMoney: (v: number) => string;
 }) {
   const w = 860;
-  const h = 280;
+  const h = 320;
   const pad = 22;
   const leftPad = 46;
-  const bottomPad = 28;
+  const bottomPad = 34;
   const plotW = w - leftPad - pad;
   const plotH = h - pad - bottomPad;
   const svgRef = useRef<SVGSVGElement>(null);
@@ -495,10 +495,10 @@ function MultiMetricLineChart({
           />
         )}
 
-        <text x={leftPad} y={h - 6} fill="rgba(255,255,255,0.55)" fontSize="11">
+        <text x={leftPad} y={h - 6} fill="rgba(255,255,255,0.62)" fontSize="15" fontWeight="600">
           {fmtRuDate(points[0].date)}
         </text>
-        <text x={w - pad - 72} y={h - 6} fill="rgba(255,255,255,0.55)" fontSize="11" textAnchor="end">
+        <text x={w - pad} y={h - 6} fill="rgba(255,255,255,0.62)" fontSize="15" fontWeight="600" textAnchor="end">
           {fmtRuDate(points[points.length - 1].date)}
         </text>
       </svg>
@@ -777,8 +777,6 @@ export default function AppDashboardClient() {
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [lastOkAt, setLastOkAt] = useState<string | null>(null);
 
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [lastDebug, setLastDebug] = useState<any>(null);
   const prevAccountCountRef = useRef<number>(0);
   const [connectionLost, setConnectionLost] = useState(false);
   const [dashboardIntegrationStatus, setDashboardIntegrationStatus] = useState<IntegrationStatusRow[]>([]);
@@ -790,6 +788,7 @@ export default function AppDashboardClient() {
   const [usdToKztRate, setUsdToKztRate] = useState<number | null>(null);
   const [projectMinDate, setProjectMinDate] = useState<string | null>(null);
   const [backgroundReady, setBackgroundReady] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
 
   const [onboardingSignals, setOnboardingSignals] = useState<{
     hydrated: boolean;
@@ -1484,13 +1483,6 @@ export default function AppDashboardClient() {
         clearBackfillPolling();
       }
 
-      setLastDebug({
-        bundle: bundleJson,
-        summary: sJson,
-        timeseries: tJson,
-        params: { projectId, start, end, effectiveSources, effectiveAccountIds },
-      });
-
       if (mySeq !== reqSeqRef.current) return false;
 
       if (entryStaleAutoRefreshPendingRef.current) {
@@ -1829,6 +1821,17 @@ export default function AppDashboardClient() {
   // Load metrics when applied range changes (not on draft changes). Do not run until access is validated.
   const hasLoadedRef = useRef(false);
   const [entrySyncSettled, setEntrySyncSettled] = useState(false);
+
+  // До первого paint: иначе один кадр с isMobileViewport=false (десктопные инлайн-стили) и «мигание» фильтров.
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(max-width: 1023px)");
+    const apply = () => setIsMobileViewport(media.matches);
+    apply();
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, []);
+
   useEffect(() => {
     if (projectId) setEntrySyncSettled(true);
     else setEntrySyncSettled(false);
@@ -2227,6 +2230,19 @@ export default function AppDashboardClient() {
     whiteSpace: "nowrap" as const,
   });
 
+  /** Как на странице «Отчёты»: пилюля рядом с диапазоном дат (Загрузка / Ошибка / Готово). */
+  const filterStatusState = useMemo<"loading" | "success" | "error">(() => {
+    if (loading) return "loading";
+    if (errorText) return "error";
+    return "success";
+  }, [loading, errorText]);
+
+  const filterStatusLabel = useMemo(() => {
+    if (filterStatusState === "loading") return "Загрузка…";
+    if (filterStatusState === "error") return "Ошибка";
+    return "Готово";
+  }, [filterStatusState]);
+
   const accountsByPlatform = useMemo(() => {
     const map = new Map<string, DashboardAccount[]>();
     for (const a of enabledAccounts) {
@@ -2494,7 +2510,16 @@ export default function AppDashboardClient() {
   }, []);
 
   return (
-    <div style={{ padding: 28, position: "relative" }}>
+    <div
+      style={{
+        padding: isMobileViewport ? "14px 14px 96px" : 28,
+        position: "relative",
+        boxSizing: "border-box",
+        width: "100%",
+        maxWidth: "100%",
+        minWidth: 0,
+      }}
+    >
       {freeAdAccountLimitBannerOpen ? (
         <div
           style={{
@@ -2555,8 +2580,8 @@ export default function AppDashboardClient() {
       ) : null}
       {/* Header */}
       <div style={{ marginBottom: 10 }}>
-        <div style={{ fontSize: 34, fontWeight: 900, lineHeight: 1.1 }}>Дашборд</div>
-        <div style={{ opacity: 0.75, marginTop: 6 }}>
+        <div style={{ fontSize: isMobileViewport ? 24 : 34, fontWeight: 900, lineHeight: 1.12 }}>Дашборд</div>
+        <div style={{ opacity: 0.75, marginTop: 6, fontSize: isMobileViewport ? 13 : 14 }}>
           {dashboardDataUiStatus === "NO_SOURCES"
             ? "Подключите источники — затем здесь появятся метрики."
             : dashboardDataUiStatus === "LOADING"
@@ -2781,27 +2806,60 @@ export default function AppDashboardClient() {
 
       </div>
 
-      {/* ✅ Строка фильтров + табы (одной линией) */}
+      {/* Строка фильтров: desktop — одна линия с wrap; mobile — как «Отчёты»: сетка Sources|Accounts, строка дата + Готово */}
       <div
         style={{
           display: "flex",
-          alignItems: "center",
+          alignItems: isMobileViewport ? "stretch" : "center",
           justifyContent: "space-between",
-          gap: 12,
-          flexWrap: "wrap",
-          marginBottom: 8,
+          flexDirection: isMobileViewport ? "column" : "row",
+          gap: isMobileViewport ? 10 : 12,
+          flexWrap: isMobileViewport ? "nowrap" : "wrap",
+          marginBottom: isMobileViewport ? 10 : 8,
+          width: "100%",
+          maxWidth: "100%",
+          minWidth: 0,
+          boxSizing: "border-box",
         }}
       >
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <div
+          style={{
+            display: isMobileViewport ? "flex" : "flex",
+            flexDirection: isMobileViewport ? "column" : "row",
+            gap: isMobileViewport ? 8 : 8,
+            alignItems: isMobileViewport ? "stretch" : "center",
+            flexWrap: isMobileViewport ? "nowrap" : "wrap",
+            // На десктопе без width:100% — иначе блок фильтров занимает всю строку и бейджи «Обновлено/OK» переносятся под него.
+            ...(isMobileViewport
+              ? { width: "100%", maxWidth: "100%" }
+              : { minWidth: 0, maxWidth: "100%" }),
+            boxSizing: "border-box",
+          }}
+        >
+          {/* Mobile: верхний ряд — две колонки */}
+          <div
+            style={
+              isMobileViewport
+                ? {
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 8,
+                    width: "100%",
+                    minWidth: 0,
+                    boxSizing: "border-box",
+                  }
+                : { display: "contents" }
+            }
+          >
           {/* Sources: multi-select — only active/connected platforms */}
-          <div style={{ position: "relative" }} ref={sourcesDropdownRef}>
+          <div style={{ position: "relative", minWidth: 0 }} ref={sourcesDropdownRef}>
             <button
               type="button"
-              style={{ ...tabStyle(false), minWidth: 140 }}
+              style={{ ...tabStyle(false), minWidth: 140, ...(isMobileViewport ? { width: "100%" } : {}) }}
               onClick={() => { setSourcesOpen((v) => !v); setAccountsOpen(false); }}
               title="Traffic sources"
             >
-              Sources: {sourcesLabel} ▼
+              {`Sources: ${sourcesLabel} ▼`}
             </button>
             {sourcesOpen ? (
               <div
@@ -2855,14 +2913,14 @@ export default function AppDashboardClient() {
           </div>
 
           {/* Accounts: multi-select, grouped by platform — only enabled accounts */}
-          <div style={{ position: "relative" }} ref={accountsDropdownRef}>
+          <div style={{ position: "relative", minWidth: 0 }} ref={accountsDropdownRef}>
             <button
               type="button"
-              style={{ ...tabStyle(false), minWidth: 160 }}
+              style={{ ...tabStyle(false), minWidth: 160, ...(isMobileViewport ? { width: "100%" } : {}) }}
               onClick={() => { setAccountsOpen((v) => !v); setSourcesOpen(false); }}
               title="Ad accounts"
             >
-              Accounts: {accountsLabel} ▼
+              {`Accounts: ${accountsLabel} ▼`}
             </button>
             {accountsOpen ? (
               <div
@@ -2919,6 +2977,7 @@ export default function AppDashboardClient() {
               </div>
             ) : null}
           </div>
+          </div>
 
           <div
             style={{
@@ -2927,6 +2986,9 @@ export default function AppDashboardClient() {
               alignItems: "center",
               gap: 8,
               flexShrink: 0,
+              width: isMobileViewport ? "100%" : undefined,
+              maxWidth: "100%",
+              minWidth: 0,
               isolation: "isolate",
             }}
           >
@@ -2934,18 +2996,25 @@ export default function AppDashboardClient() {
               className="dashboard-native-date-range"
               role="group"
               title="Фильтр по дате"
-              aria-label="Фильтр по дате"
+              aria-label={
+                isMobileViewport
+                  ? `Период: ${fmtRuDate(draftDateFrom)} — ${fmtRuDate(draftDateTo)}`
+                  : "Фильтр по дате"
+              }
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: 4,
-                height: 40,
                 boxSizing: "border-box",
+                height: 40,
                 padding: "0 8px",
                 borderRadius: 12,
                 border: "1px solid rgba(255,255,255,0.10)",
                 background: "rgba(255,255,255,0.04)",
                 cursor: "pointer",
+                width: "fit-content",
+                maxWidth: "100%",
+                flexShrink: 0,
               }}
             >
               <input
@@ -2992,12 +3061,138 @@ export default function AppDashboardClient() {
                 }}
               />
             </div>
+
+            {isMobileViewport ? (
+              <div
+                role="status"
+                aria-live="polite"
+                title={filterStatusState === "error" ? errorText ?? "Ошибка" : "Статус загрузки данных"}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  minWidth: 100,
+                  height: 32,
+                  padding: "0 14px",
+                  borderRadius: 999,
+                  border: "1px solid transparent",
+                  fontWeight: 800,
+                  fontSize: 12,
+                  whiteSpace: "nowrap",
+                  transition: "background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease",
+                  flexShrink: 0,
+                  ...(filterStatusState === "loading"
+                    ? {
+                        background: "rgba(251,191,36,0.95)",
+                        color: "rgba(0,0,0,0.88)",
+                        borderColor: "rgba(251,191,36,0.6)",
+                      }
+                    : filterStatusState === "error"
+                      ? {
+                          background: "rgba(220,38,38,0.9)",
+                          color: "rgba(255,255,255,0.98)",
+                          borderColor: "rgba(220,38,38,0.7)",
+                        }
+                      : {
+                          background: "rgba(16,185,129,0.85)",
+                          color: "rgba(255,255,255,0.98)",
+                          borderColor: "rgba(16,185,129,0.6)",
+                        }),
+                }}
+              >
+                {filterStatusState === "loading" ? (
+                  <>
+                    <span
+                      style={{
+                        display: "inline-block",
+                        width: 14,
+                        height: 14,
+                        flexShrink: 0,
+                        border: "2px solid currentColor",
+                        borderTopColor: "transparent",
+                        borderRadius: "50%",
+                        animation: "dashboard-spin 0.7s linear infinite",
+                      }}
+                    />
+                    {filterStatusLabel}
+                  </>
+                ) : (
+                  filterStatusLabel
+                )}
+              </div>
+            ) : null}
           </div>
         </div>
 
-        {/* Технические бейджи только при готовых данных (без TTL в UI). */}
-        {dashboardDataUiStatus === "READY" ? (
-          <div style={{ display: "grid", gap: 6, justifyItems: "end", marginTop: 2 }}>
+        {/* Мобильные тех. бейджи — отдельный ряд под фильтрами (не внутри колонки с Sources/датой). */}
+        {dashboardDataUiStatus === "READY" && isMobileViewport ? (
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              gap: 6,
+              width: "100%",
+              maxWidth: "100%",
+              minWidth: 0,
+              flexShrink: 0,
+              boxSizing: "border-box",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                padding: "2px 7px",
+                borderRadius: 999,
+                border: "1px solid rgba(255,255,255,0.06)",
+                background: "rgba(255,255,255,0.03)",
+                color: "rgba(255,255,255,0.48)",
+                fontSize: 10,
+                fontWeight: 500,
+                lineHeight: 1.35,
+                letterSpacing: "0.01em",
+                whiteSpace: "nowrap",
+              }}
+              title="Время обновления из API/сервера"
+            >
+              Обновлено: {updatedStr}
+            </span>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                padding: "2px 7px",
+                borderRadius: 999,
+                border: "1px solid rgba(255,255,255,0.06)",
+                background: "rgba(255,255,255,0.03)",
+                color: "rgba(255,255,255,0.48)",
+                fontSize: 10,
+                fontWeight: 500,
+                lineHeight: 1.35,
+                letterSpacing: "0.01em",
+                whiteSpace: "nowrap",
+              }}
+              title="Последний успешный ответ (клиент)"
+            >
+              OK: {lastOkStr}
+            </span>
+          </div>
+        ) : null}
+
+        {/* Десктоп: тех. бейджи справа от строки фильтров — отдельная ветка, без пересечения с мобильной. */}
+        {dashboardDataUiStatus === "READY" && !isMobileViewport ? (
+          <div
+            style={{
+              display: "grid",
+              gap: 6,
+              justifyItems: "end",
+              marginTop: 2,
+              flexShrink: 0,
+              alignSelf: "start",
+            }}
+          >
             <span style={badge} title="Время обновления из API/сервера">
               Обновлено: {updatedStr}
             </span>
@@ -3102,38 +3297,47 @@ export default function AppDashboardClient() {
         </div>
       ) : null}
 
-      {/* KPI cards: Расход, Регистрации, Продажи, ROAS */}
+      {/* KPI cards: Расход, Регистрации, Продажи, ROAS — колонки через CSS (max-lg), без кадра с isMobileViewport=false */}
       <div
+        className="mt-3 grid grid-cols-2 gap-2.5 lg:mt-4 lg:grid-cols-[repeat(4,minmax(200px,1fr))] lg:gap-4"
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4, minmax(200px, 1fr))",
-          gap: 16,
-          marginTop: 16,
           marginBottom: 16,
           opacity: loading && !syncLoading ? 0.95 : 1,
           transition: "opacity 0.2s ease",
         }}
       >
-        <div style={{ ...mini, ...card }}>
+        <div
+          style={{
+            ...mini,
+            ...card,
+            ...(isMobileViewport ? { padding: 12, borderRadius: 14 } : {}),
+          }}
+        >
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
             <div style={{ opacity: 0.75 }}>Расход</div>
-            <div style={tag(sourcesLabel)}>{sourcesLabel}</div>
+            {isMobileViewport ? null : <div style={tag(sourcesLabel)}>{sourcesLabel}</div>}
           </div>
-          <div style={{ fontSize: 36, fontWeight: 900, marginTop: 10 }}>
+          <div style={{ fontSize: isMobileViewport ? 28 : 36, fontWeight: 900, marginTop: 10 }}>
             {formatMoneyValue(spendValue)}
           </div>
-          <div style={{ opacity: 0.72, marginTop: 6 }}>CPL: {cplLabel} • CAC: {cacLabel}</div>
+          <div style={{ opacity: 0.72, marginTop: 6, fontSize: isMobileViewport ? 12 : 13 }}>CPL: {cplLabel} • CAC: {cacLabel}</div>
         </div>
 
-        <div style={{ ...mini, ...card }}>
+        <div
+          style={{
+            ...mini,
+            ...card,
+            ...(isMobileViewport ? { padding: 12, borderRadius: 14 } : {}),
+          }}
+        >
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
             <div style={{ opacity: 0.6 }}>Регистрации</div>
-            <div style={tag(sourcesLabel)}>{sourcesLabel}</div>
+            {isMobileViewport ? null : <div style={tag(sourcesLabel)}>{sourcesLabel}</div>}
           </div>
-          <div style={{ fontSize: 36, fontWeight: 900, marginTop: 10, opacity: 0.95 }}>
+          <div style={{ fontSize: isMobileViewport ? 28 : 36, fontWeight: 900, marginTop: 10, opacity: 0.95 }}>
             {kpiSummary ? (kpiSummary.registrations || kpiSummary.registrations === 0 ? kpiSummary.registrations : "—") : "—"}
           </div>
-          <div style={{ opacity: 0.6, marginTop: 6 }}>
+          <div style={{ opacity: 0.6, marginTop: 6, fontSize: isMobileViewport ? 12 : 13 }}>
             {(() => {
               if (!kpiSummary) return "Конверсия лид → продажа: —";
               const { registrations, sales } = kpiSummary;
@@ -3144,25 +3348,37 @@ export default function AppDashboardClient() {
           </div>
         </div>
 
-        <div style={{ ...mini, ...card }}>
+        <div
+          style={{
+            ...mini,
+            ...card,
+            ...(isMobileViewport ? { padding: 12, borderRadius: 14 } : {}),
+          }}
+        >
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
             <div style={{ opacity: 0.6 }}>Продажи</div>
-            <div style={tag(sourcesLabel)}>{sourcesLabel}</div>
+            {isMobileViewport ? null : <div style={tag(sourcesLabel)}>{sourcesLabel}</div>}
           </div>
-          <div style={{ fontSize: 36, fontWeight: 900, marginTop: 10, opacity: 0.95 }}>
+          <div style={{ fontSize: isMobileViewport ? 28 : 36, fontWeight: 900, marginTop: 10, opacity: 0.95 }}>
             {kpiSummary ? (kpiSummary.sales || kpiSummary.sales === 0 ? kpiSummary.sales : "—") : "—"}
           </div>
-          <div style={{ opacity: 0.6, marginTop: 6 }}>
+          <div style={{ opacity: 0.6, marginTop: 6, fontSize: isMobileViewport ? 12 : 13 }}>
             {kpiSummary ? `Выручка: ${formatMoneyValue(kpiSummary.revenue)}` : "Выручка: —"}
           </div>
         </div>
 
-        <div style={{ ...mini, ...card }}>
+        <div
+          style={{
+            ...mini,
+            ...card,
+            ...(isMobileViewport ? { padding: 12, borderRadius: 14 } : {}),
+          }}
+        >
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
             <div style={{ opacity: 0.6 }}>ROAS</div>
-            <div style={tag(sourcesLabel)}>{sourcesLabel}</div>
+            {isMobileViewport ? null : <div style={tag(sourcesLabel)}>{sourcesLabel}</div>}
           </div>
-          <div style={{ fontSize: 36, fontWeight: 900, marginTop: 10, opacity: 0.95 }}>
+          <div style={{ fontSize: isMobileViewport ? 28 : 36, fontWeight: 900, marginTop: 10, opacity: 0.95 }}>
             {(() => {
               if (!kpiSummary) return "—";
               const spend = summary.spend ?? 0;
@@ -3178,17 +3394,13 @@ export default function AppDashboardClient() {
 
       {/* ROW 2: Динамика расхода | Data Status (исходные пропорции: 2fr 1fr, gap 16) */}
       <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "2fr 1fr",
-          gap: 16,
-          marginBottom: 20,
-          alignItems: "stretch",
-        }}
+        className="mb-3.5 grid grid-cols-1 items-stretch gap-3 lg:mb-5 lg:grid-cols-[2fr_1fr] lg:gap-4"
       >
-        <div style={{ ...mini, ...card, padding: 20 }}>
-          <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 10 }}>Динамика расхода</div>
-          <div style={{ opacity: 0.7, marginBottom: 14 }}>Spend, Registrations, Sales и CAC</div>
+        <div style={{ ...mini, ...card, padding: isMobileViewport ? 14 : 20 }}>
+          <div style={{ fontWeight: 900, fontSize: isMobileViewport ? 16 : 18, marginBottom: 8 }}>Динамика расхода</div>
+          <div style={{ opacity: 0.7, marginBottom: isMobileViewport ? 10 : 14, fontSize: isMobileViewport ? 12 : 14 }}>
+            Spend, Registrations, Sales и CAC
+          </div>
 
           {dashboardWidgetPack.state === "BLOCKED" || dashboardWidgetPack.state === "LOADING" ? (
             <BillingWidgetPlaceholder
@@ -3205,14 +3417,14 @@ export default function AppDashboardClient() {
                           : "Вы видите только часть данных по текущему тарифу или статусу аккаунта. Полный график — в Growth."),
                     }
               }
-              minHeight={260}
+              minHeight={300}
             />
           ) : (
             <MultiMetricLineChart points={chartPoints} formatMoney={formatMoneyValue} />
           )}
         </div>
 
-        <div style={{ ...mini, ...card, padding: 20 }}>
+        <div style={{ ...mini, ...card, padding: isMobileViewport ? 14 : 20 }}>
           <div
             style={{
               fontWeight: 900,
@@ -3412,14 +3624,18 @@ export default function AppDashboardClient() {
                     : "—"}
                 </span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 4 }}>
-                <span style={{ opacity: 0.7 }}>Last updated</span>
-                <span style={{ textAlign: "right" }}>{updatedStr}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 4 }}>
-                <span style={{ opacity: 0.7 }}>Last successful</span>
-                <span style={{ textAlign: "right" }}>{lastOkStr}</span>
-              </div>
+              {!isMobileViewport ? (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 4 }}>
+                    <span style={{ opacity: 0.7 }}>Last updated</span>
+                    <span style={{ textAlign: "right" }}>{updatedStr}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginTop: 4 }}>
+                    <span style={{ opacity: 0.7 }}>Last successful</span>
+                    <span style={{ textAlign: "right" }}>{lastOkStr}</span>
+                  </div>
+                </>
+              ) : null}
             </div>
 
             {/* Accounts */}
@@ -3476,15 +3692,7 @@ export default function AppDashboardClient() {
           ) : (
             <>
           {/* ROW 3: Помогающая атрибуция | Топ путей пользователей */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 20,
-              marginBottom: 20,
-              alignItems: "stretch",
-            }}
-          >
+          <div className="mb-3.5 grid grid-cols-1 items-stretch gap-3 lg:mb-5 lg:grid-cols-2 lg:gap-5">
             <AssistedAttributionCard
               projectId={projectId || null}
               start={appliedDateFrom}
@@ -3526,7 +3734,7 @@ export default function AppDashboardClient() {
           </div>
 
           {/* ROW 4: Карта выручки по атрибуции */}
-          <div style={{ marginBottom: 20 }}>
+          <div style={{ marginBottom: isMobileViewport ? 14 : 20 }}>
             <RevenueAttributionMapCard
               projectId={projectId || null}
               start={appliedDateFrom}
@@ -3549,7 +3757,7 @@ export default function AppDashboardClient() {
           </div>
 
           {/* ROW 5: Поведение конверсии */}
-          <div style={{ marginBottom: 20 }}>
+          <div style={{ marginBottom: isMobileViewport ? 14 : 20 }}>
             <ConversionBehaviorCard
               projectId={projectId || null}
               start={appliedDateFrom}
@@ -3587,97 +3795,6 @@ export default function AppDashboardClient() {
           Дополнительная аналитика загружается после основного экрана...
         </div>
       )}
-
-      {/* ✅ Подробнее: debug внизу справа */}
-      <button
-        type="button"
-        onClick={() => setShowAdvanced((v) => !v)}
-        style={{
-          position: "fixed",
-          right: 20,
-          bottom: 20,
-          height: 38,
-          padding: "0 14px",
-          borderRadius: 999,
-          border: "1px solid rgba(255,255,255,0.10)",
-          background: showAdvanced ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.06)",
-          color: "white",
-          cursor: "pointer",
-          fontWeight: 900,
-          fontSize: 12,
-          boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
-          zIndex: 50,
-          whiteSpace: "nowrap",
-        }}
-      >
-        Подробнее {showAdvanced ? "▲" : "▼"}
-      </button>
-
-      {/* Панель отладки */}
-      {showAdvanced ? (
-        <div
-          style={{
-            ...mini,
-            ...card,
-            padding: 20,
-            marginTop: 16,
-          }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-            <div>
-              <div style={{ fontWeight: 900, fontSize: 18 }}>Подробнее</div>
-              <div style={{ opacity: 0.72, marginTop: 4 }}>
-                Debug спрятан сюда, чтобы не мешал дашборду.
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                try {
-                  navigator.clipboard.writeText(JSON.stringify(lastDebug ?? {}, null, 2));
-                } catch {}
-              }}
-              style={{
-                height: 30,
-                padding: "0 10px",
-                borderRadius: 999,
-                border: "1px solid rgba(255,255,255,0.10)",
-                background: "rgba(255,255,255,0.05)",
-                color: "white",
-                cursor: "pointer",
-                fontWeight: 800,
-                fontSize: 12,
-                whiteSpace: "nowrap",
-              }}
-            >
-              Copy debug
-            </button>
-          </div>
-
-          <pre
-            style={{
-              marginTop: 12,
-              padding: 12,
-              borderRadius: 12,
-              border: "1px solid rgba(255,255,255,0.10)",
-              background: "rgba(0,0,0,0.35)",
-              overflow: "auto",
-              maxHeight: 320,
-              fontSize: 12,
-              lineHeight: 1.4,
-              color: "rgba(255,255,255,0.85)",
-            }}
-          >
-            {JSON.stringify(lastDebug ?? {}, null, 2)}
-          </pre>
-
-          <div style={{ opacity: 0.7, marginTop: 10, fontSize: 12 }}>
-            Авто-обновление: каждые <b>30 минут</b> (sync + reload).
-            <br />
-            Диапазон дат: выберите даты — диапазон применится при выходе из полей.
-          </div>
-        </div>
-      ) : null}
 
       {projectId && POST_PROJECT_SOURCES_MODAL_ENABLED ? (
         <PostProjectSourcesModal
