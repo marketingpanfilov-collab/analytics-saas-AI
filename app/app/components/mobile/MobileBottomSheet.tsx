@@ -60,6 +60,10 @@ export type MobileBottomSheetProps = {
    * Суммируется с базовым `py-3` снизу: `calc(0.75rem + Npx)`.
    */
   titleBottomPaddingExtraPx?: number;
+  /**
+   * Убрать `border-t` у блока с «Отмена» (например, если линия уже в `bottomContent` над ссылкой).
+   */
+  cancelFooterHideTopBorder?: boolean;
 };
 
 /**
@@ -83,6 +87,7 @@ export function MobileBottomSheet({
   visibleBelow = "lg",
   showHeaderDivider = true,
   titleBottomPaddingExtraPx,
+  cancelFooterHideTopBorder = false,
 }: MobileBottomSheetProps) {
   const [mounted, setMounted] = useState(false);
   const [visible, setVisible] = useState(false);
@@ -199,10 +204,14 @@ export function MobileBottomSheet({
           {children}
         </div>
 
-        {bottomContent ? <div className="shrink-0 px-4 pt-1">{bottomContent}</div> : null}
+        {bottomContent ? <div className="shrink-0 px-4 pt-0">{bottomContent}</div> : null}
 
         {showFooterCancel ? (
-          <div className="shrink-0 border-t border-white/[0.06] px-4 pt-3 pb-[max(16px,env(safe-area-inset-bottom))]">
+          <div
+            className={`shrink-0 px-4 pt-3 pb-[max(16px,env(safe-area-inset-bottom))] ${
+              cancelFooterHideTopBorder ? "" : "border-t border-white/[0.06]"
+            }`}
+          >
             <button
               type="button"
               className="w-full rounded-xl border border-red-500/45 bg-red-500/[0.12] py-3 text-center text-[15px] font-semibold leading-snug text-red-200/95 transition-colors hover:border-red-500/55 hover:bg-red-500/[0.18] active:bg-red-500/[0.14]"

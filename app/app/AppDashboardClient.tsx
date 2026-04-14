@@ -3031,9 +3031,9 @@ export default function AppDashboardClient() {
                   fontSize: 12,
                   lineHeight: 1,
                   height: 22,
-                  minWidth: 108,
-                  width: 108,
-                  maxWidth: 108,
+                  minWidth: 146,
+                  width: 146,
+                  maxWidth: 146,
                   cursor: "pointer",
                 }}
               />
@@ -3054,9 +3054,9 @@ export default function AppDashboardClient() {
                   fontSize: 12,
                   lineHeight: 1,
                   height: 22,
-                  minWidth: 108,
-                  width: 108,
-                  maxWidth: 108,
+                  minWidth: 146,
+                  width: 146,
+                  maxWidth: 146,
                   cursor: "pointer",
                 }}
               />

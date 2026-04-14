@@ -1237,6 +1237,20 @@ export default function Topbar({ email }: { email?: string }) {
         titleBottomPaddingExtraPx={6}
         panelMaxClassName="max-h-[min(72dvh,560px)]"
         contentClassName="pb-2"
+        cancelFooterHideTopBorder
+        bottomContent={
+          <div className="-mx-4 border-t border-white/[0.06] px-4 pt-3">
+            <Link
+              href={
+                projectId ? `/app/projects?project_id=${encodeURIComponent(projectId)}` : "/app/projects"
+              }
+              className="block w-full py-2 text-center text-[15px] font-medium text-white no-underline hover:underline"
+              onClick={() => setMobileProjectOpen(false)}
+            >
+              Все проекты
+            </Link>
+          </div>
+        }
       >
         {projects.length === 0 ? (
           <p className="px-3 py-8 text-center text-[13px] leading-snug text-zinc-500">Пока нет проектов</p>

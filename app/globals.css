@@ -452,6 +452,37 @@ input[type="radio"]:not([class]) {
   -webkit-appearance: radio;
 }
 
+/*
+ * iOS Safari: при фокусе на поле с font-size < 16px включается авто-zoom страницы;
+ * после закрытия клавиатуры часто «плывёт» вьюпорт и обрезаются модалки/формы.
+ * Минимум 16px на типичных мобильных ширинах и на touch-устройствах (в т.ч. крупный iPad).
+ * Не трогаем date/time/datetime-local/month/week: иначе Safari теряет/ломает иконку календаря в узких полях (дашборд/отчёты).
+ */
+@media (max-width: 1023px), (pointer: coarse) {
+  textarea,
+  select,
+  input:where(
+    :not(
+      [type="checkbox"],
+      [type="radio"],
+      [type="range"],
+      [type="file"],
+      [type="hidden"],
+      [type="button"],
+      [type="submit"],
+      [type="reset"],
+      [type="image"],
+      [type="date"],
+      [type="time"],
+      [type="datetime-local"],
+      [type="month"],
+      [type="week"]
+    )
+  ) {
+    font-size: max(16px, 1rem) !important;
+  }
+}
+
 button:not([class]) {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.12);
