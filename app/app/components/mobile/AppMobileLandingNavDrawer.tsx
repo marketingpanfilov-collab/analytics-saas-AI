@@ -9,8 +9,8 @@ import { LandingMobileNavBody } from "@/components/layout/LandingMobileNavBody";
 import { useAppMobileNav } from "../AppMobileNavContext";
 
 /**
- * Мобильное меню по бургеру в /app: тот же контент, что в шапке лендинга (/),
- * на непрозрачном чёрном фоне (не выезжающая колонка Sidebar с «Сегодня»).
+ * Мобильное меню по бургеру в /app: контент как в шапке лендинга.
+ * z-index выше липкого топбара (90), иначе шапка «Меню» и крестик оказываются под Topbar.
  */
 export default function AppMobileLandingNavDrawer() {
   const { mobileNavOpen, setMobileNavOpen } = useAppMobileNav();
@@ -37,7 +37,7 @@ export default function AppMobileLandingNavDrawer() {
   return (
     <div
       className={cn(
-        "fixed inset-0 z-[40] lg:hidden",
+        "fixed inset-0 z-[120] flex min-h-0 w-full flex-row lg:hidden",
         mobileNavOpen ? "pointer-events-auto" : "pointer-events-none"
       )}
       role="dialog"
@@ -47,7 +47,7 @@ export default function AppMobileLandingNavDrawer() {
     >
       <aside
         className={cn(
-          "absolute left-0 top-0 flex h-full min-h-0 w-[min(19rem,92vw)] max-w-[260px] flex-col border-r border-white/10 bg-black shadow-[8px_0_48px_rgba(0,0,0,0.55)]",
+          "flex h-full min-h-0 w-[min(19rem,92vw)] max-w-[260px] shrink-0 flex-col border-r border-white/10 bg-black shadow-[8px_0_48px_rgba(0,0,0,0.55)]",
           "transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] motion-reduce:transition-none",
           mobileNavOpen ? "translate-x-0" : "-translate-x-full"
         )}
@@ -60,7 +60,7 @@ export default function AppMobileLandingNavDrawer() {
           <button
             type="button"
             className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] text-zinc-200 transition hover:bg-white/[0.08] hover:text-white active:bg-white/[0.07]"
-            aria-label="Закрыть"
+            aria-label="Закрыть меню"
             tabIndex={mobileNavOpen ? 0 : -1}
             onClick={close}
           >
@@ -72,6 +72,17 @@ export default function AppMobileLandingNavDrawer() {
           <LandingMobileNavBody onClose={close} showAuthRow={false} />
         </div>
       </aside>
+
+      <button
+        type="button"
+        className={cn(
+          "min-h-0 min-w-0 flex-1 cursor-pointer border-0 bg-black/55 p-0 backdrop-blur-[2px] transition-opacity motion-reduce:transition-none",
+          mobileNavOpen ? "opacity-100" : "pointer-events-none opacity-0"
+        )}
+        aria-label="Закрыть меню"
+        tabIndex={mobileNavOpen ? 0 : -1}
+        onClick={close}
+      />
     </div>
   );
 }

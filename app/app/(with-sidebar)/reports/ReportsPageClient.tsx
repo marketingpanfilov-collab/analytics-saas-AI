@@ -39,6 +39,7 @@ import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
 import { resolveReportsWidgetState } from "@/app/lib/billingWidgetState";
 import { useBillingBootstrap } from "../../components/BillingBootstrapProvider";
 import BillingWidgetPlaceholder from "../../components/BillingWidgetPlaceholder";
+import { DashboardDateRangeCalendarGlyph } from "../../components/DashboardDateRangeCalendarGlyph";
 import { PLAN_RESTRICTED_ANALYTICS_MESSAGE } from "@/app/lib/planRestrictedCopy";
 import PlanRestrictedOverlay from "../../components/PlanRestrictedOverlay";
 import { bumpIntentCounter } from "@/app/lib/freeTierIntentSession";
@@ -2038,7 +2039,7 @@ export default function ReportsPageClient() {
     cursor: "pointer",
     boxSizing: "border-box",
     ...(mobile
-      ? { minWidth: 0, flex: "1 1 0%", width: "auto", maxWidth: "none" }
+      ? { minWidth: "min(46%, 10rem)", flex: "1 1 auto", width: "auto", maxWidth: "none" }
       : { minWidth: 146, width: 146, maxWidth: 146 }),
   });
 
@@ -2278,6 +2279,7 @@ export default function ReportsPageClient() {
                   overflow: "visible",
                 }}
               >
+                <DashboardDateRangeCalendarGlyph />
                 <input
                   type="date"
                   value={draftDateFrom}
@@ -2289,6 +2291,7 @@ export default function ReportsPageClient() {
                 <span style={{ opacity: 0.6, fontSize: 11, cursor: "pointer" }} aria-hidden="true">
                   —
                 </span>
+                <DashboardDateRangeCalendarGlyph />
                 <input
                   type="date"
                   value={draftDateTo}

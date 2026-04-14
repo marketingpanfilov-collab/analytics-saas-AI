@@ -52,7 +52,7 @@ function WithSidebarShell({ children, email }: { children: ReactNode; email: str
   const pathname = usePathname();
   const isSupportPage = pathname === "/app/support" || pathname?.startsWith("/app/support/");
   const mainRef = useRef<HTMLElement | null>(null);
-  const { mobileNavOpen, setMobileNavOpen } = useAppMobileNav();
+  const { mobileNavOpen } = useAppMobileNav();
 
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
@@ -67,14 +67,6 @@ function WithSidebarShell({ children, email }: { children: ReactNode; email: str
 
   return (
     <>
-      {mobileNavOpen ? (
-        <button
-          type="button"
-          className="app-shell-drawer-backdrop fixed inset-0 z-[36] cursor-pointer border-0 bg-black/55 p-0 lg:hidden"
-          aria-label="Закрыть меню"
-          onClick={() => setMobileNavOpen(false)}
-        />
-      ) : null}
       <div
         className="app-shell-grid"
         data-mobile-nav-open={mobileNavOpen ? "1" : "0"}

@@ -62,6 +62,7 @@ import { RevenueAttributionMapCard } from "./components/RevenueAttributionMapCar
 import { ConversionBehaviorCard } from "./components/ConversionBehaviorCard";
 import { AttributionFlowCard } from "./components/AttributionFlowCard";
 import PostProjectSourcesModal from "./components/PostProjectSourcesModal";
+import { DashboardDateRangeCalendarGlyph } from "./components/DashboardDateRangeCalendarGlyph";
 
 function toISO(d: Date) {
   const yyyy = d.getFullYear();
@@ -2242,7 +2243,7 @@ export default function AppDashboardClient() {
     cursor: "pointer",
     boxSizing: "border-box",
     ...(mobile
-      ? { minWidth: 0, flex: "1 1 0%", width: "auto", maxWidth: "none" }
+      ? { minWidth: "min(46%, 10rem)", flex: "1 1 auto", width: "auto", maxWidth: "none" }
       : { minWidth: 146, width: 146, maxWidth: 146 }),
   });
 
@@ -3042,6 +3043,7 @@ export default function AppDashboardClient() {
                     overflow: "visible",
                   }}
                 >
+                  <DashboardDateRangeCalendarGlyph />
                   <input
                     type="date"
                     value={draftDateFrom}
@@ -3053,6 +3055,7 @@ export default function AppDashboardClient() {
                   <span style={{ opacity: 0.6, fontSize: 11, cursor: "pointer" }} aria-hidden="true">
                     —
                   </span>
+                  <DashboardDateRangeCalendarGlyph />
                   <input
                     type="date"
                     value={draftDateTo}
@@ -3213,6 +3216,7 @@ export default function AppDashboardClient() {
                   overflow: "visible",
                 }}
               >
+                <DashboardDateRangeCalendarGlyph />
                 <input
                   type="date"
                   value={draftDateFrom}
@@ -3224,6 +3228,7 @@ export default function AppDashboardClient() {
                 <span style={{ opacity: 0.6, fontSize: 11, cursor: "pointer" }} aria-hidden="true">
                   —
                 </span>
+                <DashboardDateRangeCalendarGlyph />
                 <input
                   type="date"
                   value={draftDateTo}
