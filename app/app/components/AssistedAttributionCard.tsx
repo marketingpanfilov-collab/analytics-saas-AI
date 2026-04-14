@@ -1,7 +1,19 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
+import { clampTooltipToViewport } from "@/app/lib/clampTooltipViewport";
 import { InsightTooltip } from "./InsightTooltip";
+
+const CHART_TOOLTIP_OFFSET = { x: 12, y: 8 };
+const CHART_TOOLTIP_MAX_W = 280;
+
+function tooltipPosFromPointer(e: ReactPointerEvent) {
+  return clampTooltipToViewport(e.clientX + CHART_TOOLTIP_OFFSET.x, e.clientY + CHART_TOOLTIP_OFFSET.y, {
+    maxWidth: CHART_TOOLTIP_MAX_W,
+    estHeight: 220,
+  });
+}
 
 type ChannelRow = {
   traffic_source: string;
@@ -222,8 +234,6 @@ export default function AssistedAttributionCard({
           </div>
         ) : (
           (() => {
-            const TOOLTIP_OFFSET_X = 12;
-            const TOOLTIP_OFFSET_Y = 8;
             return (
               <div
                 className="scrollbar-hidden"
@@ -308,21 +318,20 @@ export default function AssistedAttributionCard({
                               alignItems: "center",
                               justifyContent: "center",
                               cursor: "pointer",
+                              touchAction: "manipulation",
                             }}
-                            onMouseEnter={(e) => {
-                              setTooltipState({
-                                row,
-                                segment: "first",
-                                x: e.clientX + TOOLTIP_OFFSET_X,
-                                y: e.clientY + TOOLTIP_OFFSET_Y,
-                              });
+                            onPointerEnter={(e) => {
+                              const { x, y } = tooltipPosFromPointer(e);
+                              setTooltipState({ row, segment: "first", x, y });
                             }}
-                            onMouseMove={(e) => {
-                              if (tooltipState?.row.traffic_source === row.traffic_source && tooltipState?.segment === "first") {
-                                setTooltipState((prev) => prev ? { ...prev, x: e.clientX + TOOLTIP_OFFSET_X, y: e.clientY + TOOLTIP_OFFSET_Y } : null);
-                              }
+                            onPointerMove={(e) => {
+                              setTooltipState((prev) =>
+                                prev?.row.traffic_source === row.traffic_source && prev?.segment === "first"
+                                  ? { ...prev, ...tooltipPosFromPointer(e) }
+                                  : prev
+                              );
                             }}
-                            onMouseLeave={() => setTooltipState(null)}
+                            onPointerLeave={() => setTooltipState(null)}
                           >
                             <div
                               style={{
@@ -350,21 +359,20 @@ export default function AssistedAttributionCard({
                               alignItems: "center",
                               justifyContent: "center",
                               cursor: "pointer",
+                              touchAction: "manipulation",
                             }}
-                            onMouseEnter={(e) => {
-                              setTooltipState({
-                                row,
-                                segment: "assist",
-                                x: e.clientX + TOOLTIP_OFFSET_X,
-                                y: e.clientY + TOOLTIP_OFFSET_Y,
-                              });
+                            onPointerEnter={(e) => {
+                              const { x, y } = tooltipPosFromPointer(e);
+                              setTooltipState({ row, segment: "assist", x, y });
                             }}
-                            onMouseMove={(e) => {
-                              if (tooltipState?.row.traffic_source === row.traffic_source && tooltipState?.segment === "assist") {
-                                setTooltipState((prev) => prev ? { ...prev, x: e.clientX + TOOLTIP_OFFSET_X, y: e.clientY + TOOLTIP_OFFSET_Y } : null);
-                              }
+                            onPointerMove={(e) => {
+                              setTooltipState((prev) =>
+                                prev?.row.traffic_source === row.traffic_source && prev?.segment === "assist"
+                                  ? { ...prev, ...tooltipPosFromPointer(e) }
+                                  : prev
+                              );
                             }}
-                            onMouseLeave={() => setTooltipState(null)}
+                            onPointerLeave={() => setTooltipState(null)}
                           >
                             <div
                               style={{
@@ -392,21 +400,20 @@ export default function AssistedAttributionCard({
                               alignItems: "center",
                               justifyContent: "center",
                               cursor: "pointer",
+                              touchAction: "manipulation",
                             }}
-                            onMouseEnter={(e) => {
-                              setTooltipState({
-                                row,
-                                segment: "last",
-                                x: e.clientX + TOOLTIP_OFFSET_X,
-                                y: e.clientY + TOOLTIP_OFFSET_Y,
-                              });
+                            onPointerEnter={(e) => {
+                              const { x, y } = tooltipPosFromPointer(e);
+                              setTooltipState({ row, segment: "last", x, y });
                             }}
-                            onMouseMove={(e) => {
-                              if (tooltipState?.row.traffic_source === row.traffic_source && tooltipState?.segment === "last") {
-                                setTooltipState((prev) => prev ? { ...prev, x: e.clientX + TOOLTIP_OFFSET_X, y: e.clientY + TOOLTIP_OFFSET_Y } : null);
-                              }
+                            onPointerMove={(e) => {
+                              setTooltipState((prev) =>
+                                prev?.row.traffic_source === row.traffic_source && prev?.segment === "last"
+                                  ? { ...prev, ...tooltipPosFromPointer(e) }
+                                  : prev
+                              );
                             }}
-                            onMouseLeave={() => setTooltipState(null)}
+                            onPointerLeave={() => setTooltipState(null)}
                           >
                             <div
                               style={{
@@ -481,7 +488,9 @@ export default function AssistedAttributionCard({
                         fontSize: 12,
                         color: "rgba(255,255,255,0.9)",
                         lineHeight: 1.5,
-                        maxWidth: 280,
+                        maxWidth: "min(280px, calc(100vw - 20px))",
+                        maxHeight: "min(48vh, 280px)",
+                        overflowY: "auto",
                         pointerEvents: "none",
                       }}
                     >

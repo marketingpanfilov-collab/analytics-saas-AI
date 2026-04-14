@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
+import { clampTooltipToViewport } from "@/app/lib/clampTooltipViewport";
 import { InsightTooltip } from "./InsightTooltip";
 import { fmtProjectCurrency, type ProjectCurrency } from "@/app/lib/currency";
 import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
@@ -56,6 +58,14 @@ const BAR_HEIGHT_HOVER = 18;
 const BAR_RADIUS = 6; /* track and fill: square corners, not pill */
 const BAR_TRANSITION = "transform 0.2s ease";
 const TOOLTIP_OFFSET = { x: 12, y: 8 };
+const REV_MAP_TOOLTIP_MAX_W = 280;
+
+function revenueMapTooltipPos(e: ReactPointerEvent) {
+  return clampTooltipToViewport(e.clientX + TOOLTIP_OFFSET.x, e.clientY + TOOLTIP_OFFSET.y, {
+    maxWidth: REV_MAP_TOOLTIP_MAX_W,
+    estHeight: 220,
+  });
+}
 const VISIBLE_ROWS = 4;
 const ROW_MIN_HEIGHT = 86;
 const ROW_GAP = 10;
@@ -514,23 +524,20 @@ export function RevenueAttributionMapCard({
                             justifyContent: "center",
                             cursor: "pointer",
                             borderRadius: 0,
+                            touchAction: "manipulation",
                           }}
-                          onMouseEnter={(e) =>
-                            setTooltip({
-                              channel: ch,
-                              segment: "closed",
-                              x: e.clientX + TOOLTIP_OFFSET.x,
-                              y: e.clientY + TOOLTIP_OFFSET.y,
-                            })
-                          }
-                          onMouseMove={(e) =>
+                          onPointerEnter={(e) => {
+                            const { x, y } = revenueMapTooltipPos(e);
+                            setTooltip({ channel: ch, segment: "closed", x, y });
+                          }}
+                          onPointerMove={(e) =>
                             setTooltip((prev) =>
                               prev?.channel === ch && prev?.segment === "closed"
-                                ? { ...prev, x: e.clientX + TOOLTIP_OFFSET.x, y: e.clientY + TOOLTIP_OFFSET.y }
+                                ? { ...prev, ...revenueMapTooltipPos(e) }
                                 : prev
                             )
                           }
-                          onMouseLeave={() => setTooltip(null)}
+                          onPointerLeave={() => setTooltip(null)}
                         >
                           <div
                             style={{
@@ -557,23 +564,20 @@ export function RevenueAttributionMapCard({
                             justifyContent: "center",
                             cursor: "pointer",
                             borderRadius: 0,
+                            touchAction: "manipulation",
                           }}
-                          onMouseEnter={(e) =>
-                            setTooltip({
-                              channel: ch,
-                              segment: "assisted",
-                              x: e.clientX + TOOLTIP_OFFSET.x,
-                              y: e.clientY + TOOLTIP_OFFSET.y,
-                            })
-                          }
-                          onMouseMove={(e) =>
+                          onPointerEnter={(e) => {
+                            const { x, y } = revenueMapTooltipPos(e);
+                            setTooltip({ channel: ch, segment: "assisted", x, y });
+                          }}
+                          onPointerMove={(e) =>
                             setTooltip((prev) =>
                               prev?.channel === ch && prev?.segment === "assisted"
-                                ? { ...prev, x: e.clientX + TOOLTIP_OFFSET.x, y: e.clientY + TOOLTIP_OFFSET.y }
+                                ? { ...prev, ...revenueMapTooltipPos(e) }
                                 : prev
                             )
                           }
-                          onMouseLeave={() => setTooltip(null)}
+                          onPointerLeave={() => setTooltip(null)}
                         >
                           <div
                             style={{
@@ -631,7 +635,9 @@ export function RevenueAttributionMapCard({
               fontSize: 12,
               color: "rgba(255,255,255,0.9)",
               lineHeight: 1.5,
-              maxWidth: 280,
+              maxWidth: "min(280px, calc(100vw - 20px))",
+              maxHeight: "min(48vh, 280px)",
+              overflowY: "auto",
               pointerEvents: "none",
             }}
           >

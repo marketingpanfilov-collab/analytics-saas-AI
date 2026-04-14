@@ -119,10 +119,24 @@ export default function MobileTodayDrawer() {
           <button
             type="button"
             onClick={close}
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-white/[0.12] bg-white/[0.05] text-[18px] leading-none text-zinc-200 transition-colors hover:bg-white/[0.08] active:bg-white/[0.07]"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/[0.12] bg-white/[0.05] text-zinc-200 transition-colors hover:bg-white/[0.08] active:bg-white/[0.07]"
             aria-label="Закрыть"
           >
-            ✕
+            <svg
+              width={14}
+              height={14}
+              viewBox="0 0 14 14"
+              className="block shrink-0"
+              aria-hidden
+              fill="none"
+            >
+              <path
+                d="M3.5 3.5l7 7M10.5 3.5l-7 7"
+                stroke="currentColor"
+                strokeWidth={1.5}
+                strokeLinecap="round"
+              />
+            </svg>
           </button>
         </div>
 

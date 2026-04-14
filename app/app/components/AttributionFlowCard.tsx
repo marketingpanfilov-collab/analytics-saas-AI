@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
+import { clampTooltipToViewport } from "@/app/lib/clampTooltipViewport";
 import { InsightTooltip } from "./InsightTooltip";
 
 type FlowPath = {
@@ -80,6 +82,14 @@ type Props = {
 };
 
 const TOOLTIP_OFFSET = { x: 12, y: 8 };
+const FLOW_TOOLTIP_MAX_W = 320;
+
+function flowTooltipPos(e: ReactPointerEvent) {
+  return clampTooltipToViewport(e.clientX + TOOLTIP_OFFSET.x, e.clientY + TOOLTIP_OFFSET.y, {
+    maxWidth: FLOW_TOOLTIP_MAX_W,
+    estHeight: 200,
+  });
+}
 const VISIBLE_PATHS = 4;
 const PATH_CARD_MIN_HEIGHT = 92;
 const PATH_CARD_GAP = 12;
@@ -320,22 +330,18 @@ export function AttributionFlowCard({
                   style={{
                     ...PATH_CARD_BASE,
                     ...(isHovered ? PATH_CARD_HOVER : {}),
+                    touchAction: "manipulation",
                   }}
-                  onMouseEnter={(e) => {
-                    setTooltip({
-                      path: p,
-                      x: e.clientX + TOOLTIP_OFFSET.x,
-                      y: e.clientY + TOOLTIP_OFFSET.y,
-                    });
+                  onPointerEnter={(e) => {
+                    const { x, y } = flowTooltipPos(e);
+                    setTooltip({ path: p, x, y });
                   }}
-                  onMouseMove={(e) => {
+                  onPointerMove={(e) => {
                     setTooltip((prev) =>
-                      prev && prev.path === p
-                        ? { ...prev, x: e.clientX + TOOLTIP_OFFSET.x, y: e.clientY + TOOLTIP_OFFSET.y }
-                        : prev
+                      prev && prev.path === p ? { ...prev, ...flowTooltipPos(e) } : prev
                     );
                   }}
-                  onMouseLeave={() => setTooltip(null)}
+                  onPointerLeave={() => setTooltip(null)}
                 >
                   <div
                     style={{
@@ -425,7 +431,9 @@ export function AttributionFlowCard({
             fontSize: 12,
             color: "rgba(255,255,255,0.9)",
             lineHeight: 1.5,
-            maxWidth: 320,
+            maxWidth: "min(320px, calc(100vw - 20px))",
+            maxHeight: "min(48vh, 300px)",
+            overflowY: "auto",
             pointerEvents: "none",
           }}
         >

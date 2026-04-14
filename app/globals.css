@@ -68,19 +68,27 @@ h3 {
  */
 .dashboard-native-date-range {
   cursor: pointer !important;
+  overflow: visible;
 }
 .dashboard-native-date-range input[type="date"] {
   cursor: pointer !important;
   box-sizing: border-box;
-  /* Сдвиг отображаемой даты вправо внутри поля (WebKit тянет текст к левому краю). */
-  padding: 0 0 0 8px;
+  appearance: auto;
+  -webkit-appearance: auto;
+  color-scheme: dark;
+  /* Сдвиг текста + место под индикатор календаря (WebKit/Blink; без правого padding иконка обрезается). */
+  padding: 0 1.375rem 0 0.5rem;
 }
 .dashboard-native-date-range input[type="date"]::-webkit-datetime-edit {
-  /* Доп. сдвиг текста в Chromium/Safari, где внутренний edit не всегда следует padding инпута. */
-  margin-left: 1px;
+  /* Отступ только у отображаемой даты (не у рамки пилюли). */
+  margin-left: 0;
+  padding-left: 4px;
+  padding-right: 4px;
 }
 .dashboard-native-date-range input[type="date"]::-webkit-calendar-picker-indicator {
   cursor: pointer !important;
+  opacity: 1;
+  /* Без filter: invert — в dark color-scheme браузер даёт светлую иконку; invert делал её чёрной. */
 }
 .dashboard-native-date-range input[type="date"]::-webkit-datetime-edit,
 .dashboard-native-date-range input[type="date"]::-webkit-datetime-edit-fields-wrapper,
@@ -310,7 +318,19 @@ h3 {
     grid-row: 1;
     min-width: 0;
     min-height: 0;
-    grid-template-rows: auto auto 1fr !important;
+    /* Один «липкий» блок .app-shell-mobile-header (баннеры + топбар) + main */
+    grid-template-rows: auto 1fr !important;
+  }
+
+  /* Мобилка: хедер закреплён у верхнего края визуального viewport при скролле документа и при загрузке сегмента. */
+  .app-shell-mobile-header {
+    position: sticky;
+    top: 0;
+    z-index: 90;
+    align-self: start;
+    width: 100%;
+    background: #0b0b10;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06);
   }
 
   .app-shell-topbar {
@@ -343,7 +363,7 @@ h3 {
     height: auto !important;
     max-height: none !important;
     overflow: visible !important;
-    grid-template-rows: auto auto auto !important;
+    grid-template-rows: auto 1fr !important;
   }
 
   .app-shell-grid:not([data-support-mobile="1"]) .app-shell-main {
@@ -358,6 +378,14 @@ h3 {
 }
 
 @media (min-width: 1024px) {
+  .app-shell-mobile-header {
+    display: contents;
+    position: static;
+    z-index: auto;
+    background: transparent;
+    box-shadow: none;
+  }
+
   .app-shell-main-stack {
     grid-template-rows: auto 64px 1fr !important;
   }
@@ -1633,7 +1661,9 @@ button:not([class]):hover {
   border: 1px solid rgba(255, 255, 255, 0.18);
   background-color: rgba(15, 15, 25, 0.95);
   color: #fff;
+  font-family: inherit;
   font-size: 14px;
+  font-weight: 500;
   line-height: 1.35;
   appearance: none;
   -webkit-appearance: none;
@@ -1664,11 +1694,44 @@ button:not([class]):hover {
   width: auto;
   min-width: 8.5rem;
   max-width: 100%;
-  padding: 7px 2.25rem 7px 8px;
-  font-size: 13px;
-  line-height: 1.35;
+  padding: 6px 2.25rem 6px 8px;
+  font-size: 12px;
+  line-height: 1.25;
   background-position: right 0.55rem center;
   background-size: 1rem 1rem;
+}
+
+.settings-page-select option,
+.settings-page-select optgroup {
+  font-family: inherit;
+  font-weight: 500;
+}
+
+/*
+ * Conversion Data — «Rows per page»: без вертикального padding у нативного select,
+ * line-height = внутренняя высота (height − border), иначе WebKit сдвигает цифру вверх относительно стрелки.
+ */
+.conversion-data-rows-select.settings-page-select-sm {
+  box-sizing: border-box;
+  height: 2.25rem;
+  min-height: 2.25rem;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 0.625rem;
+  padding-right: 1.875rem;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: calc(2.25rem - 2px);
+  background-position: right 0.5rem center;
+  background-size: 1rem 1rem;
+}
+
+@media (min-width: 640px) {
+  .conversion-data-rows-select.settings-page-select-sm {
+    height: 2rem;
+    min-height: 2rem;
+    line-height: calc(2rem - 2px);
+  }
 }
 
 /* Карточка как panelStyle() на странице настроек */

@@ -33,9 +33,9 @@ function shortId(id: string): string {
 
 const NAME_MAX_LENGTH = 256;
 
-/** Мобилка: статус («Активен») и роль («Владелец») — одинаковая ширина/высота чипа, ряд слева без растягивания на всю карточку. */
-const PROJECT_CARD_BADGE_FRAME_MOBILE =
-  "max-sm:inline-flex max-sm:h-8 max-sm:w-[10rem] max-sm:shrink-0 max-sm:items-center max-sm:justify-center max-sm:overflow-hidden max-sm:text-ellipsis max-sm:whitespace-nowrap sm:inline-block sm:h-auto sm:w-auto sm:max-w-none sm:overflow-visible sm:whitespace-normal";
+/** Мобилка: статус и роль в одном ряду 50/50; на sm+ — чипы по ширине текста. */
+const PROJECT_CARD_BADGE_PAIR_ITEM =
+  "inline-flex h-8 min-w-0 items-center justify-center rounded-full px-2.5 text-xs max-sm:flex-1 max-sm:basis-0 max-sm:overflow-hidden max-sm:text-ellipsis max-sm:whitespace-nowrap sm:inline-block sm:h-auto sm:w-auto sm:max-w-none sm:overflow-visible sm:whitespace-normal sm:py-1";
 
 /** Выше листовых mobile sheet (200), чтобы диалоги были поверх оболочки. */
 const APP_PROJECT_MODAL_Z = 280;
@@ -701,13 +701,13 @@ export default function ProjectsListClient({
                   )}
                 </div>
                 {/* Row 2: бейджи */}
-                <div className="mt-3 flex min-w-0 flex-wrap items-center justify-start gap-1.5 sm:mt-2 sm:gap-2">
+                <div className="mt-3 flex min-w-0 items-stretch gap-1.5 max-sm:flex-nowrap sm:mt-2 sm:flex-wrap sm:items-center sm:gap-2">
                   {!isArchivedTab && (
                     <span
                       className={
                         isInactiveBy7Days
-                          ? `rounded-full bg-amber-500/20 px-2.5 py-1 text-xs text-amber-300 ${PROJECT_CARD_BADGE_FRAME_MOBILE}`
-                          : `rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs text-emerald-400 ${PROJECT_CARD_BADGE_FRAME_MOBILE}`
+                          ? `border border-amber-400/40 bg-amber-500/20 text-amber-300 ${PROJECT_CARD_BADGE_PAIR_ITEM}`
+                          : `border border-emerald-400/40 bg-emerald-500/20 text-emerald-400 ${PROJECT_CARD_BADGE_PAIR_ITEM}`
                       }
                     >
                       {isInactiveBy7Days ? "Бездействует" : "Активен"}
@@ -715,14 +715,14 @@ export default function ProjectsListClient({
                   )}
                   {isArchivedTab && (
                     <span
-                      className={`rounded-full bg-zinc-600/30 px-2.5 py-1 text-xs text-zinc-400 ${PROJECT_CARD_BADGE_FRAME_MOBILE}`}
+                      className={`border border-white/15 bg-zinc-600/30 text-zinc-400 ${PROJECT_CARD_BADGE_PAIR_ITEM}`}
                     >
                       Архив
                     </span>
                   )}
                   <span
                     title={roleLabel(role)}
-                    className={`rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-xs text-zinc-400 ${PROJECT_CARD_BADGE_FRAME_MOBILE}`}
+                    className={`border border-white/10 bg-white/[0.04] text-zinc-400 ${PROJECT_CARD_BADGE_PAIR_ITEM}`}
                   >
                     {roleLabel(role)}
                   </span>

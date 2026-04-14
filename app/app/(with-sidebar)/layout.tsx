@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import DevAbortRejectionSuppressor from "../components/DevAbortRejectionSuppressor";
 import { BillingBootstrapProvider } from "../components/BillingBootstrapProvider";
@@ -54,7 +54,7 @@ function WithSidebarShell({ children, email }: { children: ReactNode; email: str
   const mainRef = useRef<HTMLElement | null>(null);
   const { mobileNavOpen, setMobileNavOpen } = useAppMobileNav();
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (typeof window === "undefined") return;
     if (isSupportPage) return;
     if (!window.matchMedia("(max-width: 1023px)").matches) return;
@@ -122,15 +122,17 @@ function WithSidebarShell({ children, email }: { children: ReactNode; email: str
             gridTemplateRows: "auto 64px 1fr",
           }}
         >
-          <div className="app-shell-banners" style={{ minWidth: 0 }}>
-            <BillingClientSafeModeBanner />
-            <BillingAccessStricterBanner />
-            <PlanChangePendingBanner />
-          </div>
-          <div className="app-shell-topbar" style={{ height: 64 }}>
-            <Suspense fallback={<TopbarFallback />}>
-              <Topbar email={email} />
-            </Suspense>
+          <div className="app-shell-mobile-header">
+            <div className="app-shell-banners" style={{ minWidth: 0 }}>
+              <BillingClientSafeModeBanner />
+              <BillingAccessStricterBanner />
+              <PlanChangePendingBanner />
+            </div>
+            <div className="app-shell-topbar" style={{ height: 64 }}>
+              <Suspense fallback={<TopbarFallback />}>
+                <Topbar email={email} />
+              </Suspense>
+            </div>
           </div>
 
           <main

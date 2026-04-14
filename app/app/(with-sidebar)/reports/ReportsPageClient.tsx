@@ -8,6 +8,7 @@ import {
   useMemo,
   useLayoutEffect,
   useRef,
+  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
@@ -1008,6 +1009,7 @@ export default function ReportsPageClient() {
   const [projectMinDate, setProjectMinDate] = useState<string | null>(null);
   const sourcesDropdownRef = useRef<HTMLDivElement>(null);
   const accountsDropdownRef = useRef<HTMLDivElement>(null);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const reqSeqRef = useRef(0);
   const prevProjectHydrateRef = useRef<string | null>(null);
@@ -1033,6 +1035,15 @@ export default function ReportsPageClient() {
     () => appliedDateFrom > appliedDateTo,
     [appliedDateFrom, appliedDateTo]
   );
+
+  useLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(max-width: 1023px)");
+    const apply = () => setIsMobileViewport(media.matches);
+    apply();
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, []);
 
   useEffect(() => {
     if (!projectId) {
@@ -2016,6 +2027,21 @@ export default function ReportsPageClient() {
       ? kpi.average_touches_before_purchase.toFixed(1)
       : "—";
 
+  const reportsNativeDateInputStyle = (mobile: boolean): CSSProperties => ({
+    background: "transparent",
+    border: "none",
+    color: "white",
+    outline: "none",
+    fontSize: 12,
+    lineHeight: 1,
+    height: 22,
+    cursor: "pointer",
+    boxSizing: "border-box",
+    ...(mobile
+      ? { minWidth: 0, flex: "1 1 0%", width: "auto", maxWidth: "none" }
+      : { minWidth: 146, width: 146, maxWidth: 146 }),
+  });
+
   reportsBody = (
     <div style={{ background: REPORT_PAGE_BG, minHeight: "100%" }} className="mx-auto max-w-7xl space-y-5 px-6 py-6">
       {reportsPack.state === "LIMITED" ? (
@@ -2219,9 +2245,13 @@ export default function ReportsPageClient() {
               style={{
                 position: "relative",
                 display: "flex",
-                alignItems: "center",
+                alignItems: isMobileViewport ? "stretch" : "center",
+                flexDirection: isMobileViewport ? "column" : "row",
                 gap: 8,
                 flexShrink: 0,
+                width: isMobileViewport ? "100%" : undefined,
+                maxWidth: "100%",
+                minWidth: 0,
                 isolation: "isolate",
               }}
             >
@@ -2241,6 +2271,11 @@ export default function ReportsPageClient() {
                   border: "1px solid rgba(255,255,255,0.10)",
                   background: "rgba(255,255,255,0.04)",
                   cursor: "pointer",
+                  width: isMobileViewport ? "100%" : "fit-content",
+                  maxWidth: "100%",
+                  minWidth: 0,
+                  flexShrink: isMobileViewport ? 1 : 0,
+                  overflow: "visible",
                 }}
               >
                 <input
@@ -2249,19 +2284,7 @@ export default function ReportsPageClient() {
                   onChange={(e) => applyDraftDateRange(e.target.value, draftDateTo)}
                   min={projectMinDate ?? undefined}
                   aria-label="Дата начала периода"
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: "white",
-                    outline: "none",
-                    fontSize: 12,
-                    lineHeight: 1,
-                    height: 22,
-                    minWidth: 146,
-                    width: 146,
-                    maxWidth: 146,
-                    cursor: "pointer",
-                  }}
+                  style={reportsNativeDateInputStyle(isMobileViewport)}
                 />
                 <span style={{ opacity: 0.6, fontSize: 11, cursor: "pointer" }} aria-hidden="true">
                   —
@@ -2272,19 +2295,7 @@ export default function ReportsPageClient() {
                   onChange={(e) => applyDraftDateRange(draftDateFrom, e.target.value)}
                   min={projectMinDate ?? undefined}
                   aria-label="Дата окончания периода"
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: "white",
-                    outline: "none",
-                    fontSize: 12,
-                    lineHeight: 1,
-                    height: 22,
-                    minWidth: 146,
-                    width: 146,
-                    maxWidth: 146,
-                    cursor: "pointer",
-                  }}
+                  style={reportsNativeDateInputStyle(isMobileViewport)}
                 />
               </div>
 
@@ -2306,6 +2317,10 @@ export default function ReportsPageClient() {
                   fontSize: 12,
                   whiteSpace: "nowrap",
                   transition: "background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease",
+                  flexShrink: 0,
+                  alignSelf: isMobileViewport ? "flex-end" : undefined,
+                  maxWidth: "100%",
+                  boxSizing: "border-box",
                   ...(statusState === "loading"
                     ? {
                         background: "rgba(251,191,36,0.95)",

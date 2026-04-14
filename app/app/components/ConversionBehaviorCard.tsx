@@ -1,7 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
+import { clampTooltipToViewport } from "@/app/lib/clampTooltipViewport";
 import { InsightTooltip } from "./InsightTooltip";
+
+const CONV_TOOLTIP_MAX_W = 280;
+
+function convTooltipPos(e: ReactPointerEvent) {
+  return clampTooltipToViewport(e.clientX + 12, e.clientY + 8, {
+    maxWidth: CONV_TOOLTIP_MAX_W,
+    estHeight: 140,
+  });
+}
 
 type TimeBucket = { label: string; percent: number };
 type TouchBucket = { label: string; percent: number };
@@ -179,25 +190,18 @@ export function ConversionBehaviorCard({
           borderRadius: 6,
           cursor: "default",
           opacity: dim ? DIM_OPACITY : 1,
+          touchAction: "manipulation",
         }}
-        onMouseEnter={(e) =>
-          setTooltip({
-            type,
-            index,
-            label,
-            percent,
-            x: e.clientX + 12,
-            y: e.clientY + 8,
-          })
-        }
-        onMouseMove={(e) =>
+        onPointerEnter={(e) => {
+          const { x, y } = convTooltipPos(e);
+          setTooltip({ type, index, label, percent, x, y });
+        }}
+        onPointerMove={(e) =>
           setTooltip((prev) =>
-            prev && prev.type === type && prev.index === index
-              ? { ...prev, x: e.clientX + 12, y: e.clientY + 8 }
-              : prev
+            prev && prev.type === type && prev.index === index ? { ...prev, ...convTooltipPos(e) } : prev
           )
         }
-        onMouseLeave={() => setTooltip(null)}
+        onPointerLeave={() => setTooltip(null)}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
@@ -450,7 +454,9 @@ export function ConversionBehaviorCard({
             fontSize: 12,
             color: "rgba(255,255,255,0.9)",
             lineHeight: 1.5,
-            maxWidth: 280,
+            maxWidth: "min(280px, calc(100vw - 20px))",
+            maxHeight: "min(44vh, 220px)",
+            overflowY: "auto",
             pointerEvents: "none",
           }}
         >

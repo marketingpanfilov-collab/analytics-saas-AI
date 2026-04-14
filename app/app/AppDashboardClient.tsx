@@ -10,9 +10,11 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ignoreAbortRejection, isAbortError, safeAbortController } from "@/app/lib/abortUtils";
+import { clampTooltipPositionForContainer } from "@/app/lib/clampTooltipViewport";
 import { SIDEBAR_TODAY_REFRESH_EVENT } from "@/app/lib/sidebarTodayRefreshEvent";
 import { supabase } from "@/app/lib/supabaseClient";
 import { type ProjectCurrency } from "@/app/lib/currency";
@@ -332,7 +334,7 @@ function MultiMetricLineChart({
   const salesPath = mkPath(points.map((p) => p.sales), maxSales);
   const cacPath = mkPathWithGaps(cacValues, (v, max) => yMap(v, max), maxCac, xForIndex);
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handlePointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
     const el = svgRef.current;
     const container = containerRef.current;
     if (!el || !container) return;
@@ -352,20 +354,17 @@ function MultiMetricLineChart({
     let idx = Math.round(rel * (points.length - 1));
     idx = Math.max(0, Math.min(idx, points.length - 1));
     setHoveredIndex(idx);
-    const tx = e.clientX - contRect.left + 14;
-    const ty = e.clientY - contRect.top - 8;
-    const tw = 180;
-    const th = 100;
-    let clampX = tx;
-    if (tx + tw > contRect.width) clampX = contRect.width - tw - 8;
-    if (clampX < 8) clampX = 8;
-    let clampY = ty;
-    if (ty < 8) clampY = 8;
-    if (ty + th > contRect.height - 8) clampY = contRect.height - th - 8;
+    const { x: clampX, y: clampY } = clampTooltipPositionForContainer(e.clientX, e.clientY, contRect, {
+      offsetX: 14,
+      offsetY: -8,
+      maxWidth: 220,
+      estHeight: 140,
+      edgeMargin: 8,
+    });
     setTooltipPos({ x: clampX, y: clampY });
   };
 
-  const handleMouseLeave = () => {
+  const handlePointerLeave = () => {
     setHoveredIndex(null);
     setTooltipPos(null);
   };
@@ -388,16 +387,16 @@ function MultiMetricLineChart({
         padding: 12,
         position: "relative",
       }}
-      onMouseLeave={handleMouseLeave}
+      onPointerLeave={handlePointerLeave}
     >
       <svg
         ref={svgRef}
         width="100%"
         viewBox={`0 0 ${w} ${h}`}
         preserveAspectRatio="none"
-        style={{ display: "block" }}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
+        style={{ display: "block", touchAction: "manipulation" }}
+        onPointerMove={handlePointerMove}
+        onPointerLeave={handlePointerLeave}
       >
         {Array.from({ length: yTicks }).map((_, i) => {
           const y = pad + (plotH * i) / (yTicks - 1);
@@ -516,7 +515,8 @@ function MultiMetricLineChart({
             boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
             fontSize: 12,
             color: "rgba(255,255,255,0.95)",
-            whiteSpace: "nowrap",
+            whiteSpace: "normal",
+            maxWidth: "min(220px, calc(100vw - 24px))",
             zIndex: 10,
             pointerEvents: "none",
           }}
@@ -2230,6 +2230,22 @@ export default function AppDashboardClient() {
     whiteSpace: "nowrap" as const,
   });
 
+  /** Узкий экран: без фикс. 146px — иначе два date + «Готово» выталкивают вёрстку; на десктопе оставляем стабильную ширину под иконку. */
+  const dashboardNativeDateInputStyle = (mobile: boolean): CSSProperties => ({
+    background: "transparent",
+    border: "none",
+    color: "white",
+    outline: "none",
+    fontSize: 12,
+    lineHeight: 1,
+    height: 22,
+    cursor: "pointer",
+    boxSizing: "border-box",
+    ...(mobile
+      ? { minWidth: 0, flex: "1 1 0%", width: "auto", maxWidth: "none" }
+      : { minWidth: 146, width: 146, maxWidth: 146 }),
+  });
+
   /** Как на странице «Отчёты»: пилюля рядом с диапазоном дат (Загрузка / Ошибка / Готово). */
   const filterStatusState = useMemo<"loading" | "success" | "error">(() => {
     if (loading) return "loading";
@@ -2979,207 +2995,247 @@ export default function AppDashboardClient() {
           </div>
           </div>
 
-          <div
-            style={{
-              position: "relative",
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              flexShrink: 0,
-              width: isMobileViewport ? "100%" : undefined,
-              maxWidth: "100%",
-              minWidth: 0,
-              isolation: "isolate",
-            }}
-          >
+          {isMobileViewport ? (
             <div
-              className="dashboard-native-date-range"
-              role="group"
-              title="Фильтр по дате"
-              aria-label={
-                isMobileViewport
-                  ? `Период: ${fmtRuDate(draftDateFrom)} — ${fmtRuDate(draftDateTo)}`
-                  : "Фильтр по дате"
-              }
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 4,
-                boxSizing: "border-box",
-                height: 40,
-                padding: "0 8px",
-                borderRadius: 12,
-                border: "1px solid rgba(255,255,255,0.10)",
-                background: "rgba(255,255,255,0.04)",
-                cursor: "pointer",
-                width: "fit-content",
+                position: "relative",
+                width: "100%",
                 maxWidth: "100%",
+                minWidth: 0,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "stretch",
+                gap: 8,
                 flexShrink: 0,
+                isolation: "isolate",
               }}
             >
-              <input
-                type="date"
-                value={draftDateFrom}
-                onChange={(e) => applyDraftDateRange(e.target.value, draftDateTo)}
-                min={projectMinDate ?? undefined}
-                aria-label="Дата начала периода"
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  color: "white",
-                  outline: "none",
-                  fontSize: 12,
-                  lineHeight: 1,
-                  height: 22,
-                  minWidth: 146,
-                  width: 146,
-                  maxWidth: 146,
-                  cursor: "pointer",
-                }}
-              />
-              <span style={{ opacity: 0.6, fontSize: 11, cursor: "pointer" }} aria-hidden="true">
-                —
-              </span>
-              <input
-                type="date"
-                value={draftDateTo}
-                onChange={(e) => applyDraftDateRange(draftDateFrom, e.target.value)}
-                min={projectMinDate ?? undefined}
-                aria-label="Дата окончания периода"
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  color: "white",
-                  outline: "none",
-                  fontSize: 12,
-                  lineHeight: 1,
-                  height: 22,
-                  minWidth: 146,
-                  width: 146,
-                  maxWidth: 146,
-                  cursor: "pointer",
-                }}
-              />
-            </div>
-
-            {isMobileViewport ? (
               <div
-                role="status"
-                aria-live="polite"
-                title={filterStatusState === "error" ? errorText ?? "Ошибка" : "Статус загрузки данных"}
                 style={{
-                  display: "inline-flex",
+                  display: "flex",
+                  flexDirection: "row",
                   alignItems: "center",
-                  justifyContent: "center",
                   gap: 8,
-                  minWidth: 100,
-                  height: 32,
-                  padding: "0 14px",
-                  borderRadius: 999,
-                  border: "1px solid transparent",
-                  fontWeight: 800,
-                  fontSize: 12,
-                  whiteSpace: "nowrap",
-                  transition: "background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease",
-                  flexShrink: 0,
-                  ...(filterStatusState === "loading"
-                    ? {
-                        background: "rgba(251,191,36,0.95)",
-                        color: "rgba(0,0,0,0.88)",
-                        borderColor: "rgba(251,191,36,0.6)",
-                      }
-                    : filterStatusState === "error"
-                      ? {
-                          background: "rgba(220,38,38,0.9)",
-                          color: "rgba(255,255,255,0.98)",
-                          borderColor: "rgba(220,38,38,0.7)",
-                        }
-                      : {
-                          background: "rgba(16,185,129,0.85)",
-                          color: "rgba(255,255,255,0.98)",
-                          borderColor: "rgba(16,185,129,0.6)",
-                        }),
+                  width: "100%",
+                  minWidth: 0,
                 }}
               >
-                {filterStatusState === "loading" ? (
-                  <>
-                    <span
-                      style={{
-                        display: "inline-block",
-                        width: 14,
-                        height: 14,
-                        flexShrink: 0,
-                        border: "2px solid currentColor",
-                        borderTopColor: "transparent",
-                        borderRadius: "50%",
-                        animation: "dashboard-spin 0.7s linear infinite",
-                      }}
-                    />
-                    {filterStatusLabel}
-                  </>
-                ) : (
-                  filterStatusLabel
-                )}
+                <div
+                  className="dashboard-native-date-range"
+                  role="group"
+                  title="Фильтр по дате"
+                  aria-label={`Период: ${fmtRuDate(draftDateFrom)} — ${fmtRuDate(draftDateTo)}`}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    boxSizing: "border-box",
+                    height: 40,
+                    padding: "0 8px",
+                    borderRadius: 12,
+                    border: "1px solid rgba(255,255,255,0.10)",
+                    background: "rgba(255,255,255,0.04)",
+                    cursor: "pointer",
+                    flex: "1 1 0%",
+                    minWidth: 0,
+                    maxWidth: "100%",
+                    overflow: "visible",
+                  }}
+                >
+                  <input
+                    type="date"
+                    value={draftDateFrom}
+                    onChange={(e) => applyDraftDateRange(e.target.value, draftDateTo)}
+                    min={projectMinDate ?? undefined}
+                    aria-label="Дата начала периода"
+                    style={dashboardNativeDateInputStyle(true)}
+                  />
+                  <span style={{ opacity: 0.6, fontSize: 11, cursor: "pointer" }} aria-hidden="true">
+                    —
+                  </span>
+                  <input
+                    type="date"
+                    value={draftDateTo}
+                    onChange={(e) => applyDraftDateRange(draftDateFrom, e.target.value)}
+                    min={projectMinDate ?? undefined}
+                    aria-label="Дата окончания периода"
+                    style={dashboardNativeDateInputStyle(true)}
+                  />
+                </div>
+                <div
+                  role="status"
+                  aria-live="polite"
+                  title={filterStatusState === "error" ? errorText ?? "Ошибка" : "Статус загрузки данных"}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    minWidth: 100,
+                    height: 32,
+                    padding: "0 14px",
+                    borderRadius: 999,
+                    border: "1px solid transparent",
+                    fontWeight: 800,
+                    fontSize: 12,
+                    whiteSpace: "nowrap",
+                    transition: "background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease",
+                    flexShrink: 0,
+                    maxWidth: "100%",
+                    boxSizing: "border-box",
+                    ...(filterStatusState === "loading"
+                      ? {
+                          background: "rgba(251,191,36,0.95)",
+                          color: "rgba(0,0,0,0.88)",
+                          borderColor: "rgba(251,191,36,0.6)",
+                        }
+                      : filterStatusState === "error"
+                        ? {
+                            background: "rgba(220,38,38,0.9)",
+                            color: "rgba(255,255,255,0.98)",
+                            borderColor: "rgba(220,38,38,0.7)",
+                          }
+                        : {
+                            background: "rgba(16,185,129,0.85)",
+                            color: "rgba(255,255,255,0.98)",
+                            borderColor: "rgba(16,185,129,0.6)",
+                          }),
+                  }}
+                >
+                  {filterStatusState === "loading" ? (
+                    <>
+                      <span
+                        style={{
+                          display: "inline-block",
+                          width: 14,
+                          height: 14,
+                          flexShrink: 0,
+                          border: "2px solid currentColor",
+                          borderTopColor: "transparent",
+                          borderRadius: "50%",
+                          animation: "dashboard-spin 0.7s linear infinite",
+                        }}
+                      />
+                      {filterStatusLabel}
+                    </>
+                  ) : (
+                    filterStatusLabel
+                  )}
+                </div>
               </div>
-            ) : null}
-          </div>
+              {dashboardDataUiStatus === "READY" ? (
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    justifyContent: "flex-start",
+                    gap: 6,
+                    width: "100%",
+                    minWidth: 0,
+                    boxSizing: "border-box",
+                  }}
+                >
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      padding: "2px 7px",
+                      borderRadius: 999,
+                      border: "1px solid rgba(255,255,255,0.06)",
+                      background: "rgba(255,255,255,0.03)",
+                      color: "rgba(255,255,255,0.48)",
+                      fontSize: 10,
+                      fontWeight: 500,
+                      lineHeight: 1.35,
+                      letterSpacing: "0.01em",
+                      whiteSpace: "nowrap",
+                    }}
+                    title="Время обновления из API/сервера"
+                  >
+                    Обновлено: {updatedStr}
+                  </span>
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      padding: "2px 7px",
+                      borderRadius: 999,
+                      border: "1px solid rgba(255,255,255,0.06)",
+                      background: "rgba(255,255,255,0.03)",
+                      color: "rgba(255,255,255,0.48)",
+                      fontSize: 10,
+                      fontWeight: 500,
+                      lineHeight: 1.35,
+                      letterSpacing: "0.01em",
+                      whiteSpace: "nowrap",
+                    }}
+                    title="Последний успешный ответ (клиент)"
+                  >
+                    OK: {lastOkStr}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div
+              style={{
+                position: "relative",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                flexShrink: 0,
+                maxWidth: "100%",
+                minWidth: 0,
+                isolation: "isolate",
+              }}
+            >
+              <div
+                className="dashboard-native-date-range"
+                role="group"
+                title="Фильтр по дате"
+                aria-label="Фильтр по дате"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  boxSizing: "border-box",
+                  height: 40,
+                  padding: "0 8px",
+                  borderRadius: 12,
+                  border: "1px solid rgba(255,255,255,0.10)",
+                  background: "rgba(255,255,255,0.04)",
+                  cursor: "pointer",
+                  width: "fit-content",
+                  maxWidth: "100%",
+                  minWidth: 0,
+                  flexShrink: 0,
+                  overflow: "visible",
+                }}
+              >
+                <input
+                  type="date"
+                  value={draftDateFrom}
+                  onChange={(e) => applyDraftDateRange(e.target.value, draftDateTo)}
+                  min={projectMinDate ?? undefined}
+                  aria-label="Дата начала периода"
+                  style={dashboardNativeDateInputStyle(false)}
+                />
+                <span style={{ opacity: 0.6, fontSize: 11, cursor: "pointer" }} aria-hidden="true">
+                  —
+                </span>
+                <input
+                  type="date"
+                  value={draftDateTo}
+                  onChange={(e) => applyDraftDateRange(draftDateFrom, e.target.value)}
+                  min={projectMinDate ?? undefined}
+                  aria-label="Дата окончания периода"
+                  style={dashboardNativeDateInputStyle(false)}
+                />
+              </div>
+            </div>
+          )}
         </div>
-
-        {/* Мобильные тех. бейджи — отдельный ряд под фильтрами (не внутри колонки с Sources/датой). */}
-        {dashboardDataUiStatus === "READY" && isMobileViewport ? (
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              alignItems: "center",
-              gap: 6,
-              width: "100%",
-              maxWidth: "100%",
-              minWidth: 0,
-              flexShrink: 0,
-              boxSizing: "border-box",
-            }}
-          >
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                padding: "2px 7px",
-                borderRadius: 999,
-                border: "1px solid rgba(255,255,255,0.06)",
-                background: "rgba(255,255,255,0.03)",
-                color: "rgba(255,255,255,0.48)",
-                fontSize: 10,
-                fontWeight: 500,
-                lineHeight: 1.35,
-                letterSpacing: "0.01em",
-                whiteSpace: "nowrap",
-              }}
-              title="Время обновления из API/сервера"
-            >
-              Обновлено: {updatedStr}
-            </span>
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                padding: "2px 7px",
-                borderRadius: 999,
-                border: "1px solid rgba(255,255,255,0.06)",
-                background: "rgba(255,255,255,0.03)",
-                color: "rgba(255,255,255,0.48)",
-                fontSize: 10,
-                fontWeight: 500,
-                lineHeight: 1.35,
-                letterSpacing: "0.01em",
-                whiteSpace: "nowrap",
-              }}
-              title="Последний успешный ответ (клиент)"
-            >
-              OK: {lastOkStr}
-            </span>
-          </div>
-        ) : null}
 
         {/* Десктоп: тех. бейджи справа от строки фильтров — отдельная ветка, без пересечения с мобильной. */}
         {dashboardDataUiStatus === "READY" && !isMobileViewport ? (

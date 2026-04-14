@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
+import { clampFixedTooltipAbovePoint } from "@/app/lib/clampTooltipViewport";
 
 export type CohortRow = {
   cohort: string;
@@ -37,7 +39,9 @@ const TOOLTIP_STYLE: React.CSSProperties = {
   boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
   pointerEvents: "none",
   minWidth: 220,
-  maxWidth: 280,
+  maxWidth: "min(280px, calc(100vw - 20px))",
+  maxHeight: "min(45vh, 260px)",
+  overflowY: "auto",
 };
 
 const M_HEADER_TOOLTIPS: Record<string, string> = {
@@ -175,9 +179,12 @@ export default function CohortHeatmap({
                     borderBottom: "1px solid rgba(255,255,255,0.06)",
                     position: "relative",
                     cursor: "default",
+                    touchAction: "manipulation",
                   }}
-                  onMouseEnter={(e) => setHoverCell({ cohort: r.cohort, index: idx, x: e.clientX, y: e.clientY })}
-                  onMouseLeave={() => setHoverCell(null)}
+                  onPointerEnter={(e: ReactPointerEvent<HTMLTableCellElement>) =>
+                    setHoverCell({ cohort: r.cohort, index: idx, x: e.clientX, y: e.clientY })
+                  }
+                  onPointerLeave={() => setHoverCell(null)}
                 >
                   <div
                     style={{
@@ -198,14 +205,16 @@ export default function CohortHeatmap({
       </table>
       {hoverCell && (() => {
         const cellData = getCellData(hoverCell.cohort, hoverCell.index);
+        const pos = clampFixedTooltipAbovePoint(hoverCell.x, hoverCell.y - 8, {
+          estWidth: 280,
+          estHeight: 200,
+        });
         return (
           <div
             style={{
               ...TOOLTIP_STYLE,
-              left: hoverCell.x,
-              top: hoverCell.y - 8,
-              transform: "translate(-50%, -100%)",
-              marginBottom: 8,
+              left: pos.left,
+              top: pos.top,
             }}
           >
             <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>{formatCohortDisplay(hoverCell.cohort)}</div>

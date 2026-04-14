@@ -133,7 +133,7 @@ export default function ConversionDataPageClient() {
 
   if (!projectId) {
     return (
-      <div className="flex min-h-[280px] items-center justify-center p-6">
+      <div className="flex min-h-[280px] items-center justify-center px-4 py-8 sm:p-6">
         <div className="text-center">
           <div className="text-base font-semibold text-neutral-300">Проект не выбран</div>
           <div className="mt-2 text-sm text-neutral-500">
@@ -148,26 +148,24 @@ export default function ConversionDataPageClient() {
   const emptyText = isRegistrations ? "No registration events found" : "No purchase events found";
 
   return (
-    <div className="mx-auto w-full max-w-7xl p-6 pb-12">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-white">Conversion Data</h1>
-          <p className="mt-1 text-sm text-neutral-400">
-            Просматривайте все входящие события регистраций и покупок по текущему проекту.
-          </p>
-        </div>
-      </div>
+    <div className="mx-auto w-full max-w-7xl px-4 py-4 pb-10 sm:p-6 sm:pb-12">
+      <header className="mb-5 sm:mb-4">
+        <h1 className="text-xl font-semibold tracking-tight text-white sm:text-2xl">Conversion Data</h1>
+        <p className="mt-1 max-w-2xl text-sm leading-relaxed text-neutral-400">
+          Просматривайте все входящие события регистраций и покупок по текущему проекту.
+        </p>
+      </header>
 
       {/* Tabs + controls */}
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-1 rounded-xl bg-neutral-900/80 p-1 ring-1 ring-neutral-800">
+      <div className="mb-4 flex flex-col gap-4 sm:mb-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3">
+        <div className="flex w-full justify-stretch gap-1 rounded-xl bg-neutral-900/80 p-1 ring-1 ring-neutral-800 sm:w-auto sm:justify-start">
           <button
             type="button"
             onClick={() => setActiveTab("registrations")}
             className={
               activeTab === "registrations"
-                ? "rounded-lg bg-neutral-800 px-3 py-1.5 text-sm font-medium text-white shadow-sm"
-                : "rounded-lg px-3 py-1.5 text-sm font-medium text-neutral-400 hover:text-neutral-200"
+                ? "min-h-10 flex-1 rounded-lg bg-neutral-800 px-3 py-2 text-sm font-medium text-white shadow-sm sm:min-h-0 sm:flex-none sm:py-1.5"
+                : "min-h-10 flex-1 rounded-lg px-3 py-2 text-sm font-medium text-neutral-400 hover:text-neutral-200 sm:min-h-0 sm:flex-none sm:py-1.5"
             }
           >
             Registrations
@@ -177,36 +175,40 @@ export default function ConversionDataPageClient() {
             onClick={() => setActiveTab("purchases")}
             className={
               activeTab === "purchases"
-                ? "rounded-lg bg-neutral-800 px-3 py-1.5 text-sm font-medium text-white shadow-sm"
-                : "rounded-lg px-3 py-1.5 text-sm font-medium text-neutral-400 hover:text-neutral-200"
+                ? "min-h-10 flex-1 rounded-lg bg-neutral-800 px-3 py-2 text-sm font-medium text-white shadow-sm sm:min-h-0 sm:flex-none sm:py-1.5"
+                : "min-h-10 flex-1 rounded-lg px-3 py-2 text-sm font-medium text-neutral-400 hover:text-neutral-200 sm:min-h-0 sm:flex-none sm:py-1.5"
             }
           >
             Purchases
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <form onSubmit={handleSearchSubmit} className="flex items-center gap-2">
+        <div className="flex w-full min-w-0 flex-col gap-3 sm:w-auto sm:max-w-none sm:flex-row sm:flex-wrap sm:items-stretch sm:justify-end">
+          <form
+            onSubmit={handleSearchSubmit}
+            className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:max-w-xl sm:flex-row sm:items-center sm:gap-2"
+          >
             <input
               type="text"
               value={inputSearch}
               onChange={(e) => setInputSearch(e.target.value)}
               placeholder="Search by user, order, email…"
-              className="h-8 rounded-lg border border-neutral-700 bg-neutral-900 px-2 text-xs text-neutral-200 outline-none placeholder:text-neutral-500"
+              className="min-h-10 w-full min-w-0 rounded-lg border border-neutral-700 bg-neutral-900 px-3 text-sm text-neutral-200 outline-none placeholder:text-neutral-500 sm:h-8 sm:min-h-0 sm:flex-1 sm:px-2 sm:text-xs"
             />
             <button
               type="submit"
-              className="h-8 rounded-lg bg-neutral-800 px-3 text-xs font-medium text-neutral-100 hover:bg-neutral-700"
+              className="min-h-10 w-full shrink-0 rounded-lg bg-neutral-800 px-4 text-sm font-medium text-neutral-100 hover:bg-neutral-700 sm:h-8 sm:w-auto sm:px-3 sm:text-xs"
             >
               Search
             </button>
           </form>
-          <div className="flex items-center gap-1 text-xs text-neutral-400">
-            <span>Rows per page:</span>
+          <div className="flex shrink-0 items-center justify-between gap-3 sm:justify-end">
+            <span className="text-xs font-medium text-neutral-400">Rows per page:</span>
             <select
               value={pageSize}
               onChange={(e) => setPageSize(parseInt(e.target.value, 10))}
-              className="settings-page-select settings-page-select-sm h-8 min-h-0 border-neutral-700 bg-neutral-900 text-xs text-neutral-100"
+              aria-label="Rows per page"
+              className="conversion-data-rows-select settings-page-select settings-page-select-sm w-[5.75rem] shrink-0 border-neutral-700 bg-neutral-900 text-neutral-100"
             >
               <option value={25}>25</option>
               <option value={50}>50</option>
@@ -217,8 +219,8 @@ export default function ConversionDataPageClient() {
       </div>
 
       {/* Table */}
-      <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 shadow">
-        <div className="overflow-x-auto">
+      <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 shadow [-webkit-tap-highlight-color:transparent]">
+        <div className="overflow-x-auto overscroll-x-contain">
           {loading ? (
             <div className="p-6 text-center text-sm text-neutral-400">Загрузка…</div>
           ) : error ? (
@@ -327,22 +329,25 @@ export default function ConversionDataPageClient() {
         </div>
 
         {/* Pagination */}
-        <div className="flex items-center justify-between gap-3 border-t border-neutral-800 px-4 py-2 text-xs text-neutral-400">
-          <div>
+        <div className="flex flex-col gap-3 border-t border-neutral-800 px-3 py-3 text-xs text-neutral-400 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-4 sm:py-2">
+          <div className="text-center leading-relaxed sm:text-left">
             Page <span className="font-semibold text-neutral-100">{page}</span> of{" "}
-            <span className="font-semibold text-neutral-100">{totalPages}</span>{" "}
+            <span className="font-semibold text-neutral-100">{totalPages}</span>
             {total > 0 && (
-              <span className="ml-2">
-                · Total <span className="font-semibold text-neutral-100">{total}</span> events
-              </span>
+              <>
+                {" "}
+                <span className="block sm:ml-2 sm:inline">
+                  · Total <span className="font-semibold text-neutral-100">{total}</span> events
+                </span>
+              </>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-center gap-2 sm:justify-end">
             <button
               type="button"
               disabled={page <= 1 || loading}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="rounded border border-neutral-700 px-2 py-1 text-xs disabled:opacity-40"
+              className="min-h-10 min-w-[5.5rem] rounded border border-neutral-700 px-3 py-2 text-xs disabled:opacity-40 sm:min-h-0 sm:min-w-0 sm:px-2 sm:py-1"
             >
               Previous
             </button>
@@ -350,7 +355,7 @@ export default function ConversionDataPageClient() {
               type="button"
               disabled={page >= totalPages || loading}
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              className="rounded border border-neutral-700 px-2 py-1 text-xs disabled:opacity-40"
+              className="min-h-10 min-w-[5.5rem] rounded border border-neutral-700 px-3 py-2 text-xs disabled:opacity-40 sm:min-h-0 sm:min-w-0 sm:px-2 sm:py-1"
             >
               Next
             </button>
