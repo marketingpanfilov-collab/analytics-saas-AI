@@ -108,8 +108,8 @@ export default function PlanRestrictedOverlay({
     </div>
   );
 
-  /** Как `pb-[calc(72px+…)]` у main-scroll — зона над нижним таббаром на mobile. */
-  const MOBILE_TAB_BAR_RESERVE_PX = 72;
+  /** Примерная высота таббара в JS (58 + max(8, safe) ≈ 66…92); не тянем env() в runtime. */
+  const MOBILE_TAB_BAR_RESERVE_PX = 92;
 
   const cardCenterY = useMemo(() => {
     if (paneBox == null || paneBox.width < 1) return null;

@@ -637,11 +637,7 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
                           value={row.role}
                           onChange={(e) => handleRoleChange(row.id, e.target.value)}
                           disabled={busy || !canMutateProjectMembers}
-                          className={
-                            isEmbedded
-                              ? "settings-page-select settings-page-select-sm max-w-full disabled:opacity-50"
-                              : "max-w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white focus:border-white/20 focus:outline-none disabled:opacity-50"
-                          }
+                          className="settings-page-select settings-page-select-sm max-w-full disabled:opacity-50"
                         >
                           {PROJECT_ROLES.map((r) => (
                             <option key={r.value} value={r.value}>
@@ -717,11 +713,7 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
                         value={row.role}
                         onChange={(e) => handleRoleChange(row.id, e.target.value)}
                         disabled={busy || !canMutateProjectMembers}
-                        className={
-                          isEmbedded
-                            ? "settings-page-select settings-page-select-sm min-w-[10rem] disabled:opacity-50"
-                            : "rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white focus:border-white/20 focus:outline-none disabled:opacity-50"
-                        }
+                        className="settings-page-select settings-page-select-sm min-w-[10rem] disabled:opacity-50"
                       >
                         {PROJECT_ROLES.map((r) => (
                           <option key={r.value} value={r.value}>
@@ -1038,7 +1030,7 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
                   <select
                     value={addRole}
                     onChange={(e) => setAddRole(e.target.value)}
-                    className="mt-2 w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white focus:border-white/20 focus:outline-none"
+                    className="settings-page-select mt-2 w-full"
                   >
                     {PROJECT_ROLES.map((r) => (
                       <option key={r.value} value={r.value}>
@@ -1159,7 +1151,7 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
                   <select
                     value={inviteRole}
                     onChange={(e) => setInviteRole(e.target.value)}
-                    className="mt-2 w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white focus:border-white/20 focus:outline-none"
+                    className="settings-page-select mt-2 w-full"
                   >
                     {PROJECT_ROLES.map((r) => (
                       <option key={r.value} value={r.value}>{r.label}</option>
@@ -1218,7 +1210,7 @@ export default function ProjectMembersPageClient({ variant = "page" }: ProjectMe
                   <select
                     value={inviteByLinkRole}
                     onChange={(e) => setInviteByLinkRole(e.target.value)}
-                    className="mt-2 w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white focus:border-white/20 focus:outline-none"
+                    className="settings-page-select mt-2 w-full"
                   >
                     {PROJECT_ROLES.map((r) => (
                       <option key={r.value} value={r.value}>{r.label}</option>

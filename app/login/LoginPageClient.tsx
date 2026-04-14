@@ -37,6 +37,7 @@ import { subscribeMetaInitiateCheckoutWhenCheckoutLoaded } from "../lib/metaInit
 import { fireMetaPurchasePixelFromPaddleEvent } from "../lib/metaPixelBrowser";
 import { warnPaddleCheckoutCatalogIds } from "../lib/paddleCheckoutConfigDiagnostics";
 import { addPaddleEventListener, getPaddle } from "../lib/paddle";
+import { formatAuthErrorMessage } from "../lib/auth/formatAuthErrorMessage";
 import { safeAppNextTarget } from "../lib/auth/safeAppNextTarget";
 import { getPaddlePriceId, getPaddleProductId, type BillingPeriod } from "../lib/paddlePriceMap";
 import { supabase } from "../lib/supabaseClient";
@@ -461,7 +462,7 @@ export default function LoginPageClient() {
           password,
         });
         if (error) {
-          setMsg(error.message);
+          setMsg(formatAuthErrorMessage(error.message));
           setLoading(false);
           return;
         }
@@ -696,7 +697,7 @@ export default function LoginPageClient() {
           password,
         });
         if (error) {
-          setMsg(error.message);
+          setMsg(formatAuthErrorMessage(error.message));
           setLoading(false);
           return;
         }

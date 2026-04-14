@@ -346,10 +346,7 @@ function PeriodSelect({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value as BillingPeriod)}
-      className={cn(
-        "h-10 cursor-pointer rounded-xl border border-white/10 bg-white/[0.04] px-3 text-sm text-white focus:border-white/20 focus:outline-none",
-        className
-      )}
+      className={cn("settings-page-select h-10 cursor-pointer text-sm", className)}
     >
       {BILLING_OPTIONS.map((t) => (
         <option key={t.value} value={t.value} className="bg-[#111118] text-white">

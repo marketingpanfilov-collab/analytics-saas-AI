@@ -1249,7 +1249,12 @@ export default function LtvPageClient() {
             className="filter-dropdown-wrap"
             style={{ ...filterDropdownWrapStyle, ...(isMobileViewport ? { width: "100%", minWidth: 0 } : {}) }}
           >
-            <select value={acquisitionSource} onChange={(e) => setAcquisitionSource(e.target.value)} style={filterSelectStyle}>
+            <select
+              className="ltv-filter-select"
+              value={acquisitionSource}
+              onChange={(e) => setAcquisitionSource(e.target.value)}
+              style={filterSelectStyle}
+            >
               <option value="all" style={{ background: "#1c1c1c" }}>{ACQUISITION_SOURCE_LABELS.all}</option>
               {(data?.acquisition_sources ?? ["meta", "google", "tiktok", "yandex", "direct", "organic_search", "referral"]).map((s) => (
                 <option key={s} value={s} style={{ background: "#1c1c1c" }}>{ACQUISITION_SOURCE_LABELS[s] ?? s}</option>
@@ -1271,7 +1276,12 @@ export default function LtvPageClient() {
             className="filter-dropdown-wrap"
             style={{ ...filterDropdownWrapStyle, ...(isMobileViewport ? { width: "100%", minWidth: 0 } : {}) }}
           >
-            <select value={cohortMonth} onChange={(e) => setCohortMonth(e.target.value)} style={filterSelectStyle}>
+            <select
+              className="ltv-filter-select"
+              value={cohortMonth}
+              onChange={(e) => setCohortMonth(e.target.value)}
+              style={filterSelectStyle}
+            >
               {cohortMonths.map((m) => (
                 <option key={m} value={m} style={{ background: "#1c1c1c" }}>
                   {formatCohortLabel(m)}

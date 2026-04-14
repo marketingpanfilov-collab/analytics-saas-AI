@@ -945,8 +945,8 @@ function IntegrationChannelCard({
                       key={a.id}
                       style={{
                         display: "flex",
-                        alignItems: "flex-start",
-                        gap: 8,
+                        alignItems: "center",
+                        gap: 10,
                         cursor: disablePick || !pageIdle ? "not-allowed" : "pointer",
                         opacity: disablePick || !pageIdle ? 0.55 : 1,
                       }}
@@ -961,7 +961,6 @@ function IntegrationChannelCard({
                           width: 18,
                           height: 18,
                           flexShrink: 0,
-                          marginTop: 2,
                         }}
                       />
                       <div style={{ minWidth: 0, flex: 1 }}>

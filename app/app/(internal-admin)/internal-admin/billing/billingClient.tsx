@@ -128,7 +128,7 @@ export default function InternalBillingPageClient() {
           <select
             value={plan}
             onChange={(e) => setPlan(e.target.value)}
-            className="h-10 rounded-lg border border-white/10 bg-black/30 px-3 text-sm"
+            className="settings-page-select h-10 w-full min-w-0 text-sm md:w-auto"
           >
             <option value="starter">starter</option>
             <option value="growth">growth</option>

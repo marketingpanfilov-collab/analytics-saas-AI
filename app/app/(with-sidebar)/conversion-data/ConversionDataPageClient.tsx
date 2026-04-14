@@ -206,7 +206,7 @@ export default function ConversionDataPageClient() {
             <select
               value={pageSize}
               onChange={(e) => setPageSize(parseInt(e.target.value, 10))}
-              className="h-8 rounded-md border border-neutral-700 bg-neutral-900 px-1 text-xs text-neutral-100"
+              className="settings-page-select settings-page-select-sm h-8 min-h-0 border-neutral-700 bg-neutral-900 text-xs text-neutral-100"
             >
               <option value={25}>25</option>
               <option value={50}>50</option>

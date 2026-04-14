@@ -251,6 +251,30 @@ h3 {
 }
 
 /*
+ * Фиксированный MobileTabBar: `nav` h-58px + внешний padding max(8px, safe-area) — см. MobileTabBar.tsx.
+ * Раньше контент использовал pb calc(72px + env(safe-area)) — safe-area учитывался дважды и внизу оставалась пустота.
+ */
+.pb-app-mobile-tabbar {
+  padding-bottom: calc(58px + max(8px, env(safe-area-inset-bottom, 0px)));
+}
+
+@media (min-width: 768px) {
+  .pb-app-mobile-tabbar {
+    padding-bottom: 0;
+  }
+}
+
+.bottom-app-mobile-tabbar {
+  bottom: calc(58px + max(8px, env(safe-area-inset-bottom, 0px)));
+}
+
+@media (min-width: 768px) {
+  .bottom-app-mobile-tabbar {
+    bottom: 0;
+  }
+}
+
+/*
  * Mobile shell (<lg): колонка Sidebar остаётся за экраном; навигация по бургеру — AppMobileLandingNavDrawer.
  * Desktop: без изменений (две колонки сетки, topbar 64px задаётся в layout).
  */
@@ -295,6 +319,44 @@ h3 {
   }
 }
 
+/*
+ * Mobile /app (не /app/support): скролл идёт по документу — iOS Safari сворачивает адресную строку.
+ * Раньше скролл был в .app-shell-main-scroll: при навигации Next крутил window, а контейнер
+ * оставался с прежним scrollTop — страница «открывалась с середины».
+ */
+@media (max-width: 1023px) {
+  html:has(.app-shell-grid:not([data-support-mobile="1"])),
+  body:has(.app-shell-grid:not([data-support-mobile="1"])) {
+    height: auto;
+    min-height: 100%;
+  }
+
+  .app-shell-grid:not([data-support-mobile="1"]) {
+    grid-template-rows: auto !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: 100dvh !important;
+    overflow: visible !important;
+  }
+
+  .app-shell-grid:not([data-support-mobile="1"]) > .app-shell-main-stack {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    grid-template-rows: auto auto auto !important;
+  }
+
+  .app-shell-grid:not([data-support-mobile="1"]) .app-shell-main {
+    overflow-y: visible !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+
+  .app-shell-grid:not([data-support-mobile="1"]) .app-shell-main-scroll.overflow-y-auto {
+    overflow-y: visible !important;
+  }
+}
+
 @media (min-width: 1024px) {
   .app-shell-main-stack {
     grid-template-rows: auto 64px 1fr !important;
@@ -319,11 +381,11 @@ h3 {
 
 /* ===== ДЕФОЛТНЫЕ СТИЛИ ДЛЯ INPUT/BUTTON (НЕ ЛОМАЮТ TAILWIND) =====
    ВАЖНО: применяются только к элементам БЕЗ class="".
+   checkbox/radio/range/file не трогаем — иначе «пилюля» с padding ломает выравнивание (дашборд Sources/Accounts, отчёты).
 */
 
-input:not([class]),
-textarea:not([class]),
-select:not([class]) {
+input:not([class]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+textarea:not([class]) {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.12);
   padding: 12px;
@@ -332,9 +394,62 @@ select:not([class]) {
   outline: none;
 }
 
-input:not([class])::placeholder,
+/*
+ * Select без class: те же правила, что .settings-page-select — иначе WebKit/iOS даёт текст и стрелку «вверху».
+ * (Нельзя класть select в общий блок с input — у select другая модель отступов.)
+ */
+select:not([class]) {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 2.75rem 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background-color: rgba(15, 15, 25, 0.95);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1.35;
+  min-height: 44px;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23d4d4d8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 1.125rem 1.125rem;
+  outline: none;
+  cursor: pointer;
+}
+
+select:not([class]):disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+input:not([class]):not([type="checkbox"]):not([type="radio"])::placeholder,
 textarea:not([class])::placeholder {
   color: rgba(255, 255, 255, 0.45);
+}
+
+/*
+ * Чекбоксы/радио: единый цвет галочки/точки (в т.ч. class="rounded" в Pixels и т.п.).
+ */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: rgb(52, 211, 153);
+}
+
+/*
+ * Без своего class: при :root color-scheme:dark WebKit даёт почти невидимый нативный control — «провалы».
+ * Явный нативный appearance — дашборд Sources/Accounts, отчёты, выбор аккаунтов.
+ */
+input[type="checkbox"]:not([class]) {
+  appearance: auto;
+  -webkit-appearance: checkbox;
+}
+
+input[type="radio"]:not([class]) {
+  appearance: auto;
+  -webkit-appearance: radio;
 }
 
 button:not([class]) {

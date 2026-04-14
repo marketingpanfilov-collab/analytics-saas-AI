@@ -332,7 +332,7 @@ function NewTicketModal({
                 <select
                   value={priority}
                   onChange={(e) => setPriority(e.target.value)}
-                  className={`h-11 w-full rounded-xl border border-white/[0.1] bg-black/40 px-3.5 text-sm text-white ${inputFocusClass}`}
+                  className={`settings-page-select h-11 ${inputFocusClass}`}
                 >
                   <option value="low">Низкий</option>
                   <option value="normal">Обычный</option>

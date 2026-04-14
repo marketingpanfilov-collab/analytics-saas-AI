@@ -677,7 +677,7 @@ export default function OrgMembersManager({ layout = "page" }: OrgMembersManager
                 <select
                   value={addRole}
                   onChange={(e) => setAddRole(e.target.value)}
-                  className="mt-2 w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white focus:border-white/20 focus:outline-none"
+                  className="settings-page-select mt-2 w-full"
                 >
                   {ORG_ROLES_DROPDOWN.map((r) => (
                     <option key={r.value} value={r.value}>

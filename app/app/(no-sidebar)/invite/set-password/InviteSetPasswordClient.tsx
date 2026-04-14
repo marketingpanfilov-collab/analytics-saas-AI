@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { formatAuthErrorMessage } from "@/app/lib/auth/formatAuthErrorMessage";
 import { supabase } from "@/app/lib/supabaseClient";
 import { useBillingBootstrap } from "../../../components/BillingBootstrapProvider";
 
@@ -131,7 +132,7 @@ export default function InviteSetPasswordClient() {
 
       const { error: signErr } = await supabase.auth.signInWithPassword({ email, password });
       if (signErr) {
-        setError(signErr.message);
+        setError(formatAuthErrorMessage(signErr.message));
         setSubmitting(false);
         return;
       }

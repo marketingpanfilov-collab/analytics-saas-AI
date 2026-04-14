@@ -27,7 +27,11 @@ function TopbarFallback() {
 export default function NoSidebarLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const hideMobileTabBar =
-    pathname === "/app/projects" || pathname === "/app/projects/";
+    pathname === "/app/projects" ||
+    pathname === "/app/projects/" ||
+    pathname === "/app/projects/new" ||
+    pathname === "/app/projects/new/" ||
+    (pathname != null && pathname.startsWith("/app/projects/new/"));
   const [email, setEmail] = useState<string>("");
 
   useEffect(() => {
@@ -67,7 +71,7 @@ export default function NoSidebarLayout({ children }: { children: React.ReactNod
             className={
               hideMobileTabBar
                 ? "relative z-[1] min-h-0"
-                : "relative z-[1] min-h-0 pb-[calc(72px+env(safe-area-inset-bottom))] md:pb-0"
+                : "relative z-[1] min-h-0 pb-app-mobile-tabbar"
             }
           >
             <BillingShellGate>{children}</BillingShellGate>

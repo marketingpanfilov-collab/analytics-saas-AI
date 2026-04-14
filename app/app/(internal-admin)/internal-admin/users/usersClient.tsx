@@ -126,7 +126,7 @@ export default function InternalUsersPageClient() {
         <select
           value={role}
           onChange={(e) => setRole(e.target.value)}
-          className="h-10 w-full rounded-lg border border-white/10 bg-black/30 px-3 text-sm"
+          className="settings-page-select h-10 w-full text-sm"
         >
           <option value="support">support</option>
           <option value="ops_manager">ops_manager</option>
@@ -156,7 +156,7 @@ export default function InternalUsersPageClient() {
         <select
           value={role}
           onChange={(e) => setRole(e.target.value)}
-          className="h-10 w-full rounded-lg border border-white/10 bg-black/30 px-3 text-sm"
+          className="settings-page-select h-10 w-full text-sm"
         >
           <option value="support">support</option>
           <option value="ops_manager">ops_manager</option>

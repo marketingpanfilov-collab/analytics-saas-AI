@@ -54,6 +54,17 @@ function WithSidebarShell({ children, email }: { children: ReactNode; email: str
   const mainRef = useRef<HTMLElement | null>(null);
   const { mobileNavOpen, setMobileNavOpen } = useAppMobileNav();
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (isSupportPage) return;
+    if (!window.matchMedia("(max-width: 1023px)").matches) return;
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    const pane = mainRef.current?.querySelector(".app-shell-main-scroll");
+    if (pane instanceof HTMLElement) pane.scrollTop = 0;
+  }, [pathname, isSupportPage]);
+
   return (
     <>
       {mobileNavOpen ? (
@@ -67,6 +78,7 @@ function WithSidebarShell({ children, email }: { children: ReactNode; email: str
       <div
         className="app-shell-grid"
         data-mobile-nav-open={mobileNavOpen ? "1" : "0"}
+        data-support-mobile={isSupportPage ? "1" : "0"}
         style={{
           /* Вся оболочка привязана к viewport: 1fr у main не растёт с контентом; скролл — в колонке сайдбара и в main-scroll (кроме /app/support). */
           height: "100dvh",
@@ -139,8 +151,8 @@ function WithSidebarShell({ children, email }: { children: ReactNode; email: str
               <div
                 className={
                   isSupportPage
-                    ? "app-shell-main-scroll flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-hidden pb-[calc(72px+env(safe-area-inset-bottom))] md:pb-0"
-                    : "app-shell-main-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-[calc(72px+env(safe-area-inset-bottom))] md:pb-0"
+                    ? "app-shell-main-scroll flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-hidden pb-app-mobile-tabbar"
+                    : "app-shell-main-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto pb-app-mobile-tabbar"
                 }
               >
                 <BillingShellGate>{children}</BillingShellGate>

@@ -1139,13 +1139,10 @@ function SettingsPageContent() {
                   <span style={{ color: "rgba(255,255,255,0.85)" }}>Количество вызовов API (ориентир)</span>
                   <select
                     name="api_access_call_volume"
+                    className="settings-page-select"
                     value={apiAccessCallVolume}
                     onChange={(e) => setApiAccessCallVolume(e.target.value)}
                     disabled={apiAccessSubmitting}
-                    style={{
-                      ...inputBase,
-                      cursor: apiAccessSubmitting ? "not-allowed" : "pointer",
-                    }}
                   >
                     <option value="">Выберите вариант</option>
                     {API_ACCESS_CALL_VOLUME_OPTIONS.map((o) => (

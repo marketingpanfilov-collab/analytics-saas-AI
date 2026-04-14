@@ -94,7 +94,7 @@ export default function MobileTodayDrawer() {
         role="dialog"
         aria-modal="true"
         aria-labelledby="mobile-today-drawer-project mobile-today-drawer-title"
-        className="pointer-events-auto fixed inset-x-0 top-0 bottom-[calc(72px+env(safe-area-inset-bottom,0px))] z-10 flex flex-col bg-[#0f1017] shadow-[12px_0_48px_rgba(0,0,0,0.55)] box-border min-h-0 min-w-0"
+        className="pointer-events-auto fixed inset-x-0 top-0 bottom-app-mobile-tabbar z-10 flex flex-col bg-[#0f1017] shadow-[12px_0_48px_rgba(0,0,0,0.55)] box-border min-h-0 min-w-0"
         style={{
           transform: visible ? "translate3d(0,0,0)" : "translate3d(-100%,0,0)",
           opacity: visible ? 1 : 0,

@@ -171,7 +171,7 @@ export function MobileBottomSheet({
               : undefined
           }
         >
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
               <h2
                 id={titleId}
@@ -218,16 +218,30 @@ export function MobileBottomSheet({
   );
 }
 
-/** Кнопка закрытия в шапке (уведомления и др.) */
+/** Кнопка закрытия в шапке (уведомления и др.) — SVG вместо глифа ✕ (ровнее в квадрате). */
 export function MobileSheetHeaderCloseButton({ onClick, label = "Закрыть" }: { onClick: () => void; label?: string }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="grid h-9 w-9 place-items-center rounded-xl border border-white/[0.1] bg-white/[0.05] text-zinc-300 transition-colors hover:bg-white/[0.08] hover:text-white active:bg-white/[0.07]"
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/[0.1] bg-white/[0.05] text-zinc-300 transition-colors hover:bg-white/[0.08] hover:text-white active:bg-white/[0.07]"
       aria-label={label}
     >
-      ✕
+      <svg
+        width={14}
+        height={14}
+        viewBox="0 0 14 14"
+        className="block shrink-0"
+        aria-hidden
+        fill="none"
+      >
+        <path
+          d="M3.5 3.5l7 7M10.5 3.5l-7 7"
+          stroke="currentColor"
+          strokeWidth={1.5}
+          strokeLinecap="round"
+        />
+      </svg>
     </button>
   );
 }
