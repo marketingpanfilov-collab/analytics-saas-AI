@@ -96,6 +96,24 @@ function buildPasswordResetRedirectUrl(): string {
   return `${base}/auth/callback?next=${next}`;
 }
 
+function isAlreadyRegisteredMessage(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("already") ||
+    m.includes("registered") ||
+    (m.includes("уже") && m.includes("зарегистр"))
+  );
+}
+
+function isExistingUserWithoutNewIdentity(
+  user: { identities?: Array<unknown> | null } | null | undefined
+): boolean {
+  return Array.isArray(user?.identities) && user.identities.length === 0;
+}
+
+const EXISTING_EMAIL_MSG =
+  "Пользователь с этим email уже зарегистрирован. Авторизуйтесь или используйте другой email.";
+
 type Mode = "login" | "signup";
 
 export default function LoginPageClient() {
@@ -355,13 +373,13 @@ export default function LoginPageClient() {
     let data = signUpRes.data;
     if (signUpRes.error) {
       const em = signUpRes.error.message.toLowerCase();
-      if (em.includes("already") || em.includes("registered")) {
+      if (isAlreadyRegisteredMessage(em)) {
         const inRes = await supabase.auth.signInWithPassword({
           email: email.trim(),
           password,
         });
         if (inRes.error || !inRes.data.session) {
-          setMsg("Аккаунт с этим email уже создан. Войдите с паролем, чтобы продолжить.");
+          setMsg(EXISTING_EMAIL_MSG);
           setLoading(false);
           return;
         }
@@ -371,6 +389,18 @@ export default function LoginPageClient() {
         setLoading(false);
         return;
       }
+    }
+    if (isExistingUserWithoutNewIdentity(data.user)) {
+      const inRes = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (inRes.error || !inRes.data.session) {
+        setMsg(EXISTING_EMAIL_MSG);
+        setLoading(false);
+        return;
+      }
+      data = { user: inRes.data.user, session: inRes.data.session };
     }
 
     let session = data.session;
@@ -457,7 +487,15 @@ export default function LoginPageClient() {
         options: { emailRedirectTo: buildEmailConfirmRedirectUrl(nextPath) },
       });
       if (error) {
+        if (isAlreadyRegisteredMessage(error.message)) {
+          setMsg(EXISTING_EMAIL_MSG);
+          return;
+        }
         setMsg(error.message);
+        return;
+      }
+      if (isExistingUserWithoutNewIdentity(data.user)) {
+        setMsg(EXISTING_EMAIL_MSG);
         return;
       }
       // При включённом «Confirm email» в Supabase сессии нет до клика по ссылке —
