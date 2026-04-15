@@ -277,6 +277,20 @@ function MultiMetricLineChart({
         (p.cac != null && !Number.isNaN(p.cac) && p.cac !== 0)
     );
 
+  const dismissLineChartTooltip = useCallback(() => {
+    setHoveredIndex(null);
+    setTooltipPos(null);
+  }, []);
+  const chartTooltipDismissActive =
+    Boolean(isMobileLayout && hoveredIndex != null && hasAnyData && points && points.length > 0);
+  useDismissTooltipOnOutsidePointer(chartTooltipDismissActive, containerRef, dismissLineChartTooltip);
+
+  useEffect(() => {
+    if (points && points.length > 0 && hasAnyData) return;
+    setHoveredIndex(null);
+    setTooltipPos(null);
+  }, [points, hasAnyData]);
+
   if (!points || points.length === 0 || !hasAnyData) {
     return (
       <div
@@ -380,16 +394,6 @@ function MultiMetricLineChart({
     setHoveredIndex(null);
     setTooltipPos(null);
   };
-
-  const dismissLineChartTooltip = useCallback(() => {
-    setHoveredIndex(null);
-    setTooltipPos(null);
-  }, []);
-  useDismissTooltipOnOutsidePointer(
-    Boolean(isMobileLayout && hoveredIndex != null),
-    containerRef,
-    dismissLineChartTooltip
-  );
 
   const toggleSeries = (key: keyof typeof seriesVisible) => {
     setSeriesVisible((prev) => ({ ...prev, [key]: !prev[key] }));
