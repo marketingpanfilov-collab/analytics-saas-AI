@@ -2051,7 +2051,7 @@ export default function ReportsPageClient() {
       <header className="flex flex-col gap-4">
         <div>
           <h1 className="text-[26px] font-semibold tracking-tight text-white" style={{ letterSpacing: "-0.02em" }}>
-            Маркетинговый командный центр
+            Расширенный отчёт
           </h1>
           {error ? (
             <div style={{ marginTop: 10, color: "rgba(255,170,170,0.95)", fontWeight: 700 }}>{error}</div>
@@ -2076,30 +2076,52 @@ export default function ReportsPageClient() {
         <div
           style={{
             display: "flex",
-            alignItems: "flex-start",
-            gap: 12,
-            flexWrap: "wrap",
+            alignItems: isMobileViewport ? "stretch" : "center",
+            justifyContent: "space-between",
+            flexDirection: isMobileViewport ? "column" : "row",
+            gap: isMobileViewport ? 10 : 12,
+            flexWrap: isMobileViewport ? "nowrap" : "wrap",
             width: "100%",
+            maxWidth: "100%",
+            minWidth: 0,
+            boxSizing: "border-box",
           }}
         >
           <div
             style={{
               display: "flex",
-              gap: 8,
-              alignItems: "center",
-              flexWrap: "wrap",
-              flex: "1 1 auto",
-              minWidth: 0,
+              flexDirection: isMobileViewport ? "column" : "row",
+              gap: isMobileViewport ? 8 : 8,
+              alignItems: isMobileViewport ? "stretch" : "center",
+              flexWrap: isMobileViewport ? "nowrap" : "wrap",
+              ...(isMobileViewport
+                ? { width: "100%", maxWidth: "100%" }
+                : { minWidth: 0, maxWidth: "100%" }),
+              boxSizing: "border-box",
             }}
           >
-            <div style={{ position: "relative" }} ref={sourcesDropdownRef}>
+            <div
+              style={
+                isMobileViewport
+                  ? {
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: 8,
+                      width: "100%",
+                      minWidth: 0,
+                      boxSizing: "border-box",
+                    }
+                  : { display: "contents" }
+              }
+            >
+            <div style={{ position: "relative", minWidth: 0 }} ref={sourcesDropdownRef}>
               <button
                 type="button"
                 style={{
                   ...tabStyle(false),
                   minWidth: 140,
                   ...(isMobileViewport
-                    ? {}
+                    ? { width: "100%" }
                     : { display: "flex", justifyContent: "center", alignItems: "center", textAlign: "center" }),
                 }}
                 onClick={() => {
@@ -2170,14 +2192,14 @@ export default function ReportsPageClient() {
               ) : null}
             </div>
 
-            <div style={{ position: "relative" }} ref={accountsDropdownRef}>
+            <div style={{ position: "relative", minWidth: 0 }} ref={accountsDropdownRef}>
               <button
                 type="button"
                 style={{
                   ...tabStyle(false),
                   minWidth: 160,
                   ...(isMobileViewport
-                    ? {}
+                    ? { width: "100%" }
                     : { display: "flex", justifyContent: "center", alignItems: "center", textAlign: "center" }),
                 }}
                 onClick={() => {
@@ -2253,139 +2275,276 @@ export default function ReportsPageClient() {
                 </div>
               ) : null}
             </div>
-
-            <div
-              style={{
-                position: "relative",
-                display: "flex",
-                alignItems: isMobileViewport ? "stretch" : "center",
-                flexDirection: isMobileViewport ? "column" : "row",
-                gap: 8,
-                ...(isMobileViewport
-                  ? { flexShrink: 0, width: "100%" }
-                  : { flex: "1 1 0%", flexShrink: 1 }),
-                maxWidth: "100%",
-                minWidth: 0,
-                isolation: "isolate",
-              }}
-            >
-              <div
-                className={`dashboard-native-date-range${isMobileViewport ? "" : " dashboard-native-date-range--desktop"}`}
-                role="group"
-                title="Фильтр по дате"
-                aria-label="Фильтр по дате"
-                style={{
-                  display: "grid",
-                  ...(isMobileViewport ? { gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)" } : {}),
-                  justifyItems: isMobileViewport ? undefined : "stretch",
-                  alignItems: "center",
-                  position: "relative",
-                  height: 40,
-                  boxSizing: "border-box",
-                  padding: "0 8px",
-                  borderRadius: 12,
-                  border: "1px solid rgba(255,255,255,0.10)",
-                  background: "rgba(255,255,255,0.04)",
-                  cursor: "pointer",
-                  ...(isMobileViewport
-                    ? { width: "100%", maxWidth: "100%", minWidth: 0, flexShrink: 1 }
-                    : { flex: "1 1 0%", minWidth: 0, maxWidth: "min(calc(28rem - 25px), 100%)", flexShrink: 1 }),
-                  overflow: "visible",
-                }}
-              >
-                <div className="dashboard-native-date-range-segment">
-                  <span className="dashboard-native-date-range-segment-inner">
-                    <DashboardDateRangeCalendarGlyph />
-                    <input
-                      type="date"
-                      value={draftDateFrom}
-                      onChange={(e) => applyDraftDateRange(e.target.value, draftDateTo)}
-                      min={projectMinDate ?? undefined}
-                      aria-label="Дата начала периода"
-                      style={reportsNativeDateInputStyle(isMobileViewport)}
-                    />
-                  </span>
-                </div>
-                <div className="dashboard-native-date-range-segment">
-                  <span className="dashboard-native-date-range-segment-inner">
-                    <DashboardDateRangeCalendarGlyph />
-                    <input
-                      type="date"
-                      value={draftDateTo}
-                      onChange={(e) => applyDraftDateRange(draftDateFrom, e.target.value)}
-                      min={projectMinDate ?? undefined}
-                      aria-label="Дата окончания периода"
-                      style={reportsNativeDateInputStyle(isMobileViewport)}
-                    />
-                  </span>
-                </div>
-                <span className="dashboard-native-date-range-divider" aria-hidden="true">
-                  —
-                </span>
-              </div>
-
-              <div
-                role="status"
-                aria-live="polite"
-                title={statusState === "error" ? error ?? "Ошибка" : "Статус загрузки данных"}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 8,
-                  minWidth: 100,
-                  height: 32,
-                  padding: "0 14px",
-                  borderRadius: 999,
-                  border: "1px solid transparent",
-                  fontWeight: 800,
-                  fontSize: 12,
-                  whiteSpace: "nowrap",
-                  transition: "background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease",
-                  flexShrink: 0,
-                  alignSelf: isMobileViewport ? "flex-end" : undefined,
-                  maxWidth: "100%",
-                  boxSizing: "border-box",
-                  ...(statusState === "loading"
-                    ? {
-                        background: "rgba(251,191,36,0.95)",
-                        color: "rgba(0,0,0,0.88)",
-                        borderColor: "rgba(251,191,36,0.6)",
-                      }
-                    : statusState === "error"
-                      ? {
-                          background: "rgba(220,38,38,0.9)",
-                          color: "rgba(255,255,255,0.98)",
-                          borderColor: "rgba(220,38,38,0.7)",
-                        }
-                      : {
-                          background: "rgba(16,185,129,0.85)",
-                          color: "rgba(255,255,255,0.98)",
-                          borderColor: "rgba(16,185,129,0.6)",
-                        }),
-                }}
-              >
-                {statusState === "loading" ? (
-                  <>
-                    <span
-                      style={{
-                        display: "inline-block",
-                        width: 14,
-                        height: 14,
-                        flexShrink: 0,
-                        border: "2px solid currentColor",
-                        borderTopColor: "transparent",
-                        borderRadius: "50%",
-                        animation: "dashboard-spin 0.7s linear infinite",
-                      }}
-                    />
-                    {statusLabel}
-                  </>
-                ) : (
-                  statusLabel
-                )}
-              </div>
             </div>
+
+            {isMobileViewport ? (
+              <div
+                style={{
+                  position: "relative",
+                  width: "100%",
+                  maxWidth: "100%",
+                  minWidth: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "stretch",
+                  gap: 8,
+                  flexShrink: 0,
+                  isolation: "isolate",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 8,
+                    width: "100%",
+                    minWidth: 0,
+                  }}
+                >
+                  <div
+                    className="dashboard-native-date-range dashboard-native-date-range--desktop"
+                    role="group"
+                    title="Фильтр по дате"
+                    aria-label={`Период: ${draftDateFrom} — ${draftDateTo}`}
+                    style={{
+                      position: "relative",
+                      boxSizing: "border-box",
+                      height: 40,
+                      padding: "0 8px",
+                      borderRadius: 12,
+                      border: "1px solid rgba(255,255,255,0.10)",
+                      background: "rgba(255,255,255,0.04)",
+                      cursor: "pointer",
+                      flex: "1 1 0%",
+                      width: "100%",
+                      minWidth: 0,
+                      maxWidth: "100%",
+                      overflow: "visible",
+                    }}
+                  >
+                    <div className="dashboard-native-date-range-segment">
+                      <span className="dashboard-native-date-range-segment-inner">
+                        <DashboardDateRangeCalendarGlyph />
+                        <input
+                          type="date"
+                          value={draftDateFrom}
+                          onChange={(e) => applyDraftDateRange(e.target.value, draftDateTo)}
+                          min={projectMinDate ?? undefined}
+                          aria-label="Дата начала периода"
+                          style={reportsNativeDateInputStyle(true)}
+                        />
+                      </span>
+                    </div>
+                    <div className="dashboard-native-date-range-segment">
+                      <span className="dashboard-native-date-range-segment-inner">
+                        <DashboardDateRangeCalendarGlyph />
+                        <input
+                          type="date"
+                          value={draftDateTo}
+                          onChange={(e) => applyDraftDateRange(draftDateFrom, e.target.value)}
+                          min={projectMinDate ?? undefined}
+                          aria-label="Дата окончания периода"
+                          style={reportsNativeDateInputStyle(true)}
+                        />
+                      </span>
+                    </div>
+                    <span className="dashboard-native-date-range-divider" aria-hidden="true">
+                      —
+                    </span>
+                  </div>
+
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    title={statusState === "error" ? error ?? "Ошибка" : "Статус загрузки данных"}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 8,
+                      minWidth: 100,
+                      height: 32,
+                      padding: "0 14px",
+                      borderRadius: 999,
+                      border: "1px solid transparent",
+                      fontWeight: 800,
+                      fontSize: 12,
+                      whiteSpace: "nowrap",
+                      transition: "background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease",
+                      flexShrink: 0,
+                      maxWidth: "100%",
+                      boxSizing: "border-box",
+                      ...(statusState === "loading"
+                        ? {
+                            background: "rgba(251,191,36,0.95)",
+                            color: "rgba(0,0,0,0.88)",
+                            borderColor: "rgba(251,191,36,0.6)",
+                          }
+                        : statusState === "error"
+                          ? {
+                              background: "rgba(220,38,38,0.9)",
+                              color: "rgba(255,255,255,0.98)",
+                              borderColor: "rgba(220,38,38,0.7)",
+                            }
+                          : {
+                              background: "rgba(16,185,129,0.85)",
+                              color: "rgba(255,255,255,0.98)",
+                              borderColor: "rgba(16,185,129,0.6)",
+                            }),
+                    }}
+                  >
+                    {statusState === "loading" ? (
+                      <>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            width: 14,
+                            height: 14,
+                            flexShrink: 0,
+                            border: "2px solid currentColor",
+                            borderTopColor: "transparent",
+                            borderRadius: "50%",
+                            animation: "dashboard-spin 0.7s linear infinite",
+                          }}
+                        />
+                        {statusLabel}
+                      </>
+                    ) : (
+                      statusLabel
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div
+                style={{
+                  position: "relative",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  flexShrink: 0,
+                  maxWidth: "100%",
+                  minWidth: 0,
+                  isolation: "isolate",
+                }}
+              >
+                <div
+                  className="dashboard-native-date-range dashboard-native-date-range--desktop"
+                  role="group"
+                  title="Фильтр по дате"
+                  aria-label={`Период: ${draftDateFrom} — ${draftDateTo}`}
+                  style={{
+                    display: "grid",
+                    justifyItems: "stretch",
+                    alignItems: "center",
+                    position: "relative",
+                    boxSizing: "border-box",
+                    height: 40,
+                    padding: "0 8px",
+                    borderRadius: 12,
+                    border: "1px solid rgba(255,255,255,0.10)",
+                    background: "rgba(255,255,255,0.04)",
+                    cursor: "pointer",
+                    flex: "1 1 0%",
+                    minWidth: 0,
+                    maxWidth: "min(calc(28rem - 25px), 100%)",
+                    overflow: "visible",
+                  }}
+                >
+                  <div className="dashboard-native-date-range-segment">
+                    <span className="dashboard-native-date-range-segment-inner">
+                      <DashboardDateRangeCalendarGlyph />
+                      <input
+                        type="date"
+                        value={draftDateFrom}
+                        onChange={(e) => applyDraftDateRange(e.target.value, draftDateTo)}
+                        min={projectMinDate ?? undefined}
+                        aria-label="Дата начала периода"
+                        style={reportsNativeDateInputStyle(false)}
+                      />
+                    </span>
+                  </div>
+                  <div className="dashboard-native-date-range-segment">
+                    <span className="dashboard-native-date-range-segment-inner">
+                      <DashboardDateRangeCalendarGlyph />
+                      <input
+                        type="date"
+                        value={draftDateTo}
+                        onChange={(e) => applyDraftDateRange(draftDateFrom, e.target.value)}
+                        min={projectMinDate ?? undefined}
+                        aria-label="Дата окончания периода"
+                        style={reportsNativeDateInputStyle(false)}
+                      />
+                    </span>
+                  </div>
+                  <span className="dashboard-native-date-range-divider" aria-hidden="true">
+                    —
+                  </span>
+                </div>
+
+                <div
+                  role="status"
+                  aria-live="polite"
+                  title={statusState === "error" ? error ?? "Ошибка" : "Статус загрузки данных"}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    minWidth: 100,
+                    height: 32,
+                    padding: "0 14px",
+                    borderRadius: 999,
+                    border: "1px solid transparent",
+                    fontWeight: 800,
+                    fontSize: 12,
+                    whiteSpace: "nowrap",
+                    transition: "background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease",
+                    flexShrink: 0,
+                    maxWidth: "100%",
+                    boxSizing: "border-box",
+                    ...(statusState === "loading"
+                      ? {
+                          background: "rgba(251,191,36,0.95)",
+                          color: "rgba(0,0,0,0.88)",
+                          borderColor: "rgba(251,191,36,0.6)",
+                        }
+                      : statusState === "error"
+                        ? {
+                            background: "rgba(220,38,38,0.9)",
+                            color: "rgba(255,255,255,0.98)",
+                            borderColor: "rgba(220,38,38,0.7)",
+                          }
+                        : {
+                            background: "rgba(16,185,129,0.85)",
+                            color: "rgba(255,255,255,0.98)",
+                            borderColor: "rgba(16,185,129,0.6)",
+                          }),
+                  }}
+                >
+                  {statusState === "loading" ? (
+                    <>
+                      <span
+                        style={{
+                          display: "inline-block",
+                          width: 14,
+                          height: 14,
+                          flexShrink: 0,
+                          border: "2px solid currentColor",
+                          borderTopColor: "transparent",
+                          borderRadius: "50%",
+                          animation: "dashboard-spin 0.7s linear infinite",
+                        }}
+                      />
+                      {statusLabel}
+                    </>
+                  ) : (
+                    statusLabel
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
         {isInvalidRange ? (

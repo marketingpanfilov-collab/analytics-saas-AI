@@ -3118,13 +3118,11 @@ export default function AppDashboardClient() {
                 }}
               >
                 <div
-                  className="dashboard-native-date-range"
+                  className="dashboard-native-date-range dashboard-native-date-range--desktop"
                   role="group"
                   title="Фильтр по дате"
                   aria-label={`Период: ${fmtRuDate(draftDateFrom)} — ${fmtRuDate(draftDateTo)}`}
                   style={{
-                    display: "grid",
-                    gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
                     position: "relative",
                     boxSizing: "border-box",
                     height: 40,

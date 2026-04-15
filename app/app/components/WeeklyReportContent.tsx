@@ -122,20 +122,22 @@ export default function WeeklyReportContent({ data, printMode, showSubtitle = tr
   );
 
   return (
-    <div className={printMode ? "min-h-0" : ""}>
+    <div className={printMode ? "min-h-0 min-w-0" : "min-w-0"}>
       {showSubtitle && (
-        <p className="mb-6 text-sm text-white/50">
+        <p className="mb-6 min-w-0 max-w-full break-words text-sm text-white/50">
           {data.period
             ? `с ${formatDateRu(data.period.start)} по ${formatDateRu(data.period.end)} (сравнение с ${formatDateRu(data.period.prev_start)} по ${formatDateRu(data.period.prev_end)})`
             : "Отчёт за выбранный диапазон"}
         </p>
       )}
       <section className={printMode ? "mb-6" : "mb-8"}>
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+        <div className="min-w-0 max-w-full rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <h2 className={`font-semibold text-white/95 ${printMode ? "text-base mb-2" : "mb-3 text-lg"}`}>
             Executive Summary
           </h2>
-          <p className="whitespace-pre-line leading-relaxed text-white/85">{data.summary}</p>
+          <p className="whitespace-pre-line break-words leading-relaxed text-white/85 [overflow-wrap:anywhere]">
+            {data.summary}
+          </p>
         </div>
       </section>
 

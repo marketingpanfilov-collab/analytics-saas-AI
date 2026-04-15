@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useSearchParams } from "next/navigation";
 import WeeklyReportContent from "@/app/app/components/WeeklyReportContent";
+import { DashboardDateRangeCalendarGlyph } from "@/app/app/components/DashboardDateRangeCalendarGlyph";
 import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
 import { PLAN_RESTRICTED_ANALYTICS_MESSAGE } from "@/app/lib/planRestrictedCopy";
 import PlanRestrictedOverlay from "@/app/app/components/PlanRestrictedOverlay";
@@ -405,9 +406,28 @@ export default function WeeklyReportClient() {
     );
   }, [bootstrapLoading, effectivePlan, weeklyUsage]);
 
+  const weeklyReportNativeDateInputStyle = useMemo(
+    () =>
+      ({
+        background: "transparent",
+        border: "none",
+        color: "white",
+        outline: "none",
+        fontSize: 12,
+        lineHeight: 1,
+        height: 22,
+        cursor: "pointer",
+        boxSizing: "border-box",
+        minWidth: 0,
+        width: "auto",
+        maxWidth: "100%",
+      }) satisfies CSSProperties,
+    []
+  );
+
   if (!projectId) {
     return (
-      <div className="min-h-[60vh] bg-[#0b0b10] p-6" style={{ gridColumn: "2 / -1" }}>
+      <div className="min-h-[60vh] min-w-0 bg-[#0b0b10] p-6" style={{ gridColumn: "2 / -1" }}>
         <p className="text-white/70">Выберите проект.</p>
       </div>
     );
@@ -421,7 +441,7 @@ export default function WeeklyReportClient() {
       quotaMessage={PLAN_RESTRICTED_ANALYTICS_MESSAGE}
       upgradeSource="weekly_report_limit"
     >
-      <div className="min-h-[60vh] bg-[#0b0b10] p-6" style={{ gridColumn: "2 / -1" }}>
+      <div className="min-h-[60vh] min-w-0 bg-[#0b0b10] p-6" style={{ gridColumn: "2 / -1" }}>
         {reportLoading && !data ? (
           <div className="flex min-h-[60vh] items-center justify-center">
             <div className="w-full max-w-5xl rounded-2xl border border-white/10 bg-[rgba(10,10,18,0.96)] p-8">
@@ -448,7 +468,7 @@ export default function WeeklyReportClient() {
             </div>
           </div>
         ) : (
-          <div className="mx-auto w-full max-w-5xl space-y-5">
+          <div className="mx-auto w-full min-w-0 max-w-5xl space-y-5">
         {usageCard}
         {shareNotice && (
           <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-center text-sm leading-relaxed text-amber-100">
@@ -460,23 +480,59 @@ export default function WeeklyReportClient() {
             <div className="min-w-0 flex-1">
               <h1 className="text-xl font-extrabold tracking-tight text-white sm:text-2xl">Shared Board Report</h1>
               <p className="mt-1 text-sm text-white/50">Отчёт за выбранный диапазон</p>
-              <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-                <input
-                  type="date"
-                  value={dateFrom}
-                  onChange={(e) => setDateFrom(e.target.value)}
-                  max={dateTo}
-                  min={projectMinDate ?? undefined}
-                  className="w-full min-w-0 rounded-lg border border-white/15 bg-[rgba(15,15,25,0.95)] px-3 py-2.5 text-sm text-white sm:w-auto sm:py-2"
-                />
-                <input
-                  type="date"
-                  value={dateTo}
-                  onChange={(e) => setDateTo(e.target.value)}
-                  min={dateFrom}
-                  max={today}
-                  className="w-full min-w-0 rounded-lg border border-white/15 bg-[rgba(15,15,25,0.95)] px-3 py-2.5 text-sm text-white sm:w-auto sm:py-2"
-                />
+              <div className="mt-4 w-full min-w-0 max-w-full">
+                <div
+                  className="dashboard-native-date-range dashboard-native-date-range--desktop"
+                  role="group"
+                  title="Период отчёта"
+                  aria-label={`Период отчёта: с ${dateFrom} по ${dateTo}`}
+                  style={{
+                    position: "relative",
+                    boxSizing: "border-box",
+                    height: 40,
+                    padding: "0 8px",
+                    borderRadius: 12,
+                    border: "1px solid rgba(255,255,255,0.10)",
+                    background: "rgba(255,255,255,0.04)",
+                    cursor: "pointer",
+                    width: "100%",
+                    minWidth: 0,
+                    maxWidth: "100%",
+                    overflow: "visible",
+                  }}
+                >
+                  <div className="dashboard-native-date-range-segment">
+                    <span className="dashboard-native-date-range-segment-inner">
+                      <DashboardDateRangeCalendarGlyph />
+                      <input
+                        type="date"
+                        value={dateFrom}
+                        onChange={(e) => setDateFrom(e.target.value)}
+                        max={dateTo}
+                        min={projectMinDate ?? undefined}
+                        aria-label="Дата начала периода"
+                        style={weeklyReportNativeDateInputStyle}
+                      />
+                    </span>
+                  </div>
+                  <div className="dashboard-native-date-range-segment">
+                    <span className="dashboard-native-date-range-segment-inner">
+                      <DashboardDateRangeCalendarGlyph />
+                      <input
+                        type="date"
+                        value={dateTo}
+                        onChange={(e) => setDateTo(e.target.value)}
+                        min={dateFrom}
+                        max={today}
+                        aria-label="Дата окончания периода"
+                        style={weeklyReportNativeDateInputStyle}
+                      />
+                    </span>
+                  </div>
+                  <span className="dashboard-native-date-range-divider" aria-hidden="true">
+                    —
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -575,7 +631,7 @@ export default function WeeklyReportClient() {
           </div>
         </section>
 
-        <section className="relative rounded-2xl border border-white/10 bg-[rgba(10,10,18,0.96)] p-5">
+        <section className="relative min-w-0 rounded-2xl border border-white/10 bg-[rgba(10,10,18,0.96)] p-5">
           {reportLoading ? (
             <div className="flex min-h-[280px] items-center justify-center py-12">
               <p className="text-sm text-white/50">Обновление отчёта…</p>
