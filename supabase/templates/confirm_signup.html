@@ -34,7 +34,8 @@
       Подписка уже активирована. Остался последний шаг — подтвердите email, чтобы завершить настройку и начать работу.
     </p>
 
-    <a href="{{ .ConfirmationURL }}"
+    <!-- token_hash: работает из любого браузера (PKCE по ConfirmationURL требует code_verifier в том же профиле). Скопируйте в Supabase → Auth → Email templates → Confirm signup. next после входа — /app/projects (или задайте query next= вручную, если нужен другой путь). -->
+    <a href="https://boardiq.kz/auth/verify?token_hash={{ .TokenHash }}&amp;type=signup"
        style="display:block;text-align:center;background:linear-gradient(90deg,#6366f1,#22c55e);color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;text-decoration:none !important;padding:14px 20px;border-radius:10px;font-weight:500;margin-bottom:24px;">
       Подтвердить email
     </a>
@@ -44,7 +45,7 @@
     </p>
 
     <p style="word-break:break-all;color:#93c5fd !important;-webkit-text-fill-color:#93c5fd !important;font-size:12px;margin:0 0 24px;">
-      {{ .ConfirmationURL }}
+      https://boardiq.kz/auth/verify?token_hash={{ .TokenHash }}&amp;type=signup
     </p>
 
     <div style="height:1px;background:rgba(255,255,255,0.06);margin:24px 0;"></div>

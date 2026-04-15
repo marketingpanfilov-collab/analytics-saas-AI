@@ -34,7 +34,8 @@
       Вы запросили восстановление доступа к аккаунту.
     </p>
 
-    <a href="{{ .ConfirmationURL }}"
+    <!-- token_hash: сброс пароля из любого браузера. Скопируйте в Supabase → Auth → Email templates → Reset password. -->
+    <a href="https://boardiq.kz/auth/verify?token_hash={{ .TokenHash }}&amp;type=recovery"
        style="display:block;text-align:center;background:linear-gradient(90deg,#6366f1,#22c55e);color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;text-decoration:none !important;padding:14px 20px;border-radius:10px;font-weight:500;margin-bottom:24px;">
       Сбросить пароль
     </a>
@@ -44,7 +45,7 @@
     </p>
 
     <p style="word-break:break-all;color:#93c5fd !important;-webkit-text-fill-color:#93c5fd !important;font-size:12px;margin:0 0 24px;">
-      {{ .ConfirmationURL }}
+      https://boardiq.kz/auth/verify?token_hash={{ .TokenHash }}&amp;type=recovery
     </p>
 
     <div style="height:1px;background:rgba(255,255,255,0.06);margin:24px 0;"></div>
