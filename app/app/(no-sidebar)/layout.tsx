@@ -29,6 +29,8 @@ export default function NoSidebarLayout({ children }: { children: React.ReactNod
   const hideMobileTabBar =
     pathname === "/app/projects" ||
     pathname === "/app/projects/" ||
+    pathname === "/app/projects/onboarding" ||
+    pathname === "/app/projects/onboarding/" ||
     pathname === "/app/projects/new" ||
     pathname === "/app/projects/new/" ||
     (pathname != null && pathname.startsWith("/app/projects/new/"));

@@ -2331,14 +2331,28 @@ export default function AppDashboardClient() {
       : { minWidth: "6.5rem", width: "auto", maxWidth: "100%" }),
   });
 
-  /** Как на странице «Отчёты»: пилюля рядом с диапазоном дат (Загрузка / Ошибка / Готово). */
-  const filterStatusState = useMemo<"loading" | "success" | "error">(() => {
+  /** Как на странице «Отчёты»: пилюля рядом с диапазоном дат (Загрузка / Нет данных / Ошибка / Готово). */
+  const filterStatusState = useMemo<"loading" | "no_data" | "success" | "error">(() => {
+    if (
+      onboardingSignals.hydrated &&
+      !onboardingSignals.hasAdAccounts &&
+      !onboardingSignals.hasSiteEvents
+    ) {
+      return "no_data";
+    }
     if (loading) return "loading";
     if (errorText) return "error";
     return "success";
-  }, [loading, errorText]);
+  }, [
+    onboardingSignals.hydrated,
+    onboardingSignals.hasAdAccounts,
+    onboardingSignals.hasSiteEvents,
+    loading,
+    errorText,
+  ]);
 
   const filterStatusLabel = useMemo(() => {
+    if (filterStatusState === "no_data") return "Нет данных";
     if (filterStatusState === "loading") return "Загрузка…";
     if (filterStatusState === "error") return "Ошибка";
     return "Готово";
@@ -2756,7 +2770,7 @@ export default function AppDashboardClient() {
                   className="w-full justify-center sm:w-auto"
                   style={onboardingPrimaryBtn}
                 >
-                  Сайт, CRM и Pixel
+                  UTM, Pixel и/или CRM
                 </Link>
               </div>
             </div>
@@ -2830,7 +2844,7 @@ export default function AppDashboardClient() {
                 Рекламные кабинеты
               </Link>
               <Link href={onboardingHref("/app/pixels")} style={onboardingLinkBtn}>
-                Сайт, CRM и Pixel
+                UTM, Pixel и/или CRM
               </Link>
             </div>
           </div>
@@ -2860,7 +2874,7 @@ export default function AppDashboardClient() {
               ) : null}
               {!onboardingSignals.hasSiteEvents ? (
                 <Link href={onboardingHref("/app/pixels")} style={onboardingLinkBtn}>
-                  Сайт, CRM и Pixel
+                  UTM, Pixel и/или CRM
                 </Link>
               ) : null}
             </div>
@@ -3171,7 +3185,13 @@ export default function AppDashboardClient() {
                 <div
                   role="status"
                   aria-live="polite"
-                  title={filterStatusState === "error" ? errorText ?? "Ошибка" : "Статус загрузки данных"}
+                  title={
+                    filterStatusState === "error"
+                      ? errorText ?? "Ошибка"
+                      : filterStatusState === "no_data"
+                        ? "Нет подключённых источников — нечего загружать"
+                        : "Статус загрузки данных"
+                  }
                   style={{
                     display: "inline-flex",
                     alignItems: "center",
@@ -3189,23 +3209,29 @@ export default function AppDashboardClient() {
                     flexShrink: 0,
                     maxWidth: "100%",
                     boxSizing: "border-box",
-                    ...(filterStatusState === "loading"
+                    ...(filterStatusState === "no_data"
                       ? {
-                          background: "rgba(251,191,36,0.95)",
-                          color: "rgba(0,0,0,0.88)",
-                          borderColor: "rgba(251,191,36,0.6)",
+                          background: "rgba(148,163,184,0.22)",
+                          color: "rgba(226,232,240,0.95)",
+                          borderColor: "rgba(148,163,184,0.45)",
                         }
-                      : filterStatusState === "error"
+                      : filterStatusState === "loading"
                         ? {
-                            background: "rgba(220,38,38,0.9)",
-                            color: "rgba(255,255,255,0.98)",
-                            borderColor: "rgba(220,38,38,0.7)",
+                            background: "rgba(251,191,36,0.95)",
+                            color: "rgba(0,0,0,0.88)",
+                            borderColor: "rgba(251,191,36,0.6)",
                           }
-                        : {
-                            background: "rgba(16,185,129,0.85)",
-                            color: "rgba(255,255,255,0.98)",
-                            borderColor: "rgba(16,185,129,0.6)",
-                          }),
+                        : filterStatusState === "error"
+                          ? {
+                              background: "rgba(220,38,38,0.9)",
+                              color: "rgba(255,255,255,0.98)",
+                              borderColor: "rgba(220,38,38,0.7)",
+                            }
+                          : {
+                              background: "rgba(16,185,129,0.85)",
+                              color: "rgba(255,255,255,0.98)",
+                              borderColor: "rgba(16,185,129,0.6)",
+                            }),
                   }}
                 >
                   {filterStatusState === "loading" ? (

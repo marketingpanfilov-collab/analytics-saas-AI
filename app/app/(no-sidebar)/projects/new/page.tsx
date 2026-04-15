@@ -173,8 +173,11 @@ export default function NewProjectPage() {
 
   if (loading || !allowed) {
     return (
-      <div className="mx-auto max-w-2xl p-6">
-        <div className="h-10 w-64 rounded-2xl bg-white/[0.04]" />
+      <div
+        className="flex w-full items-center justify-center px-6"
+        style={{ minHeight: "calc(100dvh - 64px)" }}
+      >
+        <p className="text-center text-base text-zinc-500">Подождите…</p>
       </div>
     );
   }

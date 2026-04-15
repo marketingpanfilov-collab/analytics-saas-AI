@@ -111,24 +111,31 @@ function BillingPricingModalProviderInner({ children }: { children: ReactNode })
                   <button
                     type="button"
                     onClick={close}
+                    className="inline-flex size-10 shrink-0 items-center justify-center p-0 text-white"
                     style={{
-                      width: 40,
-                      height: 40,
-                      margin: 0,
-                      padding: 0,
                       border: "1px solid rgba(255,255,255,0.2)",
                       background: "rgba(255,255,255,0.06)",
-                      color: "white",
                       borderRadius: 10,
                       cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      lineHeight: 0,
                     }}
                     aria-label="Закрыть"
                   >
-                    <span style={{ fontSize: 18, lineHeight: 1, display: "block" }}>✕</span>
+                    <svg
+                      width={20}
+                      height={20}
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                      aria-hidden
+                      className="block shrink-0"
+                    >
+                      <path
+                        d="M6 6l12 12M18 6L6 18"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                        strokeLinecap="round"
+                      />
+                    </svg>
                   </button>
                 </div>
                 <div className="scrollbar-hidden box-border min-h-0 flex-1 overflow-y-auto px-3 pb-6 pt-px sm:px-8 sm:pb-8">

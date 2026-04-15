@@ -13,10 +13,21 @@ function normalizePath(p: string): string {
   return trimmed || "/";
 }
 
-/** Глобальный оверлей не показываем при переходе в раздел проектов — там свой фрейм загрузки. */
-function isProjectsDestination(p: string): boolean {
+/** Маршруты раздела «Проекты» (/app/projects, /app/projects/new, onboarding…). */
+function isAppProjectsSection(p: string): boolean {
   const n = normalizePath(p);
   return n === "/app/projects" || n.startsWith("/app/projects/");
+}
+
+/**
+ * Оверлей «Подождите…» не показываем только при переходах внутри раздела проектов
+ * (между /app/projects*), где свой контекст загрузки. С дашборда и остальных
+ * разделов на список проектов — показываем, как и для остальной навигации.
+ */
+function shouldSuppressNavOverlay(fromPath: string, toPath: string): boolean {
+  const from = normalizePath(fromPath);
+  const to = normalizePath(toPath);
+  return isAppProjectsSection(from) && isAppProjectsSection(to);
 }
 
 export default function AppNavigationTransitionProvider({ children }: { children: React.ReactNode }) {
@@ -30,7 +41,7 @@ export default function AppNavigationTransitionProvider({ children }: { children
     const cur = normalizePath(pathnameRef.current);
     const next = normalizePath(nextPathname);
     if (cur === next) return;
-    if (isProjectsDestination(next)) return;
+    if (shouldSuppressNavOverlay(cur, next)) return;
     setPending(true);
   }, []);
 

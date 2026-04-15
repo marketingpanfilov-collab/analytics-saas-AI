@@ -12,6 +12,10 @@ export default function ProjectsOnboardingPage() {
   const router = useRouter();
   const { bootstrap, loading } = useBillingBootstrap();
 
+  /** После завершения онбординга подложка переключается на переход к списку проектов. */
+  const redirecting =
+    !loading && bootstrap != null && bootstrap.requires_post_checkout_onboarding === false;
+
   useEffect(() => {
     if (loading) return;
     if (!bootstrap) return;
@@ -19,6 +23,17 @@ export default function ProjectsOnboardingPage() {
     if (bootstrap.requires_post_checkout_onboarding === true) return;
     router.replace("/app/projects");
   }, [loading, bootstrap, router]);
+
+  if (redirecting) {
+    return (
+      <div
+        className="flex w-full items-center justify-center px-6"
+        style={{ minHeight: "calc(100dvh - 64px)" }}
+      >
+        <p className="text-center text-base text-zinc-500">Подождите…</p>
+      </div>
+    );
+  }
 
   return (
     <div
