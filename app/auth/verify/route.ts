@@ -51,6 +51,9 @@ export async function GET(request: NextRequest) {
   const loginBase = new URL("/login", url.origin);
   const safeNext = safeAppNextTarget(nextRaw, url.origin) ?? DEFAULT_NEXT;
   loginBase.searchParams.set("next", safeNext);
+  if (typeRaw === "recovery") {
+    loginBase.searchParams.set("auth_flow", "recovery");
+  }
 
   if (!tokenHash || !isVerifyType(typeRaw)) {
     loginBase.searchParams.set("auth_error", "invalid_verify_link");
@@ -82,7 +85,9 @@ export async function GET(request: NextRequest) {
   });
 
   if (error) {
-    loginBase.searchParams.set("auth_error", "exchange_failed");
+    loginBase.searchParams.set("auth_error", "verify_failed");
+    const desc = (error.message ?? "").slice(0, 400);
+    if (desc) loginBase.searchParams.set("auth_error_description", desc);
     return NextResponse.redirect(loginBase);
   }
 

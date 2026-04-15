@@ -153,17 +153,56 @@ export default function LoginPageClient() {
   const authCallbackHint = useMemo(() => {
     const err = searchParams.get("auth_error");
     const hint = searchParams.get("auth_hint");
+    const flow = searchParams.get("auth_flow");
+    const descRaw = searchParams.get("auth_error_description");
+    const isRecovery = flow === "recovery";
+
+    const decodeDesc = (s: string | null) => {
+      if (!s) return null;
+      try {
+        return decodeURIComponent(s.replace(/\+/g, " "));
+      } catch {
+        return s;
+      }
+    };
+    const errDesc = decodeDesc(descRaw);
+
     if (hint === "missing_code") {
-      return "Ссылка подтверждения недействительна или устарела. Запросите новое письмо или войдите вручную.";
+      return isRecovery
+        ? "Ссылка для сброса пароля недействительна или устарела. Запросите новый сброс («Забыли пароль?»)."
+        : "Ссылка подтверждения недействительна или устарела. Запросите новое письмо или войдите вручную.";
     }
     if (err === "exchange_failed") {
-      return "Не удалось завершить подтверждение (часто из‑за другого браузера или приватного режима). Откройте ссылку из письма в обычном окне того же браузера или запросите письмо заново; при использовании ссылки с token_hash — проверьте шаблон письма в Supabase.";
+      return isRecovery
+        ? "Не удалось завершить сброс пароля. Частая причина — ссылка из письма открыта в другом браузере или в приватном режиме (PKCE). Запросите письмо снова и откройте ссылку в обычном окне того же браузера, либо в шаблоне письма Reset password используйте ссылку с token_hash на /auth/verify (см. supabase/templates/recovery.html)."
+        : "Не удалось завершить подтверждение (часто из‑за другого браузера или приватного режима). Откройте ссылку из письма в обычном окне того же браузера или запросите письмо заново; при использовании ссылки с token_hash — проверьте шаблон письма в Supabase.";
     }
     if (err === "invalid_verify_link") {
-      return "Некорректная ссылка подтверждения. Запросите новое письмо на странице входа.";
+      return isRecovery
+        ? "Некорректная ссылка для сброса пароля. Скопируйте шаблон из supabase/templates/recovery.html в Supabase → Authentication → Emails → Reset password."
+        : "Некорректная ссылка подтверждения. Запросите новое письмо на странице входа.";
+    }
+    if (err === "verify_failed") {
+      if (errDesc) {
+        return isRecovery
+          ? `Сброс пароля не удался: ${errDesc}. Запросите новое письмо («Забыли пароль?»).`
+          : `Подтверждение не удалось: ${errDesc}.`;
+      }
+      return isRecovery
+        ? "Сброс пароля не удался. Запросите новое письмо для восстановления."
+        : "Подтверждение не удалось. Попробуйте войти или запросите письмо снова.";
     }
     if (err) {
-      return "Подтверждение email не удалось. Попробуйте войти или запросите письмо снова.";
+      const lower = err.toLowerCase();
+      if (isRecovery && (lower.includes("otp") || lower.includes("expired"))) {
+        return "Ссылка для сброса пароля устарела или уже использована. Запросите сброс пароля ещё раз («Забыли пароль?»).";
+      }
+      if (errDesc) {
+        return isRecovery ? `Сброс пароля: ${errDesc}` : `Подтверждение email: ${errDesc}`;
+      }
+      return isRecovery
+        ? "Не удалось завершить сброс пароля. Запросите письмо снова («Забыли пароль?») и убедитесь, что в Supabase для Reset password задан шаблон со ссылкой на /auth/verify?token_hash=…&type=recovery."
+        : "Подтверждение email не удалось. Попробуйте войти или запросите письмо снова.";
     }
     return null;
   }, [searchParams]);
@@ -1099,9 +1138,11 @@ export default function LoginPageClient() {
                 className={
                   msg.startsWith("✅")
                     ? "rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200"
-                    : msg.startsWith(BILLING_SOFT_PAYMENT_HEADLINE) || msg.includes("Подключаем")
+                    : msg.startsWith("Аккаунт создан.")
                       ? "rounded-xl border border-indigo-500/35 bg-indigo-500/10 px-4 py-3 text-sm text-indigo-100/95"
-                      : "rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
+                      : msg.startsWith(BILLING_SOFT_PAYMENT_HEADLINE) || msg.includes("Подключаем")
+                        ? "rounded-xl border border-indigo-500/35 bg-indigo-500/10 px-4 py-3 text-sm text-indigo-100/95"
+                        : "rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
                 }
               >
                 {msg}

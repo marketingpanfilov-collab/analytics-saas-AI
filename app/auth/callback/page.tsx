@@ -22,11 +22,14 @@ function AuthCallbackInner() {
 
       const err = searchParams.get("error");
       const errDesc = searchParams.get("error_description");
+      const isRecoveryNext = safeNext.startsWith("/reset");
+
       if (err) {
         const login = new URL("/login", origin);
         login.searchParams.set("auth_error", err);
         if (errDesc) login.searchParams.set("auth_error_description", errDesc.slice(0, 400));
         login.searchParams.set("next", safeNext);
+        if (isRecoveryNext) login.searchParams.set("auth_flow", "recovery");
         router.replace(`${login.pathname}${login.search}`);
         return;
       }
@@ -37,6 +40,7 @@ function AuthCallbackInner() {
         const login = new URL("/login", origin);
         login.searchParams.set("auth_error", "exchange_failed");
         login.searchParams.set("next", safeNext);
+        if (isRecoveryNext) login.searchParams.set("auth_flow", "recovery");
         router.replace(`${login.pathname}${login.search}`);
         return;
       }
@@ -50,6 +54,7 @@ function AuthCallbackInner() {
         const login = new URL("/login", origin);
         login.searchParams.set("auth_hint", "missing_code");
         login.searchParams.set("next", safeNext);
+        if (isRecoveryNext) login.searchParams.set("auth_flow", "recovery");
         router.replace(`${login.pathname}${login.search}`);
         return;
       }
