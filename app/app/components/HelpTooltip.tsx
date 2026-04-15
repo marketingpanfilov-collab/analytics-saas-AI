@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useRef, useLayoutEffect, useCallback } from "react";
+import React, { useState, useRef, useLayoutEffect, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
+import { useNarrowViewportForTooltip } from "@/app/lib/useNarrowViewportTooltip";
 
 const MARGIN = 12;
 const OFFSET = 10;
@@ -39,6 +40,7 @@ export default function HelpTooltip({
   const triggerRef = useRef<HTMLSpanElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const narrowTapTooltip = useNarrowViewportForTooltip();
 
   const open = useCallback(() => {
     if (closeTimeoutRef.current) {
@@ -86,11 +88,24 @@ export default function HelpTooltip({
     setPositionReady(true);
   }, [visible]);
 
+  useEffect(() => {
+    if (!narrowTapTooltip || !visible) return;
+    const onDoc = (ev: PointerEvent) => {
+      const t = ev.target as Node | null;
+      if (triggerRef.current?.contains(t) || tooltipRef.current?.contains(t)) return;
+      cancelClose();
+      setVisible(false);
+      setPositionReady(false);
+    };
+    document.addEventListener("pointerdown", onDoc, true);
+    return () => document.removeEventListener("pointerdown", onDoc, true);
+  }, [narrowTapTooltip, visible, cancelClose]);
+
   const tooltipEl = visible ? (
     <div
       ref={tooltipRef}
-      onMouseEnter={cancelClose}
-      onMouseLeave={close}
+      onMouseEnter={narrowTapTooltip ? undefined : cancelClose}
+      onMouseLeave={narrowTapTooltip ? undefined : close}
       style={{
         ...TOOLTIP_STYLE,
         left: positionReady ? position.left : -9999,
@@ -115,9 +130,11 @@ export default function HelpTooltip({
           alignItems: "center",
           flexShrink: 0,
           marginLeft: triggerMarginLeft,
+          ...(narrowTapTooltip ? { touchAction: "manipulation" as const } : {}),
         }}
-        onMouseEnter={open}
-        onMouseLeave={close}
+        onMouseEnter={narrowTapTooltip ? undefined : open}
+        onMouseLeave={narrowTapTooltip ? undefined : close}
+        onPointerDown={narrowTapTooltip ? () => open() : undefined}
       >
         <span
           role="button"

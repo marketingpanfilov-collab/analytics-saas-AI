@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { clampFixedTooltipAbovePoint } from "@/app/lib/clampTooltipViewport";
+import { useDismissTooltipOnOutsidePointer, useNarrowViewportForTooltip } from "@/app/lib/useNarrowViewportTooltip";
 
 export type CohortRow = {
   cohort: string;
@@ -75,6 +76,17 @@ export default function CohortHeatmap({
 }) {
   const [hoverCell, setHoverCell] = useState<{ cohort: string; index: number; x: number; y: number } | null>(null);
   const [headerHover, setHeaderHover] = useState<string | null>(null);
+  const tableWrapRef = useRef<HTMLDivElement>(null);
+  const narrowTapTooltip = useNarrowViewportForTooltip();
+  const dismissHeatmapTooltips = useCallback(() => {
+    setHoverCell(null);
+    setHeaderHover(null);
+  }, []);
+  useDismissTooltipOnOutsidePointer(
+    narrowTapTooltip && (hoverCell != null || headerHover != null),
+    tableWrapRef,
+    dismissHeatmapTooltips
+  );
   const fmtMoney = formatMoney ?? ((n: number) => `₸ ${numberFmt(n)}`);
 
   let min = Infinity;
@@ -118,7 +130,10 @@ export default function CohortHeatmap({
   };
 
   return (
-    <div style={{ overflowX: "auto", borderRadius: 16, border: "1px solid rgba(255,255,255,0.08)", background: "#161616" }}>
+    <div
+      ref={tableWrapRef}
+      style={{ overflowX: "auto", borderRadius: 16, border: "1px solid rgba(255,255,255,0.08)", background: "#161616" }}
+    >
       <table style={{ width: "100%", minWidth: 800, borderCollapse: "collapse", fontSize: 12 }}>
         <thead>
           <tr style={{ opacity: 0.4 }}>
@@ -127,8 +142,9 @@ export default function CohortHeatmap({
               <th
                 key={m}
                 style={{ textAlign: "center", padding: 16, borderBottom: "1px solid rgba(255,255,255,0.08)", fontWeight: 500, position: "relative", cursor: "help" }}
-                onMouseEnter={() => setHeaderHover(m)}
-                onMouseLeave={() => setHeaderHover(null)}
+                onMouseEnter={narrowTapTooltip ? undefined : () => setHeaderHover(m)}
+                onMouseLeave={narrowTapTooltip ? undefined : () => setHeaderHover(null)}
+                onPointerDown={narrowTapTooltip ? () => setHeaderHover(m) : undefined}
               >
                 {m}
                 {headerHover === m && (
@@ -181,10 +197,19 @@ export default function CohortHeatmap({
                     cursor: "default",
                     touchAction: "manipulation",
                   }}
-                  onPointerEnter={(e: ReactPointerEvent<HTMLTableCellElement>) =>
-                    setHoverCell({ cohort: r.cohort, index: idx, x: e.clientX, y: e.clientY })
+                  onPointerEnter={
+                    narrowTapTooltip
+                      ? undefined
+                      : (e: ReactPointerEvent<HTMLTableCellElement>) =>
+                          setHoverCell({ cohort: r.cohort, index: idx, x: e.clientX, y: e.clientY })
                   }
-                  onPointerLeave={() => setHoverCell(null)}
+                  onPointerDown={
+                    narrowTapTooltip
+                      ? (e: ReactPointerEvent<HTMLTableCellElement>) =>
+                          setHoverCell({ cohort: r.cohort, index: idx, x: e.clientX, y: e.clientY })
+                      : undefined
+                  }
+                  onPointerLeave={narrowTapTooltip ? undefined : () => setHoverCell(null)}
                 >
                   <div
                     style={{

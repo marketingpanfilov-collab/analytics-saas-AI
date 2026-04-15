@@ -483,10 +483,10 @@ export default function Topbar({ email }: { email?: string }) {
     };
   }, [tariffModalOpen]);
 
+  /** Смена ширины viewport: сбрасываем тарифную панель (десктопный hover / mobile sheet), без зависимости от planTariffPanelOpen — иначе hover на десктопе мгновенно закрывается. */
   useEffect(() => {
-    if (!planTariffPanelOpen) return;
-    if (!isNarrowViewport) setPlanTariffPanelOpen(false);
-  }, [isNarrowViewport, planTariffPanelOpen]);
+    setPlanTariffPanelOpen(false);
+  }, [isNarrowViewport]);
 
   const notices: Notice[] = useMemo(
     () =>

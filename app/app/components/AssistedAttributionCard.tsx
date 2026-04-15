@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { clampTooltipToViewport } from "@/app/lib/clampTooltipViewport";
+import { useDismissTooltipOnOutsidePointer, useNarrowViewportForTooltip } from "@/app/lib/useNarrowViewportTooltip";
 import { InsightTooltip } from "./InsightTooltip";
 
 const CHART_TOOLTIP_OFFSET = { x: 12, y: 8 };
@@ -103,6 +104,14 @@ export default function AssistedAttributionCard({
     x: number;
     y: number;
   } | null>(null);
+  const chartBodyRef = useRef<HTMLDivElement>(null);
+  const narrowTapTooltip = useNarrowViewportForTooltip();
+  const dismissBarTooltip = useCallback(() => setTooltipState(null), []);
+  useDismissTooltipOnOutsidePointer(
+    narrowTapTooltip && tooltipState != null,
+    chartBodyRef,
+    dismissBarTooltip
+  );
 
   const fetchData = useCallback(async () => {
     if (!projectId) {
@@ -236,6 +245,7 @@ export default function AssistedAttributionCard({
           (() => {
             return (
               <div
+                ref={chartBodyRef}
                 className="scrollbar-hidden"
                 style={{
                   maxHeight: VISIBLE_ROWS * ROW_HEIGHT,
@@ -255,6 +265,18 @@ export default function AssistedAttributionCard({
                   const roleText = roleTextFromCounts(first, assist, last);
                   const isHoveredRow = tooltipState?.row.traffic_source === row.traffic_source;
                   const dimRow = tooltipState != null && !isHoveredRow;
+                  const showFirst = (e: ReactPointerEvent<Element>) => {
+                    const { x, y } = tooltipPosFromPointer(e);
+                    setTooltipState({ row, segment: "first", x, y });
+                  };
+                  const showAssist = (e: ReactPointerEvent<Element>) => {
+                    const { x, y } = tooltipPosFromPointer(e);
+                    setTooltipState({ row, segment: "assist", x, y });
+                  };
+                  const showLast = (e: ReactPointerEvent<Element>) => {
+                    const { x, y } = tooltipPosFromPointer(e);
+                    setTooltipState({ row, segment: "last", x, y });
+                  };
                   const rank = index + 1;
                   const medalColor = rank === 1 ? "#C7A86C" : rank === 2 ? "#A9B0B8" : rank === 3 ? "#A06A4F" : null;
                   const isLast = index === displayChannels.length - 1;
@@ -320,10 +342,8 @@ export default function AssistedAttributionCard({
                               cursor: "pointer",
                               touchAction: "manipulation",
                             }}
-                            onPointerEnter={(e) => {
-                              const { x, y } = tooltipPosFromPointer(e);
-                              setTooltipState({ row, segment: "first", x, y });
-                            }}
+                            onPointerEnter={narrowTapTooltip ? undefined : showFirst}
+                            onPointerDown={narrowTapTooltip ? showFirst : undefined}
                             onPointerMove={(e) => {
                               setTooltipState((prev) =>
                                 prev?.row.traffic_source === row.traffic_source && prev?.segment === "first"
@@ -331,7 +351,7 @@ export default function AssistedAttributionCard({
                                   : prev
                               );
                             }}
-                            onPointerLeave={() => setTooltipState(null)}
+                            onPointerLeave={narrowTapTooltip ? undefined : () => setTooltipState(null)}
                           >
                             <div
                               style={{
@@ -361,10 +381,8 @@ export default function AssistedAttributionCard({
                               cursor: "pointer",
                               touchAction: "manipulation",
                             }}
-                            onPointerEnter={(e) => {
-                              const { x, y } = tooltipPosFromPointer(e);
-                              setTooltipState({ row, segment: "assist", x, y });
-                            }}
+                            onPointerEnter={narrowTapTooltip ? undefined : showAssist}
+                            onPointerDown={narrowTapTooltip ? showAssist : undefined}
                             onPointerMove={(e) => {
                               setTooltipState((prev) =>
                                 prev?.row.traffic_source === row.traffic_source && prev?.segment === "assist"
@@ -372,7 +390,7 @@ export default function AssistedAttributionCard({
                                   : prev
                               );
                             }}
-                            onPointerLeave={() => setTooltipState(null)}
+                            onPointerLeave={narrowTapTooltip ? undefined : () => setTooltipState(null)}
                           >
                             <div
                               style={{
@@ -402,10 +420,8 @@ export default function AssistedAttributionCard({
                               cursor: "pointer",
                               touchAction: "manipulation",
                             }}
-                            onPointerEnter={(e) => {
-                              const { x, y } = tooltipPosFromPointer(e);
-                              setTooltipState({ row, segment: "last", x, y });
-                            }}
+                            onPointerEnter={narrowTapTooltip ? undefined : showLast}
+                            onPointerDown={narrowTapTooltip ? showLast : undefined}
                             onPointerMove={(e) => {
                               setTooltipState((prev) =>
                                 prev?.row.traffic_source === row.traffic_source && prev?.segment === "last"
@@ -413,7 +429,7 @@ export default function AssistedAttributionCard({
                                   : prev
                               );
                             }}
-                            onPointerLeave={() => setTooltipState(null)}
+                            onPointerLeave={narrowTapTooltip ? undefined : () => setTooltipState(null)}
                           >
                             <div
                               style={{

@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { clampTooltipToViewport } from "@/app/lib/clampTooltipViewport";
+import { useDismissTooltipOnOutsidePointer, useNarrowViewportForTooltip } from "@/app/lib/useNarrowViewportTooltip";
 import { InsightTooltip } from "./InsightTooltip";
 
 type FlowPath = {
@@ -121,6 +122,14 @@ export function AttributionFlowCard({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<{ path: FlowPath; x: number; y: number } | null>(null);
+  const pathsScrollRef = useRef<HTMLDivElement>(null);
+  const narrowTapTooltip = useNarrowViewportForTooltip();
+  const dismissFlowTooltip = useCallback(() => setTooltip(null), []);
+  useDismissTooltipOnOutsidePointer(
+    narrowTapTooltip && tooltip != null,
+    pathsScrollRef,
+    dismissFlowTooltip
+  );
 
   const fetchData = useCallback(async () => {
     if (!projectId) {
@@ -301,6 +310,7 @@ export function AttributionFlowCard({
         </div>
       ) : (
         <div
+          ref={pathsScrollRef}
           style={{
             flex: 1,
             minHeight: 0,
@@ -324,6 +334,10 @@ export function AttributionFlowCard({
               const rank = index + 1;
               const percentLabel = p.percent != null ? `${p.percent}%` : "—";
               const isHovered = tooltip && tooltip.path === p;
+              const showPathTooltip = (e: ReactPointerEvent<Element>) => {
+                const { x, y } = flowTooltipPos(e);
+                setTooltip({ path: p, x, y });
+              };
               return (
                 <div
                   key={`${p.path.join(">")}-${index}`}
@@ -332,16 +346,14 @@ export function AttributionFlowCard({
                     ...(isHovered ? PATH_CARD_HOVER : {}),
                     touchAction: "manipulation",
                   }}
-                  onPointerEnter={(e) => {
-                    const { x, y } = flowTooltipPos(e);
-                    setTooltip({ path: p, x, y });
-                  }}
+                  onPointerEnter={narrowTapTooltip ? undefined : showPathTooltip}
+                  onPointerDown={narrowTapTooltip ? showPathTooltip : undefined}
                   onPointerMove={(e) => {
                     setTooltip((prev) =>
                       prev && prev.path === p ? { ...prev, ...flowTooltipPos(e) } : prev
                     );
                   }}
-                  onPointerLeave={() => setTooltip(null)}
+                  onPointerLeave={narrowTapTooltip ? undefined : () => setTooltip(null)}
                 >
                   <div
                     style={{

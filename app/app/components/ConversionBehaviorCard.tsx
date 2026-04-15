@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { clampTooltipToViewport } from "@/app/lib/clampTooltipViewport";
+import { useDismissTooltipOnOutsidePointer, useNarrowViewportForTooltip } from "@/app/lib/useNarrowViewportTooltip";
 import { InsightTooltip } from "./InsightTooltip";
 
 const CONV_TOOLTIP_MAX_W = 280;
@@ -82,6 +83,14 @@ export function ConversionBehaviorCard({
     x: number;
     y: number;
   } | null>(null);
+  const cardRootRef = useRef<HTMLDivElement>(null);
+  const narrowTapTooltip = useNarrowViewportForTooltip();
+  const dismissConvTooltip = useCallback(() => setTooltip(null), []);
+  useDismissTooltipOnOutsidePointer(
+    narrowTapTooltip && tooltip != null,
+    cardRootRef,
+    dismissConvTooltip
+  );
 
   const fetchData = useCallback(async () => {
     if (!projectId) {
@@ -174,6 +183,10 @@ export function ConversionBehaviorCard({
     const isHovered = tooltip?.type === type && tooltip?.index === index;
     const hasHoverInColumn = tooltip?.type === type;
     const dim = hasHoverInColumn && !isHovered;
+    const showRowTooltip = (e: ReactPointerEvent<Element>) => {
+      const { x, y } = convTooltipPos(e);
+      setTooltip({ type, index, label, percent, x, y });
+    };
     return (
       <div
         key={`${type}-${index}-${label}`}
@@ -192,16 +205,14 @@ export function ConversionBehaviorCard({
           opacity: dim ? DIM_OPACITY : 1,
           touchAction: "manipulation",
         }}
-        onPointerEnter={(e) => {
-          const { x, y } = convTooltipPos(e);
-          setTooltip({ type, index, label, percent, x, y });
-        }}
+        onPointerEnter={narrowTapTooltip ? undefined : showRowTooltip}
+        onPointerDown={narrowTapTooltip ? showRowTooltip : undefined}
         onPointerMove={(e) =>
           setTooltip((prev) =>
             prev && prev.type === type && prev.index === index ? { ...prev, ...convTooltipPos(e) } : prev
           )
         }
-        onPointerLeave={() => setTooltip(null)}
+        onPointerLeave={narrowTapTooltip ? undefined : () => setTooltip(null)}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
@@ -254,7 +265,7 @@ export function ConversionBehaviorCard({
   }
 
   return (
-    <div style={CARD_STYLE}>
+    <div ref={cardRootRef} style={CARD_STYLE}>
       <div style={HEADER_FRAME}>
         <div
           style={{

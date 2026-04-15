@@ -2039,8 +2039,8 @@ export default function ReportsPageClient() {
     cursor: "pointer",
     boxSizing: "border-box",
     ...(mobile
-      ? { minWidth: "min(46%, 10rem)", flex: "1 1 auto", width: "auto", maxWidth: "none" }
-      : { minWidth: 146, width: 146, maxWidth: 146 }),
+      ? { minWidth: 0, width: "auto", maxWidth: "100%" }
+      : { minWidth: "6.5rem", width: "auto", maxWidth: "100%" }),
   });
 
   reportsBody = (
@@ -2095,7 +2095,13 @@ export default function ReportsPageClient() {
             <div style={{ position: "relative" }} ref={sourcesDropdownRef}>
               <button
                 type="button"
-                style={{ ...tabStyle(false), minWidth: 140 }}
+                style={{
+                  ...tabStyle(false),
+                  minWidth: 140,
+                  ...(isMobileViewport
+                    ? {}
+                    : { display: "flex", justifyContent: "center", alignItems: "center", textAlign: "center" }),
+                }}
                 onClick={() => {
                   setSourcesOpen((v) => !v);
                   setAccountsOpen(false);
@@ -2167,7 +2173,13 @@ export default function ReportsPageClient() {
             <div style={{ position: "relative" }} ref={accountsDropdownRef}>
               <button
                 type="button"
-                style={{ ...tabStyle(false), minWidth: 160 }}
+                style={{
+                  ...tabStyle(false),
+                  minWidth: 160,
+                  ...(isMobileViewport
+                    ? {}
+                    : { display: "flex", justifyContent: "center", alignItems: "center", textAlign: "center" }),
+                }}
                 onClick={() => {
                   setAccountsOpen((v) => !v);
                   setSourcesOpen(false);
@@ -2249,22 +2261,25 @@ export default function ReportsPageClient() {
                 alignItems: isMobileViewport ? "stretch" : "center",
                 flexDirection: isMobileViewport ? "column" : "row",
                 gap: 8,
-                flexShrink: 0,
-                width: isMobileViewport ? "100%" : undefined,
+                ...(isMobileViewport
+                  ? { flexShrink: 0, width: "100%" }
+                  : { flex: "1 1 0%", flexShrink: 1 }),
                 maxWidth: "100%",
                 minWidth: 0,
                 isolation: "isolate",
               }}
             >
               <div
-                className="dashboard-native-date-range"
+                className={`dashboard-native-date-range${isMobileViewport ? "" : " dashboard-native-date-range--desktop"}`}
                 role="group"
                 title="Фильтр по дате"
                 aria-label="Фильтр по дате"
                 style={{
-                  display: "flex",
+                  display: "grid",
+                  ...(isMobileViewport ? { gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)" } : {}),
+                  justifyItems: isMobileViewport ? undefined : "stretch",
                   alignItems: "center",
-                  gap: 4,
+                  position: "relative",
                   height: 40,
                   boxSizing: "border-box",
                   padding: "0 8px",
@@ -2272,34 +2287,41 @@ export default function ReportsPageClient() {
                   border: "1px solid rgba(255,255,255,0.10)",
                   background: "rgba(255,255,255,0.04)",
                   cursor: "pointer",
-                  width: isMobileViewport ? "100%" : "fit-content",
-                  maxWidth: "100%",
-                  minWidth: 0,
-                  flexShrink: isMobileViewport ? 1 : 0,
+                  ...(isMobileViewport
+                    ? { width: "100%", maxWidth: "100%", minWidth: 0, flexShrink: 1 }
+                    : { flex: "1 1 0%", minWidth: 0, maxWidth: "min(calc(28rem - 25px), 100%)", flexShrink: 1 }),
                   overflow: "visible",
                 }}
               >
-                <DashboardDateRangeCalendarGlyph />
-                <input
-                  type="date"
-                  value={draftDateFrom}
-                  onChange={(e) => applyDraftDateRange(e.target.value, draftDateTo)}
-                  min={projectMinDate ?? undefined}
-                  aria-label="Дата начала периода"
-                  style={reportsNativeDateInputStyle(isMobileViewport)}
-                />
-                <span style={{ opacity: 0.6, fontSize: 11, cursor: "pointer" }} aria-hidden="true">
+                <div className="dashboard-native-date-range-segment">
+                  <span className="dashboard-native-date-range-segment-inner">
+                    <DashboardDateRangeCalendarGlyph />
+                    <input
+                      type="date"
+                      value={draftDateFrom}
+                      onChange={(e) => applyDraftDateRange(e.target.value, draftDateTo)}
+                      min={projectMinDate ?? undefined}
+                      aria-label="Дата начала периода"
+                      style={reportsNativeDateInputStyle(isMobileViewport)}
+                    />
+                  </span>
+                </div>
+                <div className="dashboard-native-date-range-segment">
+                  <span className="dashboard-native-date-range-segment-inner">
+                    <DashboardDateRangeCalendarGlyph />
+                    <input
+                      type="date"
+                      value={draftDateTo}
+                      onChange={(e) => applyDraftDateRange(draftDateFrom, e.target.value)}
+                      min={projectMinDate ?? undefined}
+                      aria-label="Дата окончания периода"
+                      style={reportsNativeDateInputStyle(isMobileViewport)}
+                    />
+                  </span>
+                </div>
+                <span className="dashboard-native-date-range-divider" aria-hidden="true">
                   —
                 </span>
-                <DashboardDateRangeCalendarGlyph />
-                <input
-                  type="date"
-                  value={draftDateTo}
-                  onChange={(e) => applyDraftDateRange(draftDateFrom, e.target.value)}
-                  min={projectMinDate ?? undefined}
-                  aria-label="Дата окончания периода"
-                  style={reportsNativeDateInputStyle(isMobileViewport)}
-                />
               </div>
 
               <div

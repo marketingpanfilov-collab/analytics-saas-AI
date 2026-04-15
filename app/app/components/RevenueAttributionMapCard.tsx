@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { clampTooltipToViewport } from "@/app/lib/clampTooltipViewport";
+import { useDismissTooltipOnOutsidePointer, useNarrowViewportForTooltip } from "@/app/lib/useNarrowViewportTooltip";
 import { InsightTooltip } from "./InsightTooltip";
 import { fmtProjectCurrency, type ProjectCurrency } from "@/app/lib/currency";
 import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
@@ -150,6 +151,14 @@ export function RevenueAttributionMapCard({
     x: number;
     y: number;
   } | null>(null);
+  const chartBodyRef = useRef<HTMLDivElement>(null);
+  const narrowTapTooltip = useNarrowViewportForTooltip();
+  const dismissRevTooltip = useCallback(() => setTooltip(null), []);
+  useDismissTooltipOnOutsidePointer(
+    narrowTapTooltip && tooltip != null,
+    chartBodyRef,
+    dismissRevTooltip
+  );
 
   const fetchData = useCallback(async () => {
     if (!projectId) {
@@ -424,6 +433,14 @@ export function RevenueAttributionMapCard({
 
                 const hoveredClosed = isHovered && tooltip?.segment === "closed";
                 const hoveredAssisted = isHovered && tooltip?.segment === "assisted";
+                const showClosed = (e: ReactPointerEvent<Element>) => {
+                  const { x, y } = revenueMapTooltipPos(e);
+                  setTooltip({ channel: ch, segment: "closed", x, y });
+                };
+                const showAssisted = (e: ReactPointerEvent<Element>) => {
+                  const { x, y } = revenueMapTooltipPos(e);
+                  setTooltip({ channel: ch, segment: "assisted", x, y });
+                };
 
                 return (
                   <div
@@ -526,10 +543,8 @@ export function RevenueAttributionMapCard({
                             borderRadius: 0,
                             touchAction: "manipulation",
                           }}
-                          onPointerEnter={(e) => {
-                            const { x, y } = revenueMapTooltipPos(e);
-                            setTooltip({ channel: ch, segment: "closed", x, y });
-                          }}
+                          onPointerEnter={narrowTapTooltip ? undefined : showClosed}
+                          onPointerDown={narrowTapTooltip ? showClosed : undefined}
                           onPointerMove={(e) =>
                             setTooltip((prev) =>
                               prev?.channel === ch && prev?.segment === "closed"
@@ -537,7 +552,7 @@ export function RevenueAttributionMapCard({
                                 : prev
                             )
                           }
-                          onPointerLeave={() => setTooltip(null)}
+                          onPointerLeave={narrowTapTooltip ? undefined : () => setTooltip(null)}
                         >
                           <div
                             style={{
@@ -566,10 +581,8 @@ export function RevenueAttributionMapCard({
                             borderRadius: 0,
                             touchAction: "manipulation",
                           }}
-                          onPointerEnter={(e) => {
-                            const { x, y } = revenueMapTooltipPos(e);
-                            setTooltip({ channel: ch, segment: "assisted", x, y });
-                          }}
+                          onPointerEnter={narrowTapTooltip ? undefined : showAssisted}
+                          onPointerDown={narrowTapTooltip ? showAssisted : undefined}
                           onPointerMove={(e) =>
                             setTooltip((prev) =>
                               prev?.channel === ch && prev?.segment === "assisted"
@@ -577,7 +590,7 @@ export function RevenueAttributionMapCard({
                                 : prev
                             )
                           }
-                          onPointerLeave={() => setTooltip(null)}
+                          onPointerLeave={narrowTapTooltip ? undefined : () => setTooltip(null)}
                         >
                           <div
                             style={{

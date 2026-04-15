@@ -306,7 +306,8 @@ export default function DataHealthMini({
     marginTop: useBottomSheet ? 0 : 6,
     zIndex: useBottomSheet ? MOBILE_APP_SHEET_Z : 100,
     width: useBottomSheet ? "100%" : "min(500px, calc(100vw - 24px))",
-    maxWidth: "100%",
+    /* Десктоп: не % от узкого anchor — иначе max-width = ширина триггера (~98px) и текст ломается в столбик. */
+    maxWidth: useBottomSheet ? "100%" : "min(500px, calc(100vw - 24px))",
     minWidth: 0,
     maxHeight: useBottomSheet ? "min(88dvh, 640px)" : "min(80vh, 520px)",
     display: useBottomSheet ? "flex" : undefined,

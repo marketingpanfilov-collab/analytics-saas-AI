@@ -12,6 +12,7 @@ import {
   type FocusEvent,
 } from "react";
 import { createPortal } from "react-dom";
+import { useNarrowViewportForTooltip } from "@/app/lib/useNarrowViewportTooltip";
 
 const MARGIN = 12;
 const OFFSET = 10;
@@ -74,6 +75,7 @@ export default function PortalTooltip({
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rafAttemptsRef = useRef(0);
   const tooltipId = useId().replace(/:/g, "_");
+  const narrowTapTooltip = useNarrowViewportForTooltip();
 
   const cancelClose = useCallback(() => {
     if (closeTimeoutRef.current) {
@@ -156,6 +158,19 @@ export default function PortalTooltip({
     };
   }, [visible, applyPosition]);
 
+  useEffect(() => {
+    if (!narrowTapTooltip || !visible) return;
+    const onDoc = (ev: PointerEvent) => {
+      const t = ev.target as Node | null;
+      if (triggerRef.current?.contains(t) || tooltipRef.current?.contains(t)) return;
+      cancelClose();
+      setVisible(false);
+      setPlaced(false);
+    };
+    document.addEventListener("pointerdown", onDoc, true);
+    return () => document.removeEventListener("pointerdown", onDoc, true);
+  }, [narrowTapTooltip, visible, cancelClose]);
+
   const onTriggerFocus = (e: FocusEvent<HTMLSpanElement>) => {
     if (e.target !== triggerRef.current) return;
     open();
@@ -186,8 +201,8 @@ export default function PortalTooltip({
       id={`portal-tooltip-${tooltipId}`}
       role="tooltip"
       data-state="open"
-      onMouseEnter={cancelClose}
-      onMouseLeave={close}
+      onMouseEnter={narrowTapTooltip ? undefined : cancelClose}
+      onMouseLeave={narrowTapTooltip ? undefined : close}
       style={{
         ...PANEL_STYLE,
         left: position.left,
@@ -211,8 +226,16 @@ export default function PortalTooltip({
         tabIndex={0}
         role={ariaDisabled ? "button" : undefined}
         aria-disabled={ariaDisabled ? true : undefined}
-        onMouseEnter={open}
-        onMouseLeave={close}
+        onMouseEnter={narrowTapTooltip ? undefined : open}
+        onMouseLeave={narrowTapTooltip ? undefined : close}
+        onPointerDown={
+          narrowTapTooltip && !ariaDisabled
+            ? () => {
+                open();
+              }
+            : undefined
+        }
+        style={narrowTapTooltip ? { touchAction: "manipulation" } : undefined}
         onFocus={onTriggerFocus}
         onBlur={onTriggerBlur}
         onKeyDown={onTriggerKeyDown}

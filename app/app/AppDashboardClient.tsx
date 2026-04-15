@@ -15,6 +15,7 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ignoreAbortRejection, isAbortError, safeAbortController } from "@/app/lib/abortUtils";
 import { clampTooltipPositionForContainer } from "@/app/lib/clampTooltipViewport";
+import { useDismissTooltipOnOutsidePointer } from "@/app/lib/useNarrowViewportTooltip";
 import { SIDEBAR_TODAY_REFRESH_EVENT } from "@/app/lib/sidebarTodayRefreshEvent";
 import { supabase } from "@/app/lib/supabaseClient";
 import { type ProjectCurrency } from "@/app/lib/currency";
@@ -238,17 +239,23 @@ function mkPathWithGaps(
 function MultiMetricLineChart({
   points,
   formatMoney,
+  isMobileLayout = false,
 }: {
   points: ChartPoint[];
   formatMoney: (v: number) => string;
+  /** Только мобильный дашборд: чуть выше viewBox, крупнее оси, легенда сеткой; без фикс. px-высоты — иначе «рвёт» пропорции. */
+  isMobileLayout?: boolean;
 }) {
   const w = 860;
-  const h = 320;
+  /** Мобилка: чуть больше plot по Y в тех же координатах; масштаб только равномерный (aspect-ratio + viewBox). */
+  const h = isMobileLayout ? 370 : 320;
   const pad = 22;
-  const leftPad = 46;
-  const bottomPad = 34;
+  const leftPad = isMobileLayout ? 52 : 40;
+  const bottomPad = isMobileLayout ? 52 : 34;
   const plotW = w - leftPad - pad;
   const plotH = h - pad - bottomPad;
+  /** Легенда на мобилке: отступ слева = доля viewBox до начала сетки (как у левого края графика). */
+  const legendPaddingLeftMatchPlot = isMobileLayout ? `calc(100% * ${leftPad} / ${w})` : undefined;
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
@@ -277,6 +284,7 @@ function MultiMetricLineChart({
           border: "1px solid rgba(255,255,255,0.10)",
           borderRadius: 16,
           height: h,
+          minHeight: isMobileLayout ? 160 : undefined,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -335,17 +343,16 @@ function MultiMetricLineChart({
   const salesPath = mkPath(points.map((p) => p.sales), maxSales);
   const cacPath = mkPathWithGaps(cacValues, (v, max) => yMap(v, max), maxCac, xForIndex);
 
-  const handlePointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
+  const applyTooltipFromClient = (clientX: number, clientY: number) => {
     const el = svgRef.current;
     const container = containerRef.current;
-    if (!el || !container) return;
+    if (!el || !container || !points?.length) return;
     const rect = el.getBoundingClientRect();
     const contRect = container.getBoundingClientRect();
-    const xPx = e.clientX - rect.left;
-    const yPx = e.clientY - rect.top;
+    const xPx = clientX - rect.left;
+    const yPx = clientY - rect.top;
     const viewBoxX = (xPx / rect.width) * w;
     const viewBoxY = (yPx / rect.height) * h;
-    // Только область графика (без полей осей): иначе линия «срабатывала» в десятках px от линии.
     if (viewBoxX < leftPad || viewBoxX > w - pad || viewBoxY < pad || viewBoxY > h - bottomPad) {
       setHoveredIndex(null);
       setTooltipPos(null);
@@ -355,7 +362,7 @@ function MultiMetricLineChart({
     let idx = Math.round(rel * (points.length - 1));
     idx = Math.max(0, Math.min(idx, points.length - 1));
     setHoveredIndex(idx);
-    const { x: clampX, y: clampY } = clampTooltipPositionForContainer(e.clientX, e.clientY, contRect, {
+    const { x: clampX, y: clampY } = clampTooltipPositionForContainer(clientX, clientY, contRect, {
       offsetX: 14,
       offsetY: -8,
       maxWidth: 220,
@@ -365,10 +372,24 @@ function MultiMetricLineChart({
     setTooltipPos({ x: clampX, y: clampY });
   };
 
+  const handlePointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
+    applyTooltipFromClient(e.clientX, e.clientY);
+  };
+
   const handlePointerLeave = () => {
     setHoveredIndex(null);
     setTooltipPos(null);
   };
+
+  const dismissLineChartTooltip = useCallback(() => {
+    setHoveredIndex(null);
+    setTooltipPos(null);
+  }, []);
+  useDismissTooltipOnOutsidePointer(
+    Boolean(isMobileLayout && hoveredIndex != null),
+    containerRef,
+    dismissLineChartTooltip
+  );
 
   const toggleSeries = (key: keyof typeof seriesVisible) => {
     setSeriesVisible((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -378,6 +399,9 @@ function MultiMetricLineChart({
 
   const yTicks = 5;
   const axisMax = maxSpend;
+  const yAxisFontSize = isMobileLayout ? 18 : 10;
+  const xAxisFontSize = isMobileLayout ? 21 : 15;
+  const seriesStroke = { spend: 3, other: 2.5 };
 
   return (
     <div
@@ -385,19 +409,28 @@ function MultiMetricLineChart({
       style={{
         border: "1px solid rgba(255,255,255,0.10)",
         borderRadius: 16,
-        padding: 12,
+        padding: isMobileLayout ? "10px 10px 10px 6px" : 12,
         position: "relative",
       }}
-      onPointerLeave={handlePointerLeave}
+      onPointerLeave={!isMobileLayout ? handlePointerLeave : undefined}
     >
       <svg
         ref={svgRef}
         width="100%"
         viewBox={`0 0 ${w} ${h}`}
         preserveAspectRatio="none"
-        style={{ display: "block", touchAction: "manipulation" }}
+        style={{
+          display: "block",
+          touchAction: "manipulation",
+          width: "100%",
+          height: "auto",
+          aspectRatio: `${w} / ${h}`,
+        }}
         onPointerMove={handlePointerMove}
-        onPointerLeave={handlePointerLeave}
+        onPointerDown={
+          isMobileLayout ? (e) => applyTooltipFromClient(e.clientX, e.clientY) : undefined
+        }
+        onPointerLeave={!isMobileLayout ? handlePointerLeave : undefined}
       >
         {Array.from({ length: yTicks }).map((_, i) => {
           const y = pad + (plotH * i) / (yTicks - 1);
@@ -413,10 +446,11 @@ function MultiMetricLineChart({
                 strokeWidth="1"
               />
               <text
-                x={leftPad - 6}
-                y={y + 4}
-                fill="rgba(255,255,255,0.5)"
-                fontSize="10"
+                x={leftPad - (isMobileLayout ? 4 : 6)}
+                y={y + (isMobileLayout ? 6 : 4)}
+                fill={isMobileLayout ? "rgba(255,255,255,0.78)" : "rgba(255,255,255,0.5)"}
+                fontSize={yAxisFontSize}
+                fontWeight={isMobileLayout ? 600 : undefined}
                 textAnchor="end"
               >
                 {formatAxisValue(val)}
@@ -426,16 +460,21 @@ function MultiMetricLineChart({
         })}
 
         {seriesVisible.spend && (
-          <path d={spendPath} fill="none" stroke={CHART_COLORS.spend} strokeWidth="3" />
+          <path d={spendPath} fill="none" stroke={CHART_COLORS.spend} strokeWidth={seriesStroke.spend} />
         )}
         {seriesVisible.registrations && (
-          <path d={regPath} fill="none" stroke={CHART_COLORS.registrations} strokeWidth="2.5" />
+          <path
+            d={regPath}
+            fill="none"
+            stroke={CHART_COLORS.registrations}
+            strokeWidth={seriesStroke.other}
+          />
         )}
         {seriesVisible.sales && (
-          <path d={salesPath} fill="none" stroke={CHART_COLORS.sales} strokeWidth="2.5" />
+          <path d={salesPath} fill="none" stroke={CHART_COLORS.sales} strokeWidth={seriesStroke.other} />
         )}
         {seriesVisible.cac && (
-          <path d={cacPath} fill="none" stroke={CHART_COLORS.cac} strokeWidth="2.5" />
+          <path d={cacPath} fill="none" stroke={CHART_COLORS.cac} strokeWidth={seriesStroke.other} />
         )}
 
         {isSinglePoint && points[0] && (
@@ -495,10 +534,23 @@ function MultiMetricLineChart({
           />
         )}
 
-        <text x={leftPad} y={h - 6} fill="rgba(255,255,255,0.62)" fontSize="15" fontWeight="600">
+        <text
+          x={leftPad}
+          y={h - (isMobileLayout ? 12 : 6)}
+          fill={isMobileLayout ? "rgba(255,255,255,0.92)" : "rgba(255,255,255,0.62)"}
+          fontSize={xAxisFontSize}
+          fontWeight="600"
+        >
           {fmtRuDate(points[0].date)}
         </text>
-        <text x={w - pad} y={h - 6} fill="rgba(255,255,255,0.62)" fontSize="15" fontWeight="600" textAnchor="end">
+        <text
+          x={w - pad}
+          y={h - (isMobileLayout ? 12 : 6)}
+          fill={isMobileLayout ? "rgba(255,255,255,0.92)" : "rgba(255,255,255,0.62)"}
+          fontSize={xAxisFontSize}
+          fontWeight="600"
+          textAnchor="end"
+        >
           {fmtRuDate(points[points.length - 1].date)}
         </text>
       </svg>
@@ -509,12 +561,12 @@ function MultiMetricLineChart({
             position: "absolute",
             left: tooltipPos.x,
             top: tooltipPos.y,
-            padding: "10px 12px",
+            padding: isMobileLayout ? "12px 14px" : "10px 12px",
             borderRadius: 10,
             border: "1px solid rgba(255,255,255,0.15)",
             background: "rgba(20,20,28,0.96)",
             boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
-            fontSize: 12,
+            fontSize: isMobileLayout ? 14 : 12,
             color: "rgba(255,255,255,0.95)",
             whiteSpace: "normal",
             maxWidth: "min(220px, calc(100vw - 24px))",
@@ -541,14 +593,34 @@ function MultiMetricLineChart({
       )}
 
       <div
-        style={{
-          display: "flex",
-          gap: 10,
-          marginTop: 10,
-          fontSize: 12,
-          flexWrap: "wrap",
-          alignItems: "center",
-        }}
+        style={
+          isMobileLayout
+            ? {
+                display: "flex",
+                flexDirection: "row",
+                flexWrap: "nowrap",
+                alignItems: "center",
+                justifyContent: "flex-start",
+                gap: 10,
+                marginTop: 8,
+                fontSize: 13,
+                width: "100%",
+                minWidth: 0,
+                boxSizing: "border-box",
+                paddingLeft: legendPaddingLeftMatchPlot,
+                overflowX: "auto",
+                WebkitOverflowScrolling: "touch",
+                scrollbarWidth: "thin",
+              }
+            : {
+                display: "flex",
+                gap: 10,
+                marginTop: 10,
+                fontSize: 12,
+                flexWrap: "wrap",
+                alignItems: "center",
+              }
+        }
       >
         {(
           [
@@ -565,18 +637,21 @@ function MultiMetricLineChart({
             style={{
               display: "inline-flex",
               alignItems: "center",
-              gap: 4,
-              padding: "4px 8px",
+              flexShrink: 0,
+              gap: isMobileLayout ? 4 : 6,
+              padding: isMobileLayout ? "6px 2px" : "4px 8px",
               border: "none",
-              borderRadius: 6,
+              borderRadius: 8,
               background: "transparent",
               color: seriesVisible[key] ? CHART_COLORS[key] : "rgba(255,255,255,0.4)",
               cursor: "pointer",
-              fontSize: 12,
+              fontSize: isMobileLayout ? 13 : 12,
+              fontWeight: isMobileLayout ? 600 : undefined,
               opacity: seriesVisible[key] ? 1 : 0.6,
+              whiteSpace: "nowrap",
             }}
           >
-            <span>●</span>
+            <span style={isMobileLayout ? { fontSize: 15, lineHeight: 1 } : undefined}>●</span>
             <span>{label}</span>
           </button>
         ))}
@@ -2231,7 +2306,7 @@ export default function AppDashboardClient() {
     whiteSpace: "nowrap" as const,
   });
 
-  /** Узкий экран: без фикс. 146px — иначе два date + «Готово» выталкивают вёрстку; на десктопе оставляем стабильную ширину под иконку. */
+  /** Узкий экран: без фикс. ширины. Десктоп: ширина по контенту (иконка + 4px + дата), центр половины — в CSS сегмента. */
   const dashboardNativeDateInputStyle = (mobile: boolean): CSSProperties => ({
     background: "transparent",
     border: "none",
@@ -2243,8 +2318,13 @@ export default function AppDashboardClient() {
     cursor: "pointer",
     boxSizing: "border-box",
     ...(mobile
-      ? { minWidth: "min(46%, 10rem)", flex: "1 1 auto", width: "auto", maxWidth: "none" }
-      : { minWidth: 146, width: 146, maxWidth: 146 }),
+      ? {
+          /* Не flex-grow: иначе внутри .dashboard-native-date-range-segment инпут съедает полколонку и ломает центр. */
+          minWidth: 0,
+          width: "auto",
+          maxWidth: "100%",
+        }
+      : { minWidth: "6.5rem", width: "auto", maxWidth: "100%" }),
   });
 
   /** Как на странице «Отчёты»: пилюля рядом с диапазоном дат (Загрузка / Ошибка / Готово). */
@@ -2872,7 +2952,13 @@ export default function AppDashboardClient() {
           <div style={{ position: "relative", minWidth: 0 }} ref={sourcesDropdownRef}>
             <button
               type="button"
-              style={{ ...tabStyle(false), minWidth: 140, ...(isMobileViewport ? { width: "100%" } : {}) }}
+              style={{
+                ...tabStyle(false),
+                minWidth: 140,
+                ...(isMobileViewport
+                  ? { width: "100%" }
+                  : { display: "flex", justifyContent: "center", alignItems: "center", textAlign: "center" }),
+              }}
               onClick={() => { setSourcesOpen((v) => !v); setAccountsOpen(false); }}
               title="Traffic sources"
             >
@@ -2933,7 +3019,13 @@ export default function AppDashboardClient() {
           <div style={{ position: "relative", minWidth: 0 }} ref={accountsDropdownRef}>
             <button
               type="button"
-              style={{ ...tabStyle(false), minWidth: 160, ...(isMobileViewport ? { width: "100%" } : {}) }}
+              style={{
+                ...tabStyle(false),
+                minWidth: 160,
+                ...(isMobileViewport
+                  ? { width: "100%" }
+                  : { display: "flex", justifyContent: "center", alignItems: "center", textAlign: "center" }),
+              }}
               onClick={() => { setAccountsOpen((v) => !v); setSourcesOpen(false); }}
               title="Ad accounts"
             >
@@ -3027,9 +3119,9 @@ export default function AppDashboardClient() {
                   title="Фильтр по дате"
                   aria-label={`Период: ${fmtRuDate(draftDateFrom)} — ${fmtRuDate(draftDateTo)}`}
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 4,
+                    display: "grid",
+                    gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
+                    position: "relative",
                     boxSizing: "border-box",
                     height: 40,
                     padding: "0 8px",
@@ -3038,32 +3130,41 @@ export default function AppDashboardClient() {
                     background: "rgba(255,255,255,0.04)",
                     cursor: "pointer",
                     flex: "1 1 0%",
+                    width: "100%",
                     minWidth: 0,
                     maxWidth: "100%",
                     overflow: "visible",
                   }}
                 >
-                  <DashboardDateRangeCalendarGlyph />
-                  <input
-                    type="date"
-                    value={draftDateFrom}
-                    onChange={(e) => applyDraftDateRange(e.target.value, draftDateTo)}
-                    min={projectMinDate ?? undefined}
-                    aria-label="Дата начала периода"
-                    style={dashboardNativeDateInputStyle(true)}
-                  />
-                  <span style={{ opacity: 0.6, fontSize: 11, cursor: "pointer" }} aria-hidden="true">
+                  <div className="dashboard-native-date-range-segment">
+                    <span className="dashboard-native-date-range-segment-inner">
+                      <DashboardDateRangeCalendarGlyph />
+                      <input
+                        type="date"
+                        value={draftDateFrom}
+                        onChange={(e) => applyDraftDateRange(e.target.value, draftDateTo)}
+                        min={projectMinDate ?? undefined}
+                        aria-label="Дата начала периода"
+                        style={dashboardNativeDateInputStyle(true)}
+                      />
+                    </span>
+                  </div>
+                  <div className="dashboard-native-date-range-segment">
+                    <span className="dashboard-native-date-range-segment-inner">
+                      <DashboardDateRangeCalendarGlyph />
+                      <input
+                        type="date"
+                        value={draftDateTo}
+                        onChange={(e) => applyDraftDateRange(draftDateFrom, e.target.value)}
+                        min={projectMinDate ?? undefined}
+                        aria-label="Дата окончания периода"
+                        style={dashboardNativeDateInputStyle(true)}
+                      />
+                    </span>
+                  </div>
+                  <span className="dashboard-native-date-range-divider" aria-hidden="true">
                     —
                   </span>
-                  <DashboardDateRangeCalendarGlyph />
-                  <input
-                    type="date"
-                    value={draftDateTo}
-                    onChange={(e) => applyDraftDateRange(draftDateFrom, e.target.value)}
-                    min={projectMinDate ?? undefined}
-                    aria-label="Дата окончания периода"
-                    style={dashboardNativeDateInputStyle(true)}
-                  />
                 </div>
                 <div
                   role="status"
@@ -3194,14 +3295,15 @@ export default function AppDashboardClient() {
               }}
             >
               <div
-                className="dashboard-native-date-range"
+                className="dashboard-native-date-range dashboard-native-date-range--desktop"
                 role="group"
                 title="Фильтр по дате"
                 aria-label="Фильтр по дате"
                 style={{
-                  display: "flex",
+                  display: "grid",
+                  justifyItems: "stretch",
                   alignItems: "center",
-                  gap: 4,
+                  position: "relative",
                   boxSizing: "border-box",
                   height: 40,
                   padding: "0 8px",
@@ -3209,34 +3311,41 @@ export default function AppDashboardClient() {
                   border: "1px solid rgba(255,255,255,0.10)",
                   background: "rgba(255,255,255,0.04)",
                   cursor: "pointer",
-                  width: "fit-content",
-                  maxWidth: "100%",
+                  flex: "1 1 0%",
                   minWidth: 0,
-                  flexShrink: 0,
+                  maxWidth: "min(calc(28rem - 25px), 100%)",
                   overflow: "visible",
                 }}
               >
-                <DashboardDateRangeCalendarGlyph />
-                <input
-                  type="date"
-                  value={draftDateFrom}
-                  onChange={(e) => applyDraftDateRange(e.target.value, draftDateTo)}
-                  min={projectMinDate ?? undefined}
-                  aria-label="Дата начала периода"
-                  style={dashboardNativeDateInputStyle(false)}
-                />
-                <span style={{ opacity: 0.6, fontSize: 11, cursor: "pointer" }} aria-hidden="true">
+                <div className="dashboard-native-date-range-segment">
+                  <span className="dashboard-native-date-range-segment-inner">
+                    <DashboardDateRangeCalendarGlyph />
+                    <input
+                      type="date"
+                      value={draftDateFrom}
+                      onChange={(e) => applyDraftDateRange(e.target.value, draftDateTo)}
+                      min={projectMinDate ?? undefined}
+                      aria-label="Дата начала периода"
+                      style={dashboardNativeDateInputStyle(false)}
+                    />
+                  </span>
+                </div>
+                <div className="dashboard-native-date-range-segment">
+                  <span className="dashboard-native-date-range-segment-inner">
+                    <DashboardDateRangeCalendarGlyph />
+                    <input
+                      type="date"
+                      value={draftDateTo}
+                      onChange={(e) => applyDraftDateRange(draftDateFrom, e.target.value)}
+                      min={projectMinDate ?? undefined}
+                      aria-label="Дата окончания периода"
+                      style={dashboardNativeDateInputStyle(false)}
+                    />
+                  </span>
+                </div>
+                <span className="dashboard-native-date-range-divider" aria-hidden="true">
                   —
                 </span>
-                <DashboardDateRangeCalendarGlyph />
-                <input
-                  type="date"
-                  value={draftDateTo}
-                  onChange={(e) => applyDraftDateRange(draftDateFrom, e.target.value)}
-                  min={projectMinDate ?? undefined}
-                  aria-label="Дата окончания периода"
-                  style={dashboardNativeDateInputStyle(false)}
-                />
               </div>
             </div>
           )}
@@ -3254,10 +3363,10 @@ export default function AppDashboardClient() {
               alignSelf: "start",
             }}
           >
-            <span style={badge} title="Время обновления из API/сервера">
+            <span style={{ ...badge, justifyContent: "center", textAlign: "center" }} title="Время обновления из API/сервера">
               Обновлено: {updatedStr}
             </span>
-            <span style={badge} title="Последний успешный ответ (клиент)">
+            <span style={{ ...badge, justifyContent: "center", textAlign: "center" }} title="Последний успешный ответ (клиент)">
               OK: {lastOkStr}
             </span>
           </div>
@@ -3481,7 +3590,11 @@ export default function AppDashboardClient() {
               minHeight={300}
             />
           ) : (
-            <MultiMetricLineChart points={chartPoints} formatMoney={formatMoneyValue} />
+            <MultiMetricLineChart
+              points={chartPoints}
+              formatMoney={formatMoneyValue}
+              isMobileLayout={isMobileViewport}
+            />
           )}
         </div>
 
