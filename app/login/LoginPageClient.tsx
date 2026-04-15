@@ -44,13 +44,8 @@ import { supabase } from "../lib/supabaseClient";
 
 const DEFAULT_POST_AUTH_APP = "/app/projects";
 
-/**
- * Абсолютный URL для письма подтверждения (Supabase redirect allow-list).
- * `next` в query — тот же контракт, что и в GET /auth/callback (safeAppNextTarget + fallback).
- * Если NEXT_PUBLIC_APP_URL указывает на другой хост, чем открыта страница (preview / www), берём origin вкладки —
- * иначе Supabase может отклонить redirect и письмо не уйдёт.
- */
-function buildEmailConfirmRedirectUrl(appNextPath: string): string {
+/** Канонический origin для ссылок в письмах Auth (совпадает с redirect allow-list в Supabase). */
+function buildAuthSiteOrigin(): string {
   const envBase = (process.env.NEXT_PUBLIC_APP_URL ?? "").trim().replace(/\/$/, "");
   const winOrigin = typeof window !== "undefined" ? window.location.origin : "";
   const envOk = /^https?:\/\//i.test(envBase);
@@ -68,7 +63,18 @@ function buildEmailConfirmRedirectUrl(appNextPath: string): string {
   } else {
     base = (envOk ? envBase : winOrigin || envBase).replace(/\/$/, "");
   }
-  base = base.replace(/\/$/, "");
+  return base.replace(/\/$/, "");
+}
+
+/**
+ * Абсолютный URL для письма подтверждения (Supabase redirect allow-list).
+ * `next` в query — тот же контракт, что и в GET /auth/callback (safeAppNextTarget + fallback).
+ * Если NEXT_PUBLIC_APP_URL указывает на другой хост, чем открыта страница (preview / www), берём origin вкладки —
+ * иначе Supabase может отклонить redirect и письмо не уйдёт.
+ */
+function buildEmailConfirmRedirectUrl(appNextPath: string): string {
+  const winOrigin = typeof window !== "undefined" ? window.location.origin : "";
+  const base = buildAuthSiteOrigin();
 
   const safe = safeAppNextTarget(appNextPath, base || winOrigin || "http://localhost") ?? DEFAULT_POST_AUTH_APP;
   const absoluteBase = base || winOrigin;
@@ -78,12 +84,16 @@ function buildEmailConfirmRedirectUrl(appNextPath: string): string {
   return `${absoluteBase}/auth/callback?next=${encodeURIComponent(safe)}`;
 }
 
+/**
+ * Сброс пароля: тот же серверный обмен PKCE, что и у подтверждения email (`/auth/callback`).
+ * Редирект сразу на `/reset?code=...` ломается в браузере (PKCE без server exchange).
+ */
 function buildPasswordResetRedirectUrl(): string {
-  const origin =
-    typeof window !== "undefined"
-      ? window.location.origin
-      : (process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/$/, "");
-  return `${origin.replace(/\/$/, "")}/reset`;
+  const winOrigin = typeof window !== "undefined" ? window.location.origin : "";
+  const base = buildAuthSiteOrigin() || winOrigin.replace(/\/$/, "");
+  const next = encodeURIComponent("/reset");
+  if (!base) return `/auth/callback?next=${next}`;
+  return `${base}/auth/callback?next=${next}`;
 }
 
 type Mode = "login" | "signup";
