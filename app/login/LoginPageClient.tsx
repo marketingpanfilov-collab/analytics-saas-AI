@@ -844,7 +844,7 @@ export default function LoginPageClient() {
 
       if (error) return setMsg(error.message);
 
-      setMsg("✅ Письмо для сброса пароля отправлено. Проверь почту.");
+      setMsg("✅ Письмо для сброса пароля отправлено. Проверьте почту.");
     } finally {
       setLoading(false);
     }

@@ -209,7 +209,7 @@ export default function ResetPage() {
 
           {msg ? <div style={messageStyle}>{msg}</div> : null}
 
-          <div style={styles.footerNote}>© 2026 Analytics SaaS — Internal MVP</div>
+          <div style={styles.footerNote}>© 2026 BoardIQ analytics — Все права защищены.</div>
         </div>
       </div>
     </div>
@@ -218,7 +218,8 @@ export default function ResetPage() {
 
 const styles: Record<string, React.CSSProperties> = {
   page: {
-    minHeight: "100vh",
+    minHeight: "100dvh",
+    boxSizing: "border-box",
     display: "flex",
     justifyContent: "center",
     alignItems: "center",
@@ -297,7 +298,8 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "14px 16px",
     fontSize: 16,
     fontWeight: 800,
-    color: "rgba(10,10,14,0.95)",
+    color: "#ffffff",
+    WebkitTextFillColor: "#ffffff",
     background: "linear-gradient(90deg, rgba(106,117,255,0.95), rgba(88,255,202,0.95))",
   },
   linkBtn: {
