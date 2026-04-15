@@ -16,3 +16,11 @@ export function metaPurchaseEventId(checkoutAttemptId: string): string {
   const b = base.length <= maxBase ? base : base.slice(0, Math.max(1, maxBase));
   return `${b}${PURCHASE_SUFFIX}`;
 }
+
+const CR_PREFIX = "cr_";
+
+/** CompleteRegistration: event_id = "cr_" + user_id (UUID), обрезка если > 64. */
+export function metaCompleteRegistrationEventId(userId: string): string {
+  const t = `${CR_PREFIX}${String(userId).trim()}`;
+  return t.length > MAX_LEN ? t.slice(0, MAX_LEN) : t;
+}

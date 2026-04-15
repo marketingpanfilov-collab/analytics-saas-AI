@@ -82,6 +82,19 @@ export function resolveBootstrapPlanTier(
   return tierFromMatrixPlan(b.plan_feature_matrix?.plan ?? null);
 }
 
+/**
+ * Free-тариф для UI-гейтов (дашборд, баннеры): как бейдж Free в Topbar (`experience_tier`),
+ * плюс явные `effective_plan` / `plan_feature_matrix` с API.
+ */
+export function isFreeTierFromBootstrap(b: BillingBootstrapApiOk | null | undefined): boolean {
+  if (!b) return false;
+  if (b.experience_tier === "free") return true;
+  const ep = String(b.effective_plan ?? "").trim().toLowerCase();
+  if (ep === "free") return true;
+  if (b.plan_feature_matrix?.plan === "free") return true;
+  return false;
+}
+
 /** Есть строка подписки и статус похож на оплаченный/активный доступ (чтобы не показывать «No plan»). */
 export function subscriptionStatusLooksPaid(status: string | undefined | null): boolean {
   const s = String(status ?? "").trim().toLowerCase();

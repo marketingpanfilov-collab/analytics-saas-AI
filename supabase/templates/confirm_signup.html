@@ -34,7 +34,13 @@
       Подписка уже активирована. Остался последний шаг — подтвердите email, чтобы завершить настройку и начать работу.
     </p>
 
-    <!-- token_hash + redirect_to: подтверждение работает в инкогнито и в другом браузере (PKCE по ConfirmationURL требует code_verifier в том же профиле). Скопируйте в Supabase → Auth → Email templates → Confirm signup. -->
+    <!--
+      Скопируйте в Supabase → Authentication → Email templates → Confirm signup.
+      Site URL в проекте должен совпадать с доменом приложения; добавьте /auth/verify в Redirect URLs при необходимости.
+      token_hash + type=signup: cookie для Meta CompleteRegistration выставляет app/auth/verify/route.ts.
+      redirect_to: GET /auth/verify читает next/redirect_to (без PKCE code_verifier в том же профиле — ок для инкогнито и другого браузера).
+      PKCE-флоу с письма: emailRedirectTo на /auth/callback?email_flow=signup → POST /api/auth/email-callback-continue — см. LoginPageClient.
+    -->
     <a href="{{ .SiteURL }}/auth/verify?token_hash={{ .TokenHash }}&amp;type=signup&amp;redirect_to={{ .RedirectTo }}"
        style="display:block;text-align:center;background:linear-gradient(90deg,#6366f1,#22c55e);color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;text-decoration:none !important;padding:14px 20px;border-radius:10px;font-weight:500;margin-bottom:24px;">
       Подтвердить email

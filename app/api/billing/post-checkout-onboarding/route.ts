@@ -9,6 +9,17 @@ import {
   isCompanyProfileCompleteForOrg,
   loadBillingCurrentPlan,
 } from "@/app/lib/billingCurrentPlan";
+import { sendMetaCompleteRegistration } from "@/app/lib/metaCapi";
+import {
+  clientIpFromRequestForMeta,
+  META_COMPLETE_REGISTRATION_ELIGIBLE_COOKIE,
+  parseCookieFromRequestHeader,
+} from "@/app/lib/metaCompleteRegistrationCookie";
+import { metaCompleteRegistrationEventId } from "@/app/lib/metaMarketingIds";
+import {
+  clearMetaCompleteRegistrationEligibleForUser,
+  isUserEligibleForMetaCompleteRegistrationCapi,
+} from "@/app/lib/metaCompleteRegistrationEligible";
 
 /**
  * Организация для шага компании: сначала membership, иначе org из Paddle map (оплата до лишней org).
@@ -57,6 +68,31 @@ async function resolveOwnerOrgForPostCheckoutSave(
  * POST /api/billing/post-checkout-onboarding
  * Idempotent completion + same company fields as Settings → Company (organizations + CRM).
  */
+const isProd = process.env.NODE_ENV === "production";
+
+function pickCountryIso2FromMetadataRecord(m: Record<string, unknown> | undefined | null): string | null {
+  if (!m || typeof m !== "object") return null;
+  const c = m.country_iso2 ?? m.country;
+  if (typeof c !== "string") return null;
+  const t = c.trim();
+  if (!/^[A-Za-z]{2}$/.test(t)) return null;
+  return t.toUpperCase();
+}
+
+/** ISO2 для CAPI: user_metadata, затем app_metadata; при отсутствии — опционально META_FALLBACK_COUNTRY_ISO2 (например основной рынок продукта). */
+function countryIso2ForMetaCapi(user: {
+  user_metadata?: Record<string, unknown>;
+  app_metadata?: Record<string, unknown>;
+}): string | null {
+  const u = pickCountryIso2FromMetadataRecord(user.user_metadata ?? null);
+  if (u) return u;
+  const a = pickCountryIso2FromMetadataRecord(user.app_metadata ?? null);
+  if (a) return a;
+  const fb = process.env.META_FALLBACK_COUNTRY_ISO2?.trim();
+  if (fb && /^[A-Za-z]{2}$/.test(fb)) return fb.toUpperCase();
+  return null;
+}
+
 export async function POST(req: Request) {
   const supabase = await createServerSupabase();
   const {
@@ -278,7 +314,51 @@ export async function POST(req: Request) {
         .eq("user_id", user.id);
     }
 
-    return NextResponse.json({ success: true, current_step: 3 });
+    const eligible = await isUserEligibleForMetaCompleteRegistrationCapi(admin, req, user.id);
+    let metaCr: Awaited<ReturnType<typeof sendMetaCompleteRegistration>> | null = null;
+    if (eligible) {
+      const clientIp = clientIpFromRequestForMeta(req);
+      const ua = req.headers.get("user-agent")?.trim() ?? null;
+      const fbp = parseCookieFromRequestHeader(req, "_fbp");
+      const fbc = parseCookieFromRequestHeader(req, "_fbc");
+      const appBase = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "";
+      const eventSourceUrl = appBase ? `${appBase}/` : null;
+      const countryFromUser = countryIso2ForMetaCapi(user);
+      const phoneCc = process.env.META_DEFAULT_PHONE_CC_DIGITS?.trim() || null;
+      metaCr = await sendMetaCompleteRegistration({
+        idempotencyKey: `complete_registration:${user.id}`,
+        eventId: metaCompleteRegistrationEventId(user.id),
+        eventTimeSeconds: Math.floor(Date.now() / 1000),
+        eventSourceUrl,
+        email,
+        externalId: user.id,
+        contactPhone: contact_phone || null,
+        ownerFullName: owner_full_name,
+        clientIp,
+        userAgent: ua,
+        fbp,
+        fbc,
+        country: countryFromUser,
+        phoneDefaultCallingCodeDigits: phoneCc,
+      });
+    }
+
+    const res = NextResponse.json({
+      success: true,
+      current_step: 3,
+      ...(metaCr?.meta_complete_registration_capi ? { meta_complete_registration_capi: true as const } : {}),
+    });
+    if (metaCr?.clear_meta_cr_eligible_cookie) {
+      res.cookies.set(META_COMPLETE_REGISTRATION_ELIGIBLE_COOKIE, "", {
+        path: "/",
+        maxAge: 0,
+        httpOnly: true,
+        sameSite: "lax",
+        secure: isProd,
+      });
+      await clearMetaCompleteRegistrationEligibleForUser(user.id);
+    }
+    return res;
   }
 
   if (action === "complete") {

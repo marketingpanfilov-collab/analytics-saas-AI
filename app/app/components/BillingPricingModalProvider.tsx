@@ -2,7 +2,6 @@
 
 import {
   createContext,
-  Suspense,
   useCallback,
   useContext,
   useMemo,
@@ -11,7 +10,6 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { useSearchParams } from "next/navigation";
 import { canOfferBillingInlinePricing, isBillingBlocking } from "@/app/lib/billingBootstrapClient";
 import { suggestUpgradePlanId } from "@/app/lib/billingPlanDisplay";
 import { ScreenId } from "@/app/lib/billingUiContract";
@@ -30,11 +28,6 @@ type Ctx = {
 
 const BillingPricingModalContext = createContext<Ctx | null>(null);
 
-/** While BillingPricingModalProviderInner suspends (e.g. useSearchParams), children must still see a context value. */
-const PRICING_MODAL_SUSPENSE_FALLBACK_CTX: Ctx = {
-  requestBillingPricingModal: (_sourceAction, _opts) => false,
-};
-
 export function useBillingPricingModalRequest(): Ctx {
   const c = useContext(BillingPricingModalContext);
   if (!c) {
@@ -47,11 +40,14 @@ export function useOptionalBillingPricingModalRequest(): Ctx | null {
   return useContext(BillingPricingModalContext);
 }
 
+/**
+ * Не использовать `useSearchParams()` здесь: в App Router это помещает провайдер в Suspense,
+ * и до гидрации дети получают контекст-заглушку, где `requestBillingPricingModal` всегда false.
+ * `project_id` для чекаута берётся в `BillingInlinePricing` из URL или пропа.
+ */
 function BillingPricingModalProviderInner({ children }: { children: ReactNode }) {
   const { resolvedUi, bootstrap, overLimitApplyGraceUntilMs, relaxOverLimitForPendingWebhook } =
     useBillingBootstrap();
-  const searchParams = useSearchParams();
-  const projectId = searchParams.get("project_id")?.trim() ?? null;
   const [open, setOpen] = useState(false);
   /** Аргумент последнего вызова requestBillingPricingModal (для контекста шапки модалки). */
   const [pricingModalEntrySource, setPricingModalEntrySource] = useState<string | null>(null);
@@ -140,7 +136,6 @@ function BillingPricingModalProviderInner({ children }: { children: ReactNode })
                 </div>
                 <div className="scrollbar-hidden box-border min-h-0 flex-1 overflow-y-auto px-3 pb-6 pt-px sm:px-8 sm:pb-8">
                   <BillingInlinePricingSuspended
-                    projectId={projectId}
                     suggestPlan={suggestUpgradePlanId(bootstrap?.plan_feature_matrix?.plan)}
                     showComparisonLink
                     widePlanGrid
@@ -159,15 +154,5 @@ function BillingPricingModalProviderInner({ children }: { children: ReactNode })
 }
 
 export function BillingPricingModalProvider({ children }: { children: ReactNode }) {
-  return (
-    <Suspense
-      fallback={
-        <BillingPricingModalContext.Provider value={PRICING_MODAL_SUSPENSE_FALLBACK_CTX}>
-          {children}
-        </BillingPricingModalContext.Provider>
-      }
-    >
-      <BillingPricingModalProviderInner>{children}</BillingPricingModalProviderInner>
-    </Suspense>
-  );
+  return <BillingPricingModalProviderInner>{children}</BillingPricingModalProviderInner>;
 }

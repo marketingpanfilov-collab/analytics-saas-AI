@@ -12,6 +12,7 @@ import { LandingHowItWorksSection } from "@/components/landing/LandingHowItWorks
 import { LandingPartnershipCta } from "@/components/landing/LandingPartnershipCta";
 import { PartnershipLeadProvider } from "@/components/landing/PartnershipLeadProvider";
 import { AdvantagesSection, DataInsightsSection, DDASection } from "@/components/landing/LandingMidSections";
+import { LandingMobileAuthNavOverlayProvider } from "@/components/landing/LandingMobileAuthNavOverlay";
 import { LandingHeader } from "@/components/layout/LandingHeader";
 import { LandingLoginButton } from "@/components/layout/LandingLoginButton";
 
@@ -86,7 +87,7 @@ function FreePricingCard() {
         </ul>
         <div className="mt-auto w-full pt-8">
           <div className="mb-6 h-px w-full bg-gradient-to-r from-transparent via-white/18 to-transparent opacity-70 group-hover/pricing:via-white/26" />
-          <BaseButton href="/login?signup=1" variant="primary" full>
+          <BaseButton href="/login?signup=1" variant="primary" full showAuthNavWaitOnMobile>
             Начать бесплатно
           </BaseButton>
         </div>
@@ -295,8 +296,8 @@ const PRICING_PLANS: {
   {
     id: "growth",
     name: "Growth",
-    monthlyUsd: 99,
-    yearlyDiscountPercent: 15,
+    monthlyUsd: 49,
+    yearlyDiscountPercent: 32,
     highlight: "popular",
     ctaLabel: "Приобрести Growth",
     items: [
@@ -308,8 +309,8 @@ const PRICING_PLANS: {
   {
     id: "scale",
     name: "Scale",
-    monthlyUsd: 249,
-    yearlyDiscountPercent: 20,
+    monthlyUsd: 99,
+    yearlyDiscountPercent: 32,
     highlight: "scale",
     ctaLabel: "Приобрести Scale",
     items: [
@@ -345,6 +346,7 @@ export default function Page() {
 
   return (
     <PartnershipLeadProvider>
+    <LandingMobileAuthNavOverlayProvider>
     <main className="relative min-h-screen overflow-hidden bg-[#030303] text-white">
       <div className="pointer-events-none absolute inset-0">
         <div className="hero-orb hero-orb-1" />
@@ -414,6 +416,7 @@ export default function Page() {
                     href="/login?signup=1"
                     variant="primary"
                     full
+                    showAuthNavWaitOnMobile
                     className="min-w-0 flex-1 basis-0 whitespace-nowrap"
                   >
                     Начать бесплатно
@@ -636,6 +639,7 @@ export default function Page() {
         </div>
       </section>
     </main>
+    </LandingMobileAuthNavOverlayProvider>
     </PartnershipLeadProvider>
   );
 }

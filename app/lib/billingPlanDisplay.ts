@@ -10,14 +10,14 @@ export const BILLING_PLAN_LABELS: Record<PricingPlanId, string> = {
 
 export const BILLING_MONTHLY_USD: Record<PricingPlanId, number> = {
   starter: 39,
-  growth: 99,
-  scale: 249,
+  growth: 49,
+  scale: 99,
 };
 
 export const BILLING_YEARLY_DISCOUNT_PERCENT: Record<PricingPlanId, number> = {
   starter: 10,
-  growth: 15,
-  scale: 20,
+  growth: 32,
+  scale: 32,
 };
 
 export function billingYearlyTotalUsd(plan: PricingPlanId): number {

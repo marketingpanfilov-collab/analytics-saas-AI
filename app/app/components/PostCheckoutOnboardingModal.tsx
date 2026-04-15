@@ -8,6 +8,7 @@ import { emitBillingFunnelEvent } from "@/app/lib/billingFunnelAnalytics";
 import { COMPANY_SIZE_VALUES, getCompanySizeSelectOptions } from "@/app/lib/companySize";
 import { COMPANY_SPHERE_KEYS, getCompanySphereGroupedSelect } from "@/app/lib/companySphere";
 import { resolveBootstrapPlanAnalyticsSlug } from "@/app/lib/billingBootstrapPlanLabel";
+import { fireMetaCompleteRegistrationPixel } from "@/app/lib/metaPixelBrowser";
 import { useBillingBootstrap } from "./BillingBootstrapProvider";
 
 const DEFAULT_COMPANY_SIZE = COMPANY_SIZE_VALUES[0];
@@ -226,14 +227,21 @@ function PostCheckoutOnboardingModalInner() {
     setSaving(true);
     setErr(null);
     try {
-      await postJson({
+      const saveJson = (await postJson({
         action: "save_company",
         name: companyName.trim(),
         owner_full_name: ownerFullName.trim(),
         contact_phone: contactPhone.trim(),
         company_sphere: companySphere,
         company_size: companySize,
-      });
+      })) as { meta_complete_registration_capi?: boolean };
+      // true только после успешного Graph CAPI в этом запросе (не просто «была cookie»).
+      if (saveJson?.meta_complete_registration_capi) {
+        const { data: uCr } = await supabase.auth.getUser();
+        if (uCr.user?.id) {
+          fireMetaCompleteRegistrationPixel({ userId: uCr.user.id, appUserId: uCr.user.id });
+        }
+      }
       setStep(3);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));

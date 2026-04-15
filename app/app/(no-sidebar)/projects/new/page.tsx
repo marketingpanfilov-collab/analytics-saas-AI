@@ -230,12 +230,13 @@ export default function NewProjectPage() {
               {submitLoading ? "Создание…" : "Создать проект"}
             </button>
           )}
-          <Link
-            href="/app/projects"
-            className="inline-flex h-11 items-center rounded-xl border border-white/10 px-6 text-sm text-zinc-300 hover:bg-white/[0.04]"
+          <button
+            type="button"
+            onClick={() => router.push("/app/projects")}
+            className="inline-flex h-11 cursor-pointer items-center rounded-xl border border-white/10 px-6 text-sm text-zinc-300 hover:bg-white/[0.04]"
           >
             Отмена
-          </Link>
+          </button>
         </div>
       </form>
     </div>

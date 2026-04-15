@@ -30,7 +30,9 @@ import {
   billingActionAllowed,
   canOfferBillingInlinePricing,
   isBillingBlocking,
+  readLastKnownBootstrap,
 } from "@/app/lib/billingBootstrapClient";
+import { isFreeTierFromBootstrap } from "@/app/lib/billingBootstrapPlanLabel";
 import { emitBillingFunnelEvent, emitBillingFunnelEventOnce } from "@/app/lib/billingFunnelAnalytics";
 import {
   bumpDashboardSourcesExploreOnce,
@@ -315,8 +317,7 @@ function MultiMetricLineChart({
             margin: "0 auto",
           }}
         >
-          Ограниченные данные за выбранный период: для графика пока нет точек — дождитесь синхронизации или измените
-          диапазон дат.
+          Для графика пока нет данных — дождитесь синхронизации или измените диапазон дат.
         </div>
       </div>
     );
@@ -738,12 +739,19 @@ export default function AppDashboardClient() {
   /** `usePathname()` can be "" during hydration; `??` does not fall back for empty string. */
   const pathname = usePathname() || "/app";
   const sp = useSearchParams();
-  const { resolvedUi, bootstrap, overLimitApplyGraceUntilMs, relaxOverLimitForPendingWebhook } =
+  const { resolvedUi, bootstrap, loading: billingBootstrapLoading, overLimitApplyGraceUntilMs, relaxOverLimitForPendingWebhook } =
     useBillingBootstrap();
   const { requestBillingPricingModal } = useBillingPricingModalRequest();
   const projectId = sp.get("project_id") || "";
   const isFreeExperience = bootstrap?.experience_tier === "free";
   const isFreePlanMatrix = bootstrap?.plan_feature_matrix?.plan === "free";
+  /** Пока живой bootstrap ещё null (первый кадр / Suspense), last-known из sessionStorage не даёт ложный «загрузочный» плейсхолдер на Free. */
+  const bootstrapForDeferredAnalyticsBanner = useMemo(() => {
+    if (bootstrap) return bootstrap;
+    if (billingBootstrapLoading) return readLastKnownBootstrap();
+    return null;
+  }, [bootstrap, billingBootstrapLoading]);
+  const showFreeDeferredAnalyticsUpsell = isFreeTierFromBootstrap(bootstrapForDeferredAnalyticsBanner);
   const [freeAdAccountLimitBannerOpen, setFreeAdAccountLimitBannerOpen] = useState(false);
   const postProjectOnboardingFlag = sp.get("post_project_onboarding") === "1";
   const billingBlockingOpts = useMemo(
@@ -3983,6 +3991,24 @@ export default function AppDashboardClient() {
             </>
           )}
         </>
+      ) : showFreeDeferredAnalyticsUpsell ? (
+        <div style={{ marginBottom: isMobileViewport ? 14 : 20 }}>
+          <BillingWidgetPlaceholder
+            pack={{
+              state: "LIMITED",
+              reasonCode: "PLAN_LIMIT_ATTRIBUTION_HEAVY",
+              title: FREE_DASHBOARD_ATTRIBUTION_LIMIT_TITLE,
+              hint: FREE_DASHBOARD_ATTRIBUTION_LIMIT_BODY,
+            }}
+            minHeight={220}
+            footerNote={FREE_DASHBOARD_ATTRIBUTION_LIMIT_FOOTNOTE}
+            visualTone="premium"
+            ctaLabel={FREE_DASHBOARD_ATTRIBUTION_CTA_LABEL}
+            onCtaClick={() =>
+              requestBillingPricingModal("free_dashboard_attribution_heavy_limited", { force: true })
+            }
+          />
+        </div>
       ) : (
         <div
           style={{

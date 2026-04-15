@@ -62,11 +62,15 @@ function AuthCallbackInner() {
       }
 
       setHint("Подключаем аккаунт…");
+      const emailFlow = searchParams.get("email_flow");
       const cont = await fetch("/api/auth/email-callback-continue", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ next: nextRaw }),
+        body: JSON.stringify({
+          next: nextRaw,
+          ...(emailFlow === "signup" ? { email_flow: "signup" as const } : {}),
+        }),
       });
       const j = (await cont.json().catch(() => null)) as { ok?: boolean; redirect?: string } | null;
       if (cancelled) return;

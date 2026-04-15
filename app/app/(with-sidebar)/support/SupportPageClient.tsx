@@ -640,8 +640,7 @@ export default function SupportPageClient() {
   return (
     <div
       data-support-chat-layout="support_chat_sticky_panels_v1"
-      className="flex max-h-full min-h-0 flex-1 flex-col overflow-hidden bg-[#0b0b10]"
-      style={{ height: "100%", minHeight: 0 }}
+      className="flex min-h-0 w-full min-w-0 flex-1 flex-col self-stretch overflow-hidden bg-[#0b0b10]"
     >
       <header className="shrink-0 border-b border-white/[0.08] bg-[rgba(10,12,18,0.4)] px-4 py-4 sm:px-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -671,7 +670,7 @@ export default function SupportPageClient() {
         ) : null}
       </header>
 
-      <div className="flex min-h-0 flex-1 basis-0 flex-col overflow-hidden md:flex-row">
+      <div className="flex min-h-0 w-full min-w-0 flex-1 basis-0 flex-col overflow-hidden md:flex-row">
         <aside
           className={`flex min-h-0 w-full flex-col overflow-hidden border-white/[0.06] md:w-[320px] md:max-w-[320px] md:shrink-0 md:basis-[320px] md:border-r ${
             mobileView === "chat" ? "hidden md:flex" : "flex min-h-0 flex-1 md:flex-none"
@@ -771,7 +770,7 @@ export default function SupportPageClient() {
         </aside>
 
         <section
-          className={`flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-[#0c0d12] ${
+          className={`flex min-h-0 w-full min-w-0 flex-1 basis-0 flex-col overflow-hidden bg-[#0c0d12] ${
             mobileView === "list" ? "hidden md:flex" : "flex"
           }`}
           aria-label="Чат поддержки"
@@ -802,7 +801,7 @@ export default function SupportPageClient() {
               </p>
             </div>
           ) : (
-            <div className="mx-auto flex min-h-0 min-w-0 w-full max-w-3xl flex-1 flex-col overflow-hidden border-white/[0.06] md:border-l md:basis-0">
+            <div className="mx-auto flex h-full min-h-0 min-w-0 w-full max-w-3xl flex-1 flex-col overflow-hidden border-white/[0.06] md:border-l md:basis-0">
               {/* A: шапка тикета — flex shrink-0, не в зоне scroll сообщений */}
               <div className="shrink-0 border-b border-white/[0.06] bg-[#12141a]/80 px-4 py-3 sm:px-5">
                 <div className="min-w-0">

@@ -6,7 +6,10 @@ import { useRef, useEffect, useState, useMemo, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { acquireBodyScrollLock } from "@/app/lib/bodyScrollLock";
 import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
-import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
+import { useBillingPricingModalRequest } from "@/app/app/components/BillingPricingModalProvider";
+import { billingActionAllowed, readLastKnownBootstrap } from "@/app/lib/billingBootstrapClient";
+import { isFreeTierFromBootstrap } from "@/app/lib/billingBootstrapPlanLabel";
+import { FREE_DASHBOARD_ATTRIBUTION_CTA_LABEL } from "@/app/lib/planRestrictedCopy";
 import { ActionId } from "@/app/lib/billingUiContract";
 import { setActiveProjectId } from "@/app/lib/activeProjectClient";
 import type { Project } from "@/app/lib/auth/getCurrentUserContext";
@@ -156,7 +159,13 @@ export default function ProjectsListClient({
   planMaxProjects = null,
 }: Props) {
   const router = useRouter();
-  const { resolvedUi } = useBillingBootstrap();
+  const { resolvedUi, bootstrap, loading: billingBootstrapLoading } = useBillingBootstrap();
+  const { requestBillingPricingModal } = useBillingPricingModalRequest();
+  const bootstrapForTier = useMemo(() => {
+    if (bootstrap) return bootstrap;
+    if (billingBootstrapLoading) return readLastKnownBootstrap();
+    return null;
+  }, [bootstrap, billingBootstrapLoading]);
 
   const canSyncProjectMutations = useMemo(
     () => billingActionAllowed(resolvedUi, ActionId.sync_refresh),
@@ -434,6 +443,8 @@ export default function ProjectsListClient({
   };
 
   const showEmpty = displayProjects.length === 0;
+  const showProjectsPageFreeUpsell = !showEmpty && isFreeTierFromBootstrap(bootstrapForTier);
+  const showProjectsPageFreeUpsellInEmpty = showEmpty && !isArchivedTab && isFreeTierFromBootstrap(bootstrapForTier);
   const emptyForTab = isArchivedTab
     ? "Нет архивных проектов"
     : canCreate
@@ -600,30 +611,60 @@ export default function ProjectsListClient({
       </div>
 
       {showEmpty ? (
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-6 text-center sm:p-10">
-          <h2 className="text-base font-medium text-white sm:text-lg">{emptyForTab}</h2>
-          <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-zinc-500 sm:max-w-none">
-            {isArchivedTab
-              ? "Архивированные проекты появятся здесь."
-              : canCreate
-                ? "Создайте первый проект, чтобы начать."
-                : "Обратитесь к администратору организации для доступа к проекту."}
-          </p>
-          {canCreate && !isArchivedTab && (
-            <div className="mt-5 flex w-full justify-center px-0 sm:mt-6 sm:px-1">
-              <CreateProjectLinkControl
-                canTryCreate
-                billingAllows={billingAllowsCreateProject}
-                atPlanLimit={atProjectPlanLimit}
-                linkClassName="inline-flex min-h-11 w-full max-w-sm cursor-pointer items-center justify-center rounded-xl bg-white/10 px-6 text-sm font-semibold text-white shadow-sm ring-1 ring-white/10 hover:bg-white/15 max-sm:bg-emerald-500/[0.18] max-sm:ring-emerald-400/25 sm:inline-flex sm:h-11 sm:min-h-0 sm:max-w-xs sm:font-medium sm:shadow-none sm:ring-0"
-                disabledClassName="inline-flex min-h-11 w-full max-w-sm cursor-not-allowed items-center justify-center rounded-xl bg-white/[0.05] px-6 text-sm font-medium text-white/35 sm:inline-flex sm:h-11 sm:min-h-0 sm:max-w-xs"
-              >
-                Создать первый проект
-              </CreateProjectLinkControl>
+        <>
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-6 text-center sm:p-10">
+            <h2 className="text-base font-medium text-white sm:text-lg">{emptyForTab}</h2>
+            <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-zinc-500 sm:max-w-none">
+              {isArchivedTab
+                ? "Архивированные проекты появятся здесь."
+                : canCreate
+                  ? "Создайте первый проект, чтобы начать."
+                  : "Обратитесь к администратору организации для доступа к проекту."}
+            </p>
+            {canCreate && !isArchivedTab && (
+              <div className="mt-5 flex w-full justify-center px-0 sm:mt-6 sm:px-1">
+                <CreateProjectLinkControl
+                  canTryCreate
+                  billingAllows={billingAllowsCreateProject}
+                  atPlanLimit={atProjectPlanLimit}
+                  linkClassName="inline-flex min-h-11 w-full max-w-sm cursor-pointer items-center justify-center rounded-xl bg-white/10 px-6 text-sm font-semibold text-white shadow-sm ring-1 ring-white/10 hover:bg-white/15 max-sm:bg-emerald-500/[0.18] max-sm:ring-emerald-400/25 sm:inline-flex sm:h-11 sm:min-h-0 sm:max-w-xs sm:font-medium sm:shadow-none sm:ring-0"
+                  disabledClassName="inline-flex min-h-11 w-full max-w-sm cursor-not-allowed items-center justify-center rounded-xl bg-white/[0.05] px-6 text-sm font-medium text-white/35 sm:inline-flex sm:h-11 sm:min-h-0 sm:max-w-xs"
+                >
+                  Создать первый проект
+                </CreateProjectLinkControl>
+              </div>
+            )}
+          </div>
+          {showProjectsPageFreeUpsellInEmpty ? (
+            <div
+              className="rounded-2xl border border-amber-400/45 bg-gradient-to-br from-amber-500/[0.14] via-amber-400/[0.08] to-black/20 px-4 py-4 shadow-[0_12px_40px_rgba(251,191,36,0.08)] sm:flex sm:items-center sm:justify-between sm:gap-6 sm:px-6 sm:py-5"
+              role="region"
+              aria-label="Обновление тарифа"
+            >
+              <div className="min-w-0 flex-1">
+                <h2 className="text-base font-semibold tracking-tight text-amber-50 sm:text-lg">
+                  Обновите тариф
+                </h2>
+                <p className="mt-1.5 text-sm leading-relaxed text-amber-100/85 sm:mt-2 sm:max-w-[42rem]">
+                  Обновите тариф чтобы разблокировать весь функционал и получить максимум возможностей.
+                </p>
+              </div>
+              <div className="mt-4 shrink-0 sm:mt-0">
+                <button
+                  type="button"
+                  onClick={() =>
+                    requestBillingPricingModal("projects_page_free_upgrade_banner", { force: true })
+                  }
+                  className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 shadow-sm transition-colors hover:bg-amber-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/90 sm:min-h-10 sm:w-auto sm:px-5"
+                >
+                  {FREE_DASHBOARD_ATTRIBUTION_CTA_LABEL}
+                </button>
+              </div>
             </div>
-          )}
-        </div>
+          ) : null}
+        </>
       ) : (
+        <>
         <div className="grid grid-cols-1 gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {displayProjects.map((project) => {
             const role = roleMap[project.id] ?? "member";
@@ -741,6 +782,34 @@ export default function ProjectsListClient({
             );
           })}
         </div>
+        {showProjectsPageFreeUpsell ? (
+          <div
+            className="rounded-2xl border border-amber-400/45 bg-gradient-to-br from-amber-500/[0.14] via-amber-400/[0.08] to-black/20 px-4 py-4 shadow-[0_12px_40px_rgba(251,191,36,0.08)] sm:flex sm:items-center sm:justify-between sm:gap-6 sm:px-6 sm:py-5"
+            role="region"
+            aria-label="Обновление тарифа"
+          >
+            <div className="min-w-0 flex-1">
+              <h2 className="text-base font-semibold tracking-tight text-amber-50 sm:text-lg">
+                Обновите тариф
+              </h2>
+              <p className="mt-1.5 text-sm leading-relaxed text-amber-100/85 sm:mt-2 sm:max-w-[42rem]">
+                Обновите тариф чтобы разблокировать весь функционал и получить максимум возможностей.
+              </p>
+            </div>
+            <div className="mt-4 shrink-0 sm:mt-0">
+              <button
+                type="button"
+                onClick={() =>
+                  requestBillingPricingModal("projects_page_free_upgrade_banner", { force: true })
+                }
+                className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 shadow-sm transition-colors hover:bg-amber-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/90 sm:min-h-10 sm:w-auto sm:px-5"
+              >
+                {FREE_DASHBOARD_ATTRIBUTION_CTA_LABEL}
+              </button>
+            </div>
+          </div>
+        ) : null}
+        </>
       )}
 
       {/* Rename modal (portal + centered: fixed внутри scroll-оболочки ломал позиционирование на мобилке) */}

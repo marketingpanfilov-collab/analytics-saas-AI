@@ -27,13 +27,13 @@ const BILLING_OPTIONS: { value: BillingPeriod; label: string }[] = [
 ];
 
 const MONTHLY_PRICE: Record<ComparisonPaidPlan, number> = {
-  growth: 99,
-  scale: 249,
+  growth: 49,
+  scale: 99,
 };
 
 const YEARLY_DISCOUNT_PERCENT: Record<ComparisonPaidPlan, number> = {
-  growth: 15,
-  scale: 20,
+  growth: 32,
+  scale: 32,
 };
 
 const FEATURES: FeatureRow[] = [

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { supabase } from "@/app/lib/supabaseClient";
 import { cn } from "@/components/landing/BaseButton";
+import { useLandingMobileAuthNavOverlay } from "@/components/landing/LandingMobileAuthNavOverlay";
 
 type Variant = "primary" | "primaryEmerald" | "secondary" | "outline";
 
@@ -21,6 +22,7 @@ export function LandingLoginButton({
   onBeforeNavigate?: () => void;
 }) {
   const router = useRouter();
+  const authNavOverlay = useLandingMobileAuthNavOverlay();
   const [isAuthed, setIsAuthed] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -41,6 +43,7 @@ export function LandingLoginButton({
   }, []);
 
   const handleClick = useCallback(() => {
+    authNavOverlay?.startMobileAuthWait();
     setLoading(true);
     onBeforeNavigate?.();
     (async () => {
@@ -49,7 +52,7 @@ export function LandingLoginButton({
       setIsAuthed(hasSession);
       router.push(hasSession ? "/app/projects" : "/login");
     })();
-  }, [router, onBeforeNavigate]);
+  }, [authNavOverlay, router, onBeforeNavigate]);
 
   const idleLabel = labelProp ?? "Войти";
   const label = loading ? (isAuthed ? "Авторизация..." : "Подождите…") : idleLabel;

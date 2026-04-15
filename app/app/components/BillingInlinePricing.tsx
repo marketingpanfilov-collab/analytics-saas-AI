@@ -248,6 +248,8 @@ export default function BillingInlinePricing({
   const router = useRouter();
   const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
+  const projectIdFromUrl = searchParams.get("project_id")?.trim() || null;
+  const effectiveProjectId = projectId ?? projectIdFromUrl;
   const currentAppPath = useMemo(() => {
     const q = searchParams.toString();
     return q ? `${pathname}?${q}` : pathname;
@@ -715,7 +717,7 @@ export default function BillingInlinePricing({
             body: JSON.stringify({
               target_plan: plan,
               target_billing: billing,
-              ...(projectId ? { project_id: projectId } : {}),
+              ...(effectiveProjectId ? { project_id: effectiveProjectId } : {}),
               ...(bootstrap?.primary_org_id
                 ? { primary_org_id: bootstrap.primary_org_id }
                 : {}),
@@ -792,7 +794,7 @@ export default function BillingInlinePricing({
           userId: sessionUserId,
           pwCustomerId,
           primaryOrgId,
-          projectId,
+          projectId: effectiveProjectId,
           checkoutAttemptId,
           onCompleted: () => {
             if (postPaymentStartedRef.current) return;
@@ -886,7 +888,7 @@ export default function BillingInlinePricing({
       bootstrap?.primary_org_id,
       bootstrap?.subscription?.provider_subscription_id,
       reloadBootstrap,
-      projectId,
+      effectiveProjectId,
       currentAppPath,
       pathname,
       runPostPaymentPollingLoop,
@@ -924,7 +926,7 @@ export default function BillingInlinePricing({
             target_plan: upgradeDraft.targetPlan,
             target_billing: upgradeDraft.targetBilling,
             idempotency_key: idempotencyKey,
-            ...(projectId ? { project_id: projectId } : {}),
+            ...(effectiveProjectId ? { project_id: effectiveProjectId } : {}),
             ...(bootstrap?.primary_org_id
               ? { primary_org_id: bootstrap.primary_org_id }
               : {}),
@@ -1016,7 +1018,7 @@ export default function BillingInlinePricing({
     subscriptionUpgradeApplying,
     paddleSrc,
     subscriptionUpgradeSlice,
-    projectId,
+    effectiveProjectId,
     bootstrap?.primary_org_id,
     bootstrap?.subscription?.provider_subscription_id,
     resolvedUi,

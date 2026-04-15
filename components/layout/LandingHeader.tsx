@@ -7,6 +7,7 @@ import { X } from "lucide-react";
 
 import { acquireBodyScrollLock } from "@/app/lib/bodyScrollLock";
 import { cn } from "@/components/landing/BaseButton";
+import { useLandingMobileAuthNavOverlay } from "@/components/landing/LandingMobileAuthNavOverlay";
 import { PartnershipNavButton } from "@/components/landing/PartnershipLeadProvider";
 import { LandingLoginButton } from "@/components/layout/LandingLoginButton";
 
@@ -27,6 +28,7 @@ const landingHomeMobileAuthBtnClass =
 export function LandingHeader() {
   const router = useRouter();
   const pathname = usePathname();
+  const authNavOverlay = useLandingMobileAuthNavOverlay();
   const landingHomeMobileMenu = pathname === "/";
   const [mobileOpen, setMobileOpen] = useState(false);
   /** Стабильный id без символов `:` из useId() — надёжнее для aria-controls в браузерах. */
@@ -126,6 +128,7 @@ export function LandingHeader() {
             <div className="flex shrink-0 items-center gap-2 sm:gap-3 md:gap-4">
               <Link
                 href="/login?signup=1"
+                onClick={() => authNavOverlay?.startMobileAuthWait()}
                 className="inline-flex h-11 min-w-[132px] items-center justify-center rounded-xl border border-white/12 bg-white/8 px-4 text-sm font-extrabold text-white/92 transition hover:bg-white/12 sm:min-w-[148px] sm:px-6 md:hidden"
               >
                 Регистрация
@@ -242,7 +245,10 @@ export function LandingHeader() {
               <Link
                 href="/login?signup=1"
                 className={landingHomeMobileMenu ? landingHomeMobileAuthBtnClass : mobileAuthBtnClass}
-                onClick={closeMobileMenu}
+                onClick={() => {
+                  authNavOverlay?.startMobileAuthWait();
+                  closeMobileMenu();
+                }}
               >
                 Регистрация
               </Link>

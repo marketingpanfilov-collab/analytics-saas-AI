@@ -72,16 +72,24 @@ function buildAuthSiteOrigin(): string {
  * Если NEXT_PUBLIC_APP_URL указывает на другой хост, чем открыта страница (preview / www), берём origin вкладки —
  * иначе Supabase может отклонить redirect и письмо не уйдёт.
  */
-function buildEmailConfirmRedirectUrl(appNextPath: string): string {
+function buildEmailConfirmRedirectUrl(
+  appNextPath: string,
+  opts?: { emailFlow?: "signup" }
+): string {
   const winOrigin = typeof window !== "undefined" ? window.location.origin : "";
   const base = buildAuthSiteOrigin();
 
   const safe = safeAppNextTarget(appNextPath, base || winOrigin || "http://localhost") ?? DEFAULT_POST_AUTH_APP;
+  const qs = new URLSearchParams();
+  qs.set("next", safe);
+  if (opts?.emailFlow === "signup") qs.set("email_flow", "signup");
+  const q = qs.toString();
+
   const absoluteBase = base || winOrigin;
   if (!absoluteBase) {
-    return `/auth/callback?next=${encodeURIComponent(safe)}`;
+    return `/auth/callback?${q}`;
   }
-  return `${absoluteBase}/auth/callback?next=${encodeURIComponent(safe)}`;
+  return `${absoluteBase}/auth/callback?${q}`;
 }
 
 /**
@@ -254,14 +262,14 @@ export default function LoginPageClient() {
 
   const MONTHLY_USD: Record<PricingPlanId, number> = {
     starter: 39,
-    growth: 99,
-    scale: 249,
+    growth: 49,
+    scale: 99,
   };
 
   const YEARLY_DISCOUNT_PERCENT: Record<PricingPlanId, number> = {
     starter: 10,
-    growth: 15,
-    scale: 20,
+    growth: 32,
+    scale: 32,
   };
 
   const yearlyTotalDiscountedUsd = (plan: PricingPlanId) => {
@@ -414,7 +422,7 @@ export default function LoginPageClient() {
     const signUpRes = await supabase.auth.signUp({
       email: email.trim(),
       password,
-      options: { emailRedirectTo: buildEmailConfirmRedirectUrl(nextPath) },
+      options: { emailRedirectTo: buildEmailConfirmRedirectUrl(nextPath, { emailFlow: "signup" }) },
     });
     let data = signUpRes.data;
     if (signUpRes.error) {
@@ -530,7 +538,7 @@ export default function LoginPageClient() {
       const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
-        options: { emailRedirectTo: buildEmailConfirmRedirectUrl(nextPath) },
+        options: { emailRedirectTo: buildEmailConfirmRedirectUrl(nextPath, { emailFlow: "signup" }) },
       });
       if (error) {
         if (isAlreadyRegisteredMessage(error.message)) {
@@ -865,7 +873,7 @@ export default function LoginPageClient() {
     if (resendConfirmBusy) return;
     setResendConfirmBusy(true);
     try {
-      const redirectTo = buildEmailConfirmRedirectUrl(nextPath);
+      const redirectTo = buildEmailConfirmRedirectUrl(nextPath, { emailFlow: "signup" });
       const { error } = await supabase.auth.resend({
         type: "signup",
         email: email.trim(),

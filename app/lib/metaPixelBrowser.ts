@@ -4,7 +4,11 @@
  */
 
 import type { PaddleEventData } from "@paddle/paddle-js";
-import { metaInitiateCheckoutEventId, metaPurchaseEventId } from "@/app/lib/metaMarketingIds";
+import {
+  metaCompleteRegistrationEventId,
+  metaInitiateCheckoutEventId,
+  metaPurchaseEventId,
+} from "@/app/lib/metaMarketingIds";
 import { extractPurchaseFromPaddleCheckoutCompletedData } from "@/app/lib/paddleMetaExtract";
 
 declare global {
@@ -43,6 +47,7 @@ export function readFacebookBrowserSignals(): { fbp: string | null; fbc: string 
 
 const IC_STORAGE_PREFIX = "boardiq_meta_ic_";
 const PURCHASE_STORAGE_PREFIX = "boardiq_meta_purchase_";
+const COMPLETE_REGISTRATION_STORAGE_PREFIX = "boardiq_meta_cr_";
 
 export function fireMetaInitiateCheckoutPixelAndCapi(args: {
   checkoutAttemptId: string;
@@ -154,6 +159,34 @@ export function fireMetaPurchasePixelFromPaddleEvent(event: PaddleEventData): vo
       window.fbq?.("track", "Purchase", pixelPayload, pixelOpts);
     } catch (e) {
       console.warn("[meta_pixel] Purchase fbq", e);
+    }
+  })();
+}
+
+/** Pixel CompleteRegistration — тот же event_id, что и CAPI (дедуп в Events Manager). */
+export function fireMetaCompleteRegistrationPixel(args: {
+  userId: string;
+  appUserId?: string | null;
+}): void {
+  if (typeof window === "undefined") return;
+  const eventID = metaCompleteRegistrationEventId(args.userId);
+  const storageKey = `${COMPLETE_REGISTRATION_STORAGE_PREFIX}${eventID}`;
+  try {
+    if (sessionStorage.getItem(storageKey)) return;
+    sessionStorage.setItem(storageKey, "1");
+  } catch {
+    /* ignore */
+  }
+  const rawUserId = isStableAppUserId(args.appUserId) ? args.appUserId!.trim() : null;
+  void (async () => {
+    const pixelOpts: Record<string, string> = { eventID };
+    if (rawUserId) {
+      pixelOpts.external_id = await sha256Utf8Hex(rawUserId);
+    }
+    try {
+      window.fbq?.("track", "CompleteRegistration", {}, pixelOpts);
+    } catch (e) {
+      console.warn("[meta_pixel] CompleteRegistration fbq", e);
     }
   })();
 }

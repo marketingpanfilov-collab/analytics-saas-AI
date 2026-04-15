@@ -47,3 +47,46 @@ export function normalizeAndHashMetaUserData(input: MetaUserDataInput): {
 
   return out;
 }
+
+export type HashMetaPhoneForCapiOpts = {
+  /**
+   * При `META_DEFAULT_PHONE_CC_DIGITS=7` автоматически добавляем «7» к 10 цифрам, начинающимся с 9
+   * (типовой мобильный РФ без кода). Иные коды стран здесь не дописываем — не угадываем формат.
+   */
+  defaultCallingCodeDigits?: string | null;
+};
+
+/**
+ * Телефон для CAPI `ph`: только цифры, затем SHA-256 (UTF-8).
+ * Короткие строки отбрасываем (меньше 8 цифр — не отправляем).
+ */
+export function hashMetaPhoneForCapi(
+  raw: string | null | undefined,
+  opts?: HashMetaPhoneForCapiOpts
+): string | null {
+  if (raw == null) return null;
+  let digits = String(raw).replace(/\D/g, "");
+  const cc = opts?.defaultCallingCodeDigits?.trim();
+  if (cc === "7" && digits.length === 10 && digits.startsWith("9")) {
+    digits = `7${digits}`;
+  }
+  if (digits.length < 8) return null;
+  return sha256HexLower(digits);
+}
+
+/**
+ * Полное ФИО из одного поля → fn / ln (lowercase, SHA-256), формат Meta (массивы).
+ */
+export function hashMetaFirstLastNameForCapi(fullName: string): { fn?: string[]; ln?: string[] } {
+  const t = fullName.trim().replace(/\s+/g, " ");
+  if (!t) return {};
+  const i = t.indexOf(" ");
+  if (i === -1) {
+    return { fn: [sha256HexLower(t.toLowerCase())] };
+  }
+  const first = t.slice(0, i).toLowerCase();
+  const last = t.slice(i + 1).toLowerCase();
+  const out: { fn?: string[]; ln?: string[] } = { fn: [sha256HexLower(first)] };
+  if (last.length) out.ln = [sha256HexLower(last)];
+  return out;
+}

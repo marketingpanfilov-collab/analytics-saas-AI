@@ -2,6 +2,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { safeAppNextTarget } from "@/app/lib/auth/safeAppNextTarget";
 import { resolveEmailCallbackContinuePath } from "@/app/lib/auth/resolveEmailCallbackContinuePath";
+import {
+  META_COMPLETE_REGISTRATION_ELIGIBLE_COOKIE,
+  META_CR_COOKIE_MAX_AGE_SEC,
+} from "@/app/lib/metaCompleteRegistrationCookie";
+import { setMetaCompleteRegistrationEligibleForUser } from "@/app/lib/metaCompleteRegistrationEligible";
 
 const DEFAULT_NEXT = "/app/projects";
 
@@ -118,6 +123,17 @@ export async function GET(request: NextRequest) {
       response.cookies.set(name, value);
     }
   });
+
+  if (typeRaw === "signup") {
+    response.cookies.set(META_COMPLETE_REGISTRATION_ELIGIBLE_COOKIE, "1", {
+      httpOnly: true,
+      path: "/",
+      maxAge: META_CR_COOKIE_MAX_AGE_SEC,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+    });
+    await setMetaCompleteRegistrationEligibleForUser(user.id);
+  }
 
   return response;
 }

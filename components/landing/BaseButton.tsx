@@ -1,4 +1,8 @@
+"use client";
+
 import Link from "next/link";
+
+import { useLandingMobileAuthNavOverlay } from "@/components/landing/LandingMobileAuthNavOverlay";
 
 export function cn(...v: Array<string | false | null | undefined>) {
   return v.filter(Boolean).join(" ");
@@ -10,6 +14,7 @@ export function BaseButton({
   variant = "outline",
   full = false,
   className,
+  showAuthNavWaitOnMobile = false,
 }: {
   children: React.ReactNode;
   href: string;
@@ -17,10 +22,16 @@ export function BaseButton({
   variant?: "primary" | "primaryEmerald" | "secondary" | "outline";
   full?: boolean;
   className?: string;
+  /** На главной (мобилка): тёмный блюр до перехода по ссылке входа/регистрации */
+  showAuthNavWaitOnMobile?: boolean;
 }) {
+  const overlay = useLandingMobileAuthNavOverlay();
   return (
     <Link
       href={href}
+      onClick={() => {
+        if (showAuthNavWaitOnMobile) overlay?.startMobileAuthWait();
+      }}
       className={cn(
         "inline-flex h-12 items-center justify-center rounded-xl px-6",
         "text-sm font-extrabold transition",
