@@ -25,10 +25,61 @@ export default function ResetPage() {
   const [hasRecoveryToken, setHasRecoveryToken] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const params = parseHashParams();
-    const accessToken = params.access_token;
-    const type = params.type;
-    setHasRecoveryToken(!!(accessToken && type === "recovery"));
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const url = new URL(window.location.href);
+        const authError = url.searchParams.get("error");
+        const authErrorDesc = url.searchParams.get("error_description");
+        if (authError) {
+          const text = authErrorDesc
+            ? decodeURIComponent(authErrorDesc.replace(/\+/g, " "))
+            : authError.replace(/_/g, " ");
+          if (!cancelled) {
+            setMsg(text);
+            setMsgType("error");
+            setHasRecoveryToken(false);
+          }
+          return;
+        }
+
+        // PKCE (default for @supabase/ssr createBrowserClient): email link is /reset?code=...
+        // Implicit flow uses #access_token=&type=recovery — both are handled after initialize().
+        await supabase.auth.initialize();
+        let {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (!session) {
+          const params = parseHashParams();
+          if (params.access_token && params.type === "recovery") {
+            await new Promise((r) => setTimeout(r, 200));
+            ({
+              data: { session },
+            } = await supabase.auth.getSession());
+          }
+        }
+
+        if (cancelled) return;
+
+        if (session) {
+          setHasRecoveryToken(true);
+          if (url.searchParams.has("code") || url.hash) {
+            window.history.replaceState(null, "", url.pathname);
+          }
+          return;
+        }
+
+        setHasRecoveryToken(false);
+      } catch {
+        if (!cancelled) setHasRecoveryToken(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const onSubmit = async () => {
@@ -94,7 +145,9 @@ export default function ResetPage() {
             <div>
               <div style={styles.h1}>Сброс пароля</div>
               <div style={styles.sub}>
-                Недействительная или просроченная ссылка. Запросите новый сброс пароля на странице входа.
+                {msg
+                  ? msg
+                  : "Недействительная или просроченная ссылка. Запросите новый сброс пароля на странице входа."}
               </div>
             </div>
           </div>

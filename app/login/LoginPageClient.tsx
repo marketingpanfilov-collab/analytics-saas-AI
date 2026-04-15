@@ -47,14 +47,29 @@ const DEFAULT_POST_AUTH_APP = "/app/projects";
 /**
  * Абсолютный URL для письма подтверждения (Supabase redirect allow-list).
  * `next` в query — тот же контракт, что и в GET /auth/callback (safeAppNextTarget + fallback).
+ * Если NEXT_PUBLIC_APP_URL указывает на другой хост, чем открыта страница (preview / www), берём origin вкладки —
+ * иначе Supabase может отклонить redirect и письмо не уйдёт.
  */
 function buildEmailConfirmRedirectUrl(appNextPath: string): string {
   const envBase = (process.env.NEXT_PUBLIC_APP_URL ?? "").trim().replace(/\/$/, "");
   const winOrigin = typeof window !== "undefined" ? window.location.origin : "";
-  // Письмо Supabase должно вести на канонический origin из env (прод), если задан — совпадение с redirect allow-list.
-  const base = (
-    /^https?:\/\//i.test(envBase) ? envBase : winOrigin || envBase
-  ).replace(/\/$/, "");
+  const envOk = /^https?:\/\//i.test(envBase);
+  const winOk = /^https?:\/\//i.test(winOrigin);
+
+  let base = "";
+  if (envOk && winOk) {
+    try {
+      const envHost = new URL(envBase).hostname.replace(/^www\./i, "");
+      const winHost = new URL(winOrigin).hostname.replace(/^www\./i, "");
+      base = envHost === winHost ? envBase : winOrigin;
+    } catch {
+      base = winOrigin || envBase;
+    }
+  } else {
+    base = (envOk ? envBase : winOrigin || envBase).replace(/\/$/, "");
+  }
+  base = base.replace(/\/$/, "");
+
   const safe = safeAppNextTarget(appNextPath, base || winOrigin || "http://localhost") ?? DEFAULT_POST_AUTH_APP;
   const absoluteBase = base || winOrigin;
   if (!absoluteBase) {
@@ -132,6 +147,8 @@ export default function LoginPageClient() {
   const [loginPaymentRecovery, setLoginPaymentRecovery] = useState(false);
   const [loginReconcileBusy, setLoginReconcileBusy] = useState(false);
   const [loginReconcileHint, setLoginReconcileHint] = useState<string | null>(null);
+  /** После signUp без сессии (нужно подтвердить email) — показать «Отправить письмо повторно». */
+  const [pendingSignupConfirmEmail, setPendingSignupConfirmEmail] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<PricingPlanId | null>(() => parsePricingPlanId(planParam));
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [modalBilling, setModalBilling] = useState<BillingPeriod>(billing);
@@ -201,6 +218,10 @@ export default function LoginPageClient() {
   useEffect(() => {
     setModalBilling(billing);
   }, [billing]);
+
+  useEffect(() => {
+    if (mode !== "signup") setPendingSignupConfirmEmail(false);
+  }, [mode]);
 
   async function fetchLoginCheckoutReadyOnce(
     organizationId: string,
@@ -363,6 +384,7 @@ export default function LoginPageClient() {
       clearLoginCheckoutFinalizeOrg();
     } else {
       persistLoginCheckoutFinalizeOrg(organizationId);
+      setPendingSignupConfirmEmail(true);
       setMsg(
         "✅ Оплата прошла успешно. На ваш email отправлено письмо для подтверждения — перейдите по ссылке, чтобы открыть настройку аккаунта."
       );
@@ -413,6 +435,7 @@ export default function LoginPageClient() {
       return setMsg("Для регистрации необходимо принять пользовательское соглашение.");
     }
 
+    setPendingSignupConfirmEmail(false);
     setLoading(true);
     try {
       const { data, error } = await supabase.auth.signUp({
@@ -427,11 +450,13 @@ export default function LoginPageClient() {
       // При включённом «Confirm email» в Supabase сессии нет до клика по ссылке —
       // редирект в /app без cookie даёт redirect на /login и визуально «зависание», если не снять loading.
       if (!data.session) {
+        setPendingSignupConfirmEmail(true);
         setMsg(
           "Аккаунт создан. Подтвердите email по ссылке в письме, затем войдите — после этого откроется доступ к проектам."
         );
         return;
       }
+      setPendingSignupConfirmEmail(false);
       router.replace(nextPath);
     } catch (e) {
       console.error("[Login invite signup] error", e);
@@ -735,6 +760,28 @@ export default function LoginPageClient() {
     }
   };
 
+  const resendSignupConfirmation = async () => {
+    if (!email.trim()) {
+      setMsg("Введите email, указанный при регистрации.");
+      return;
+    }
+    setLoading(true);
+    try {
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: email.trim(),
+        options: { emailRedirectTo: buildEmailConfirmRedirectUrl(nextPath) },
+      });
+      if (error) {
+        setMsg(error.message);
+        return;
+      }
+      setMsg("✅ Письмо отправлено снова. Проверьте почту и папку «Спам».");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const signupBlocked = mode === "signup" && !acceptTerms;
 
   const inputClass =
@@ -1008,6 +1055,22 @@ export default function LoginPageClient() {
               >
                 {msg}
               </p>
+            ) : null}
+
+            {pendingSignupConfirmEmail && mode === "signup" && !loginPaymentRecovery ? (
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => void resendSignupConfirmation()}
+                  disabled={loading}
+                  className="w-full cursor-pointer rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2.5 text-sm font-medium text-zinc-200 transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Отправить письмо подтверждения повторно
+                </button>
+                <p className="text-center text-xs text-zinc-500">
+                  Проверьте папку «Спам». Если письма нет — в Supabase проверьте SMTP, лимиты и логи Authentication.
+                </p>
+              </div>
             ) : null}
 
             <div
