@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useRef, useEffect, useState, useMemo, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { acquireBodyScrollLock } from "@/app/lib/bodyScrollLock";
 import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
 import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
 import { ActionId } from "@/app/lib/billingUiContract";
@@ -220,11 +221,7 @@ export default function ProjectsListClient({
   useEffect(() => {
     if (!portalReady) return;
     if (renameProject == null && archiveProject == null && !transferModalOpen) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
+    return acquireBodyScrollLock();
   }, [portalReady, renameProject, archiveProject, transferModalOpen]);
 
   const showMobileOverflow =

@@ -3,6 +3,7 @@
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBillingBootstrap } from "@/app/app/components/BillingBootstrapProvider";
+import { acquireBodyScrollLock } from "@/app/lib/bodyScrollLock";
 import { billingActionAllowed } from "@/app/lib/billingBootstrapClient";
 import { ActionId } from "@/app/lib/billingUiContract";
 import { ALLOWED_TYPES, MAX_ATTACHMENTS, MAX_BYTES, type StoredAttachment } from "@/app/lib/supportAttachments";
@@ -213,11 +214,7 @@ function NewTicketModal({
 
   useEffect(() => {
     if (!open) return;
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prevOverflow;
-    };
+    return acquireBodyScrollLock();
   }, [open]);
 
   useEffect(() => {
@@ -503,14 +500,12 @@ export default function SupportPageClient() {
 
   useEffect(() => {
     const html = document.documentElement;
-    const body = document.body;
+    const releaseBody = acquireBodyScrollLock();
     const prevHtml = html.style.overflow;
-    const prevBody = body.style.overflow;
     html.style.overflow = "hidden";
-    body.style.overflow = "hidden";
     return () => {
       html.style.overflow = prevHtml;
-      body.style.overflow = prevBody;
+      releaseBody();
     };
   }, []);
 

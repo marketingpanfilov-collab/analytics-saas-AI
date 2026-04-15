@@ -3,6 +3,7 @@
 import { useCallback, useEffect } from "react";
 import { X } from "lucide-react";
 
+import { acquireBodyScrollLock } from "@/app/lib/bodyScrollLock";
 import { cn } from "@/components/landing/BaseButton";
 import { LandingMobileNavBody } from "@/components/layout/LandingMobileNavBody";
 
@@ -27,11 +28,7 @@ export default function AppMobileLandingNavDrawer() {
 
   useEffect(() => {
     if (!mobileNavOpen) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
+    return acquireBodyScrollLock();
   }, [mobileNavOpen]);
 
   return (

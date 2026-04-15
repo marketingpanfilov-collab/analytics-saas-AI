@@ -1,5 +1,6 @@
 "use client";
 
+import { acquireBodyScrollLock } from "@/app/lib/bodyScrollLock";
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -107,11 +108,7 @@ export function MobileBottomSheet({
 
   useEffect(() => {
     if (!mounted) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
+    return acquireBodyScrollLock();
   }, [mounted]);
 
   if (!mounted || typeof document === "undefined") return null;

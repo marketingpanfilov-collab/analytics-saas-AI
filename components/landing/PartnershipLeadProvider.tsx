@@ -14,6 +14,7 @@ import {
 } from "react";
 
 import { cn } from "@/components/landing/BaseButton";
+import { acquireBodyScrollLock } from "@/app/lib/bodyScrollLock";
 import {
   PARTNERSHIP_COLLABORATION_OPTIONS,
   type PartnershipCollaborationId,
@@ -150,14 +151,13 @@ function PartnershipModal({
     const scrollbarWidth = Math.max(0, window.innerWidth - html.clientWidth);
     const scrollY = window.scrollY;
 
-    const prevBodyOverflow = document.body.style.overflow;
+    const releaseBodyScrollLock = acquireBodyScrollLock();
     const prevBodyPaddingRight = document.body.style.paddingRight;
     const prevBodyPosition = document.body.style.position;
     const prevBodyTop = document.body.style.top;
     const prevBodyWidth = document.body.style.width;
     const prevHtmlScrollBehavior = html.style.scrollBehavior;
 
-    document.body.style.overflow = "hidden";
     document.body.style.position = "fixed";
     document.body.style.top = `-${scrollY}px`;
     document.body.style.width = "100%";
@@ -177,7 +177,7 @@ function PartnershipModal({
 
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevBodyOverflow;
+      releaseBodyScrollLock();
       document.body.style.paddingRight = prevBodyPaddingRight;
       document.body.style.position = prevBodyPosition;
       document.body.style.top = prevBodyTop;

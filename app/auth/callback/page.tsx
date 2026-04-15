@@ -52,7 +52,9 @@ function AuthCallbackInner() {
 
       if (!session?.user) {
         const login = new URL("/login", origin);
-        login.searchParams.set("auth_hint", "missing_code");
+        // `?code=` без code_verifier (другой браузер / инкогнито) — не путать с «устаревшим» токеном
+        const hint = searchParams.get("code") ? "pkce_wrong_profile" : "missing_code";
+        login.searchParams.set("auth_hint", hint);
         login.searchParams.set("next", safeNext);
         if (isRecoveryNext) login.searchParams.set("auth_flow", "recovery");
         router.replace(`${login.pathname}${login.search}`);

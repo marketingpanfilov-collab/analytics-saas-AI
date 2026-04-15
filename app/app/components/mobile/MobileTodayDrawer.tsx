@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { acquireBodyScrollLock } from "@/app/lib/bodyScrollLock";
 import { createPortal } from "react-dom";
 import { useAppMobileNav } from "../AppMobileNavContext";
 
@@ -48,11 +49,7 @@ export default function MobileTodayDrawer() {
 
   useEffect(() => {
     if (!mounted) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
+    return acquireBodyScrollLock();
   }, [mounted]);
 
   const close = useCallback(() => setTodayDrawerOpen(false), [setTodayDrawerOpen]);

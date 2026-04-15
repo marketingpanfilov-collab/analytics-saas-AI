@@ -12,9 +12,13 @@ export default function ProjectsOnboardingPage() {
   const router = useRouter();
   const { bootstrap, loading } = useBillingBootstrap();
 
-  /** После завершения онбординга подложка переключается на переход к списку проектов. */
-  const redirecting =
-    !loading && bootstrap != null && bootstrap.requires_post_checkout_onboarding === false;
+  /**
+   * После завершения онбординга сервер выставляет requires_post_checkout_onboarding === false.
+   * Показываем «Подождите…» и на время `loading === true` после reloadBootstrap — иначе
+   * условие «только !loading» не срабатывало, и подложка снова показывала заголовок.
+   */
+  const postCheckoutOnboardingDone =
+    bootstrap != null && bootstrap.requires_post_checkout_onboarding === false;
 
   useEffect(() => {
     if (loading) return;
@@ -24,7 +28,7 @@ export default function ProjectsOnboardingPage() {
     router.replace("/app/projects");
   }, [loading, bootstrap, router]);
 
-  if (redirecting) {
+  if (postCheckoutOnboardingDone) {
     return (
       <div
         className="flex w-full items-center justify-center px-6"

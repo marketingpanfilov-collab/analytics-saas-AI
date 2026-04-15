@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import { acquireBodyScrollLock } from "@/app/lib/bodyScrollLock";
 import { setActiveProjectId } from "@/app/lib/activeProjectClient";
 import { supabase } from "../../lib/supabaseClient";
 import { billingActionAllowed, clearBillingRouteStorage } from "@/app/lib/billingBootstrapClient";
@@ -466,21 +467,10 @@ export default function Topbar({ email }: { email?: string }) {
   const [maxPlanHover, setMaxPlanHover] = useState(false);
   const [maxPlanCursor, setMaxPlanCursor] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
-  /**
-   * После «Сменить тариф» bottom sheet закрывается с анимацией и сбрасывает body.overflow (~300ms).
-   * Повторно фиксируем hidden, пока открыта модалка тарифов; при закрытии модалки возвращаем скролл страницы.
-   */
+  /** Пока открыта модалка тарифов — держим блокировку скролла (счётчик в `bodyScrollLock`, совместимо с bottom sheet). */
   useEffect(() => {
     if (!tariffModalOpen || typeof document === "undefined") return;
-    const lock = () => {
-      document.body.style.overflow = "hidden";
-    };
-    lock();
-    const t = window.setTimeout(lock, 360);
-    return () => {
-      window.clearTimeout(t);
-      document.body.style.overflow = "";
-    };
+    return acquireBodyScrollLock();
   }, [tariffModalOpen]);
 
   /** Смена ширины viewport: сбрасываем тарифную панель (десктопный hover / mobile sheet), без зависимости от planTariffPanelOpen — иначе hover на десктопе мгновенно закрывается. */

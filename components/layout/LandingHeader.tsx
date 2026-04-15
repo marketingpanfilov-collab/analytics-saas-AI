@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { X } from "lucide-react";
 
+import { acquireBodyScrollLock } from "@/app/lib/bodyScrollLock";
 import { cn } from "@/components/landing/BaseButton";
 import { PartnershipNavButton } from "@/components/landing/PartnershipLeadProvider";
 import { LandingLoginButton } from "@/components/layout/LandingLoginButton";
@@ -76,11 +77,7 @@ export function LandingHeader() {
 
   useEffect(() => {
     if (!mobileOpen) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
+    return acquireBodyScrollLock();
   }, [mobileOpen]);
 
   useEffect(() => {

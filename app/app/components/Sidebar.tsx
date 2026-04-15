@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
+import { acquireBodyScrollLock } from "@/app/lib/bodyScrollLock";
 import { setActiveProjectId } from "@/app/lib/activeProjectClient";
 import SalesPlanModal, { type MonthlyPlan } from "./SalesPlanModal";
 import { type ProjectCurrency } from "@/app/lib/currency";
@@ -659,11 +660,7 @@ export default function Sidebar() {
 
   useEffect(() => {
     if (!todayMetricsFrameOpen) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
+    return acquireBodyScrollLock();
   }, [todayMetricsFrameOpen]);
 
   return (

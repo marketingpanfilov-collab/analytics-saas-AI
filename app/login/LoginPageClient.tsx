@@ -172,6 +172,11 @@ export default function LoginPageClient() {
         ? "Ссылка для сброса пароля недействительна или устарела. Запросите новый сброс («Забыли пароль?»)."
         : "Ссылка подтверждения недействительна или устарела. Запросите новое письмо или войдите вручную.";
     }
+    if (hint === "pkce_wrong_profile") {
+      return isRecovery
+        ? "Ссылка сброса использует режим PKCE: откройте её в том же браузере, где запрашивали письмо, или запросите сброс снова. Надёжнее — шаблон письма со ссылкой на /auth/verify?token_hash=… (см. supabase/templates/recovery.html)."
+        : "Ссылка из письма в режиме PKCE не сработала в этом окне (часто инкогнито или другой браузер). Запросите письмо подтверждения снова и откройте ссылку с token_hash (шаблон supabase/templates/confirm_signup.html в Supabase → Confirm signup).";
+    }
     if (err === "exchange_failed") {
       return isRecovery
         ? "Не удалось завершить сброс пароля. Частая причина — ссылка из письма открыта в другом браузере или в приватном режиме (PKCE). Запросите письмо снова и откройте ссылку в обычном окне того же браузера, либо в шаблоне письма Reset password используйте ссылку с token_hash на /auth/verify (см. supabase/templates/recovery.html)."
@@ -219,6 +224,8 @@ export default function LoginPageClient() {
   const [loginReconcileHint, setLoginReconcileHint] = useState<string | null>(null);
   /** После signUp без сессии (нужно подтвердить email) — показать «Отправить письмо повторно». */
   const [pendingSignupConfirmEmail, setPendingSignupConfirmEmail] = useState(false);
+  /** Отдельно от `loading` формы — иначе застрявший спиннер после Paddle/других шагов блокирует повторную отправку. */
+  const [resendConfirmBusy, setResendConfirmBusy] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<PricingPlanId | null>(() => parsePricingPlanId(planParam));
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [modalBilling, setModalBilling] = useState<BillingPeriod>(billing);
@@ -855,20 +862,29 @@ export default function LoginPageClient() {
       setMsg("Введите email, указанный при регистрации.");
       return;
     }
-    setLoading(true);
+    if (resendConfirmBusy) return;
+    setResendConfirmBusy(true);
     try {
+      const redirectTo = buildEmailConfirmRedirectUrl(nextPath);
       const { error } = await supabase.auth.resend({
         type: "signup",
         email: email.trim(),
-        options: { emailRedirectTo: buildEmailConfirmRedirectUrl(nextPath) },
+        options: { emailRedirectTo: redirectTo },
       });
       if (error) {
         setMsg(error.message);
         return;
       }
       setMsg("✅ Письмо отправлено снова. Проверьте почту и папку «Спам».");
+    } catch (e) {
+      console.error("[Login] resend signup confirmation", e);
+      setMsg(
+        e instanceof Error
+          ? e.message
+          : "Не удалось отправить письмо. Проверьте сеть и попробуйте снова."
+      );
     } finally {
-      setLoading(false);
+      setResendConfirmBusy(false);
     }
   };
 
@@ -1150,23 +1166,23 @@ export default function LoginPageClient() {
             ) : null}
 
             {pendingSignupConfirmEmail && mode === "signup" && !loginPaymentRecovery ? (
-              <div className="flex flex-col gap-2">
+              <div className="relative z-20 flex flex-col gap-2">
                 <button
                   type="button"
                   onClick={() => void resendSignupConfirmation()}
-                  disabled={loading}
+                  disabled={resendConfirmBusy}
                   className="w-full cursor-pointer rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2.5 text-sm font-medium text-zinc-200 transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Отправить письмо подтверждения повторно
+                  {resendConfirmBusy ? "Отправляем…" : "Отправить письмо подтверждения повторно"}
                 </button>
                 <p className="text-center text-xs text-zinc-500">
-                  Проверьте папку «Спам». Если письма нет — в Supabase проверьте SMTP, лимиты и логи Authentication.
+                  Проверьте папку «Соц сети», «Рассылки» или «Спам».
                 </p>
               </div>
             ) : null}
 
             <div
-              className={`text-center -mt-2 ${
+              className={`relative z-10 text-center -mt-2 ${
                 mode === "signup" && !isInviteOnlySignup ? "" : "invisible pointer-events-none"
               }`}
             >
@@ -1174,7 +1190,7 @@ export default function LoginPageClient() {
                 type="button"
                 onClick={() => setShowPlanModal(true)}
                 disabled={loading}
-                className="cursor-pointer text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200 hover:drop-shadow-[0_0_14px_rgba(52,211,153,0.35)] disabled:cursor-not-allowed disabled:opacity-50"
+                className="relative z-10 cursor-pointer text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200 hover:drop-shadow-[0_0_14px_rgba(52,211,153,0.35)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {selectedPlan ? "Сменить тариф" : "Выбрать тариф"}
               </button>

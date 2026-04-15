@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
+import { acquireBodyScrollLock } from "@/app/lib/bodyScrollLock";
 import { MOBILE_APP_SHEET_Z, MobileSheetHeaderCloseButton } from "./mobile/MobileBottomSheet";
 import { PLAN_RESTRICTED_ANALYTICS_MESSAGE } from "@/app/lib/planRestrictedCopy";
 import { useBillingBootstrap } from "./BillingBootstrapProvider";
@@ -242,11 +243,7 @@ export default function DataHealthMini({
 
   useEffect(() => {
     if (!popoverOpen || !useBottomSheet) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
+    return acquireBodyScrollLock();
   }, [popoverOpen, useBottomSheet]);
 
   useEffect(() => {

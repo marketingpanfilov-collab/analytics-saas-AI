@@ -1,5 +1,6 @@
 "use client";
 
+import { acquireBodyScrollLock } from "@/app/lib/bodyScrollLock";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -56,11 +57,7 @@ export default function AppNavigationTransitionProvider({ children }: { children
 
   useEffect(() => {
     if (!pending) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
+    return acquireBodyScrollLock();
   }, [pending]);
 
   useEffect(() => {

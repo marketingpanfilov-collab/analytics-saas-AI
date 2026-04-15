@@ -2727,8 +2727,8 @@ export default function AppDashboardClient() {
                   Нет подключённых источников
                 </div>
                 <div style={{ marginTop: 10, fontSize: 14, lineHeight: 1.55, opacity: 0.82 }}>
-                  Подключите рекламные кабинеты и настройте отслеживание (UTM и Pixel), чтобы видеть реальные продажи
-                  и вклад каждого канала.
+                  Подключите рекламные кабинеты и настройте отслеживание (UTM, Pixel и/или CRM), чтобы видеть реальные
+                  продажи и вклад каждого канала.
                 </div>
                 <div
                   style={{
@@ -2770,7 +2770,7 @@ export default function AppDashboardClient() {
                   className="w-full justify-center sm:w-auto"
                   style={onboardingPrimaryBtn}
                 >
-                  UTM, Pixel и/или CRM
+                  Сайт, CRM и Pixel
                 </Link>
               </div>
             </div>
@@ -2844,7 +2844,7 @@ export default function AppDashboardClient() {
                 Рекламные кабинеты
               </Link>
               <Link href={onboardingHref("/app/pixels")} style={onboardingLinkBtn}>
-                UTM, Pixel и/или CRM
+                Сайт, CRM и Pixel
               </Link>
             </div>
           </div>
@@ -2874,7 +2874,7 @@ export default function AppDashboardClient() {
               ) : null}
               {!onboardingSignals.hasSiteEvents ? (
                 <Link href={onboardingHref("/app/pixels")} style={onboardingLinkBtn}>
-                  UTM, Pixel и/или CRM
+                  Сайт, CRM и Pixel
                 </Link>
               ) : null}
             </div>
