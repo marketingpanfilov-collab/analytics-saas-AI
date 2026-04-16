@@ -9,7 +9,7 @@ import {
   isCompanyProfileCompleteForOrg,
   loadBillingCurrentPlan,
 } from "@/app/lib/billingCurrentPlan";
-import { sendMetaCompleteRegistration } from "@/app/lib/metaCapi";
+import { isMetaCapiConfigured, sendMetaCompleteRegistration } from "@/app/lib/metaCapi";
 import {
   clientIpFromRequestForMeta,
   META_COMPLETE_REGISTRATION_ELIGIBLE_COOKIE,
@@ -343,12 +343,20 @@ export async function POST(req: Request) {
       });
     }
 
+    const capiOk = Boolean(metaCr?.meta_complete_registration_capi);
+    /** Браузерный Pixel с тем же event_id, что и CAPI — дедуп в Meta; нужен и при сбое/отсутствии CAPI. */
+    const metaPixel = Boolean(eligible);
+    const clearCrEligible =
+      Boolean(metaCr?.clear_meta_cr_eligible_cookie) ||
+      (Boolean(eligible) && !isMetaCapiConfigured());
+
     const res = NextResponse.json({
       success: true,
       current_step: 3,
-      ...(metaCr?.meta_complete_registration_capi ? { meta_complete_registration_capi: true as const } : {}),
+      ...(capiOk ? { meta_complete_registration_capi: true as const } : {}),
+      ...(metaPixel ? { meta_complete_registration_pixel: true as const } : {}),
     });
-    if (metaCr?.clear_meta_cr_eligible_cookie) {
+    if (clearCrEligible) {
       res.cookies.set(META_COMPLETE_REGISTRATION_ELIGIBLE_COOKIE, "", {
         path: "/",
         maxAge: 0,

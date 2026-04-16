@@ -234,9 +234,9 @@ function PostCheckoutOnboardingModalInner() {
         contact_phone: contactPhone.trim(),
         company_sphere: companySphere,
         company_size: companySize,
-      })) as { meta_complete_registration_capi?: boolean };
-      // true только после успешного Graph CAPI в этом запросе (не просто «была cookie»).
-      if (saveJson?.meta_complete_registration_capi) {
+      })) as { meta_complete_registration_capi?: boolean; meta_complete_registration_pixel?: boolean };
+      // Pixel: тот же event_id, что у CAPI (дедуп). Шлём и при успешном CAPI, и если сервер отдал только pixel (нет/ошибка CAPI).
+      if (saveJson?.meta_complete_registration_pixel || saveJson?.meta_complete_registration_capi) {
         const { data: uCr } = await supabase.auth.getUser();
         if (uCr.user?.id) {
           fireMetaCompleteRegistrationPixel({ userId: uCr.user.id, appUserId: uCr.user.id });
