@@ -234,6 +234,13 @@ export default function LoginPageClient() {
   const [pendingSignupConfirmEmail, setPendingSignupConfirmEmail] = useState(false);
   /** Отдельно от `loading` формы — иначе застрявший спиннер после Paddle/других шагов блокирует повторную отправку. */
   const [resendConfirmBusy, setResendConfirmBusy] = useState(false);
+  /** Сброс пароля: не смешивать с общим loading входа/регистрации. */
+  const [passwordResetBusy, setPasswordResetBusy] = useState(false);
+  /** Секунды до следующей отправки (после успеха). */
+  const [signupResendCooldownSec, setSignupResendCooldownSec] = useState(0);
+  const [passwordResetCooldownSec, setPasswordResetCooldownSec] = useState(0);
+  /** На «Входе», пока ждём подтверждение email: ссылка сброса только после раскрытия. */
+  const [forgotPasswordDisclosed, setForgotPasswordDisclosed] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<PricingPlanId | null>(() => parsePricingPlanId(planParam));
   const [showPlanModal, setShowPlanModal] = useState(false);
   const [modalBilling, setModalBilling] = useState<BillingPeriod>(billing);
@@ -260,6 +267,12 @@ export default function LoginPageClient() {
   const inviteFreeSignupInFlightRef = useRef(false);
   /** Один onPaid на checkout_attempt_id (Paddle может дернуть success несколькими событиями). */
   const paddleOnPaidOncePerAttemptRef = useRef<string | null>(null);
+  /** Двойной клик «Забыли пароль?» до завершения resetPasswordForEmail. */
+  const passwordResetInFlightRef = useRef(false);
+  /** Двойной клик «Отправить подтверждение повторно» до await resend. */
+  const resendSignupInFlightRef = useRef(false);
+
+  const AUTH_EMAIL_COOLDOWN_SEC = 45;
 
   const PLAN_LABELS: Record<PricingPlanId, string> = {
     starter: "Starter",
@@ -312,8 +325,24 @@ export default function LoginPageClient() {
   }, [billing]);
 
   useEffect(() => {
-    if (mode !== "signup") setPendingSignupConfirmEmail(false);
-  }, [mode]);
+    if (!pendingSignupConfirmEmail) setForgotPasswordDisclosed(false);
+  }, [pendingSignupConfirmEmail]);
+
+  useEffect(() => {
+    if (signupResendCooldownSec <= 0) return;
+    const id = window.setInterval(() => {
+      setSignupResendCooldownSec((s) => (s <= 1 ? 0 : s - 1));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [signupResendCooldownSec > 0]);
+
+  useEffect(() => {
+    if (passwordResetCooldownSec <= 0) return;
+    const id = window.setInterval(() => {
+      setPasswordResetCooldownSec((s) => (s <= 1 ? 0 : s - 1));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [passwordResetCooldownSec > 0]);
 
   async function fetchLoginCheckoutReadyOnce(
     organizationId: string,
@@ -856,6 +885,7 @@ export default function LoginPageClient() {
           setLoading(false);
           return;
         }
+        setPendingSignupConfirmEmail(false);
         router.replace(nextPath);
         return;
       } catch (e) {
@@ -872,30 +902,43 @@ export default function LoginPageClient() {
   };
 
   const resetPassword = async () => {
+    if (passwordResetInFlightRef.current) return;
+    if (passwordResetCooldownSec > 0) return;
+
     setMsg("");
 
     if (!email.trim()) return setMsg("Введите email для восстановления пароля");
 
-    setLoading(true);
+    passwordResetInFlightRef.current = true;
+    setPasswordResetBusy(true);
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
         redirectTo: buildPasswordResetRedirectUrl(),
       });
 
-      if (error) return setMsg(error.message);
+      if (error) {
+        setMsg(error.message);
+        return;
+      }
 
       setMsg("✅ Письмо для сброса пароля отправлено. Проверьте почту.");
+      setPasswordResetCooldownSec(AUTH_EMAIL_COOLDOWN_SEC);
     } finally {
-      setLoading(false);
+      passwordResetInFlightRef.current = false;
+      setPasswordResetBusy(false);
     }
   };
 
   const resendSignupConfirmation = async () => {
+    if (resendSignupInFlightRef.current) return;
     if (!email.trim()) {
       setMsg("Введите email, указанный при регистрации.");
       return;
     }
     if (resendConfirmBusy) return;
+    if (signupResendCooldownSec > 0) return;
+
+    resendSignupInFlightRef.current = true;
     setResendConfirmBusy(true);
     try {
       const redirectTo = buildEmailConfirmRedirectUrl(nextPath, { emailFlow: "signup" });
@@ -909,6 +952,7 @@ export default function LoginPageClient() {
         return;
       }
       setMsg("✅ Письмо отправлено снова. Проверьте почту и папку «Спам».");
+      setSignupResendCooldownSec(AUTH_EMAIL_COOLDOWN_SEC);
     } catch (e) {
       console.error("[Login] resend signup confirmation", e);
       setMsg(
@@ -917,15 +961,15 @@ export default function LoginPageClient() {
           : "Не удалось отправить письмо. Проверьте сеть и попробуйте снова."
       );
     } finally {
+      resendSignupInFlightRef.current = false;
       setResendConfirmBusy(false);
     }
   };
 
   const signupBlocked = mode === "signup" && !acceptTerms;
 
-  /** Подтверждение email после регистрации: тот же контент, что раньше под формой — между подзаголовком и полем Email. */
-  const postSignupEmailUiTop =
-    mode === "signup" && !loginPaymentRecovery && pendingSignupConfirmEmail;
+  /** Подтверждение email после регистрации: показываем и на «Регистрации», и на «Входе», пока пользователь не вошёл. */
+  const showPostSignupEmailFlow = pendingSignupConfirmEmail && !loginPaymentRecovery;
 
   const inputClass =
     "mt-2 w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white placeholder-zinc-500 focus:border-white/20 focus:outline-none";
@@ -1016,7 +1060,7 @@ export default function LoginPageClient() {
           </div>
 
           <div className="mt-6 space-y-6">
-            {postSignupEmailUiTop ? (
+            {showPostSignupEmailFlow ? (
               <div className="space-y-3">
                 {msg ? (
                   <p
@@ -1037,10 +1081,14 @@ export default function LoginPageClient() {
                   <button
                     type="button"
                     onClick={() => void resendSignupConfirmation()}
-                    disabled={resendConfirmBusy}
+                    disabled={resendConfirmBusy || signupResendCooldownSec > 0}
                     className="w-full cursor-pointer rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2.5 text-sm font-medium text-zinc-200 transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {resendConfirmBusy ? "Отправляем…" : "Отправить письмо подтверждения повторно"}
+                    {resendConfirmBusy
+                      ? "Отправляем…"
+                      : signupResendCooldownSec > 0
+                        ? `Повторная отправка через ${signupResendCooldownSec} с`
+                        : "Отправить письмо подтверждения повторно"}
                   </button>
                   <p className="text-center text-xs text-zinc-500">
                     Проверьте папку «Соц сети», «Рассылки» или «Спам».
@@ -1088,7 +1136,7 @@ export default function LoginPageClient() {
             <button
               type="button"
               onClick={onSubmit}
-              disabled={loading || signupBlocked}
+              disabled={loading || signupBlocked || passwordResetBusy}
               className="h-11 w-full cursor-pointer rounded-xl bg-white/10 px-6 text-sm font-medium text-white hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? "Подождите..." : mode === "login" ? "Войти" : "Создать аккаунт"}
@@ -1098,14 +1146,45 @@ export default function LoginPageClient() {
               className="flex min-h-[52px] items-start"
             >
               {mode === "login" ? (
-                <button
-                  type="button"
-                  onClick={resetPassword}
-                  disabled={loading}
-                  className="cursor-pointer mt-0.5 translate-x-[4px] text-left text-sm font-medium text-zinc-400 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Забыли пароль?
-                </button>
+                pendingSignupConfirmEmail ? (
+                  <div className="mt-0.5 flex w-full max-w-full flex-col gap-2 pl-1">
+                    {!forgotPasswordDisclosed ? (
+                      <button
+                        type="button"
+                        onClick={() => setForgotPasswordDisclosed(true)}
+                        className="cursor-pointer self-start text-left text-sm font-medium text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline"
+                      >
+                        Забыли пароль или не то письмо?
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void resetPassword()}
+                        disabled={passwordResetBusy || passwordResetCooldownSec > 0}
+                        className="cursor-pointer self-start text-left text-sm font-medium text-zinc-400 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {passwordResetBusy
+                          ? "Отправляем письмо…"
+                          : passwordResetCooldownSec > 0
+                            ? `Сброс пароля снова через ${passwordResetCooldownSec} с`
+                            : "Отправить письмо для сброса пароля"}
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void resetPassword()}
+                    disabled={loading || passwordResetBusy || passwordResetCooldownSec > 0}
+                    className="cursor-pointer mt-0.5 translate-x-[4px] text-left text-sm font-medium text-zinc-400 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {passwordResetBusy
+                      ? "Отправляем письмо…"
+                      : passwordResetCooldownSec > 0
+                        ? `Сброс пароля снова через ${passwordResetCooldownSec} с`
+                        : "Забыли пароль?"}
+                  </button>
+                )
               ) : (
                 <label className="flex cursor-pointer gap-3 text-sm leading-snug text-zinc-400">
                   <input
@@ -1215,7 +1294,7 @@ export default function LoginPageClient() {
 
             {!loginPaymentRecovery &&
             msg &&
-            !postSignupEmailUiTop &&
+            !showPostSignupEmailFlow &&
             !(
               mode === "login" &&
               msg.startsWith("Регистрация возможна только после оплаты")
