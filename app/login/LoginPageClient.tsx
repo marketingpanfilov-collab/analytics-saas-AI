@@ -1018,11 +1018,7 @@ export default function LoginPageClient() {
           <div className="mt-6 space-y-6">
             {postSignupEmailUiTop ? (
               <div className="space-y-3">
-                {msg &&
-                !(
-                  mode === "login" &&
-                  msg.startsWith("Регистрация возможна только после оплаты")
-                ) ? (
+                {msg ? (
                   <p
                     className={
                       msg.startsWith("✅")
