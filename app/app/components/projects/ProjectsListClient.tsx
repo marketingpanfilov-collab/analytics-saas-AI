@@ -646,7 +646,7 @@ export default function ProjectsListClient({
                   Обновите тариф
                 </h2>
                 <p className="mt-1.5 text-sm leading-relaxed text-amber-100/85 sm:mt-2 sm:max-w-[42rem]">
-                  Обновите тариф чтобы разблокировать весь функционал и получить максимум возможностей.
+                  Перейдите на новый план, чтобы разблокировать все функции и получить максимум возможностей.
                 </p>
               </div>
               <div className="mt-4 shrink-0 sm:mt-0">
@@ -796,7 +796,7 @@ export default function ProjectsListClient({
                 Обновите тариф
               </h2>
               <p className="mt-1.5 text-sm leading-relaxed text-amber-100/85 sm:mt-2 sm:max-w-[42rem]">
-                Обновите тариф чтобы разблокировать весь функционал и получить максимум возможностей.
+                Перейдите на новый план, чтобы разблокировать все функции и получить максимум возможностей.
               </p>
             </div>
             <div className="mt-4 shrink-0 sm:mt-0">
