@@ -12,6 +12,7 @@ import { billingPayloadFromResolved, emitBillingCjmEvent } from "@/app/lib/billi
 import { ActionId } from "@/app/lib/billingUiContract";
 import {
   BOOTSTRAP_PLAN_DISPLAY_FALLBACK,
+  isFreeTierFromBootstrap,
   resolveBootstrapPlanAnalyticsSlug,
   resolveBootstrapPlanTier,
   subscriptionStatusLooksPaid,
@@ -279,8 +280,10 @@ export default function Topbar({ email }: { email?: string }) {
   const matrix = bootstrap?.plan_feature_matrix;
   const isMaxPlan = resolveBootstrapPlanTier(bootstrap ?? null) === "scale";
   const canPrefetchDataQuality = useMemo(
-    () => bootstrap?.effective_plan === "growth" || bootstrap?.effective_plan === "scale",
-    [bootstrap?.effective_plan]
+    () =>
+      !isFreeTierFromBootstrap(bootstrap) &&
+      (bootstrap?.effective_plan === "growth" || bootstrap?.effective_plan === "scale"),
+    [bootstrap]
   );
 
   const { currentPlan, currentPlanStatus, currentPlanUntil, neutralPaidPlan } = useMemo(() => {

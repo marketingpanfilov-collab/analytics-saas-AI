@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback, type CSSProp
 import { createPortal } from "react-dom";
 import { acquireBodyScrollLock } from "@/app/lib/bodyScrollLock";
 import { MOBILE_APP_SHEET_Z, MobileSheetHeaderCloseButton } from "./mobile/MobileBottomSheet";
+import { isFreeTierFromBootstrap } from "@/app/lib/billingBootstrapPlanLabel";
 import { PLAN_RESTRICTED_ANALYTICS_MESSAGE } from "@/app/lib/planRestrictedCopy";
 import { useBillingBootstrap } from "./BillingBootstrapProvider";
 import { useBillingPricingModalRequest } from "./BillingPricingModalProvider";
@@ -139,9 +140,10 @@ export default function DataHealthMini({
 }: DataHealthMiniProps) {
   const { bootstrap, loading: billingBootstrapLoading } = useBillingBootstrap();
   const { requestBillingPricingModal } = useBillingPricingModalRequest();
-  /** Только Growth / Scale: оценка и рекомендации (см. попап и Topbar prefetch). */
+  /** Только Growth / Scale; Free по `experience_tier` / матрице не опирается на устаревший `effective_plan` в Paddle. */
   const hasPaidDataQualityAccess =
-    bootstrap?.effective_plan === "growth" || bootstrap?.effective_plan === "scale";
+    !isFreeTierFromBootstrap(bootstrap) &&
+    (bootstrap?.effective_plan === "growth" || bootstrap?.effective_plan === "scale");
 
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [data, setData] = useState<DataQualityPayload | null>(initialData ?? null);
@@ -277,7 +279,12 @@ export default function DataHealthMini({
             return { dot: "rgba(148, 163, 184, 0.85)", text: "Качество данных: Загрузка..." };
           }
           if (!hasPaidDataQualityAccess) {
-            return { dot: "rgba(251, 191, 36, 0.95)", text: "Качество данных: 0% · Нет доступа" };
+            return {
+              dot: "rgba(251, 191, 36, 0.95)",
+              text: isFreeTierFromBootstrap(bootstrap)
+                ? "Качество данных: на Free недоступно · только Growth и Scale"
+                : "Качество данных: только тарифы Growth и Scale",
+            };
           }
           if (!projectId) {
             return { dot: "rgba(161, 161, 170, 0.85)", text: "Качество данных: Нет проекта" };
