@@ -923,6 +923,10 @@ export default function LoginPageClient() {
 
   const signupBlocked = mode === "signup" && !acceptTerms;
 
+  /** Подтверждение email после регистрации: тот же контент, что раньше под формой — между подзаголовком и полем Email. */
+  const postSignupEmailUiTop =
+    mode === "signup" && !loginPaymentRecovery && pendingSignupConfirmEmail;
+
   const inputClass =
     "mt-2 w-full rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-base text-white placeholder-zinc-500 focus:border-white/20 focus:outline-none";
 
@@ -1012,6 +1016,42 @@ export default function LoginPageClient() {
           </div>
 
           <div className="mt-6 space-y-6">
+            {postSignupEmailUiTop ? (
+              <div className="space-y-3">
+                {msg &&
+                !(
+                  mode === "login" &&
+                  msg.startsWith("Регистрация возможна только после оплаты")
+                ) ? (
+                  <p
+                    className={
+                      msg.startsWith("✅")
+                        ? "rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200"
+                        : msg.startsWith("Аккаунт создан.")
+                          ? "rounded-xl border border-indigo-500/35 bg-indigo-500/10 px-4 py-3 text-sm text-indigo-100/95"
+                          : msg.startsWith(BILLING_SOFT_PAYMENT_HEADLINE) || msg.includes("Подключаем")
+                            ? "rounded-xl border border-indigo-500/35 bg-indigo-500/10 px-4 py-3 text-sm text-indigo-100/95"
+                            : "rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
+                    }
+                  >
+                    {msg}
+                  </p>
+                ) : null}
+                <div className="relative z-20 flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void resendSignupConfirmation()}
+                    disabled={resendConfirmBusy}
+                    className="w-full cursor-pointer rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2.5 text-sm font-medium text-zinc-200 transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {resendConfirmBusy ? "Отправляем…" : "Отправить письмо подтверждения повторно"}
+                  </button>
+                  <p className="text-center text-xs text-zinc-500">
+                    Проверьте папку «Соц сети», «Рассылки» или «Спам».
+                  </p>
+                </div>
+              </div>
+            ) : null}
             {authCallbackHint ? (
               <div
                 className="rounded-xl border border-amber-400/35 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-100/95"
@@ -1179,6 +1219,7 @@ export default function LoginPageClient() {
 
             {!loginPaymentRecovery &&
             msg &&
+            !postSignupEmailUiTop &&
             !(
               mode === "login" &&
               msg.startsWith("Регистрация возможна только после оплаты")
@@ -1196,22 +1237,6 @@ export default function LoginPageClient() {
               >
                 {msg}
               </p>
-            ) : null}
-
-            {pendingSignupConfirmEmail && mode === "signup" && !loginPaymentRecovery ? (
-              <div className="relative z-20 flex flex-col gap-2">
-                <button
-                  type="button"
-                  onClick={() => void resendSignupConfirmation()}
-                  disabled={resendConfirmBusy}
-                  className="w-full cursor-pointer rounded-xl border border-white/15 bg-white/[0.04] px-4 py-2.5 text-sm font-medium text-zinc-200 transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {resendConfirmBusy ? "Отправляем…" : "Отправить письмо подтверждения повторно"}
-                </button>
-                <p className="text-center text-xs text-zinc-500">
-                  Проверьте папку «Соц сети», «Рассылки» или «Спам».
-                </p>
-              </div>
             ) : null}
 
             <div
