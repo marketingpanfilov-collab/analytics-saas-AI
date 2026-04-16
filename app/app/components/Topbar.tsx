@@ -19,6 +19,7 @@ import {
 import { suggestUpgradePlanId } from "@/app/lib/billingPlanDisplay";
 import { useOptionalAppMobileNav } from "./AppMobileNavContext";
 import { useBillingBootstrap } from "./BillingBootstrapProvider";
+import { useBillingPricingModalRequest } from "./BillingPricingModalProvider";
 import { BillingInlinePricingSuspended } from "./BillingInlinePricing";
 import DataHealthMini, {
   type DataHealthIssue,
@@ -270,6 +271,7 @@ export default function Topbar({ email }: { email?: string }) {
   const projectId = searchParams.get("project_id")?.trim() ?? null;
 
   const { bootstrap, resolvedUi, loading: billingUiLoading } = useBillingBootstrap();
+  const { requestBillingPricingModal } = useBillingPricingModalRequest();
   const canNavigateApp = useMemo(
     () => billingActionAllowed(resolvedUi, ActionId.navigate_app),
     [resolvedUi]
@@ -620,38 +622,66 @@ export default function Topbar({ email }: { email?: string }) {
     billingActionAllowed(resolvedUi, ActionId.billing_manage) &&
     !pendingPlanChange;
 
+  /**
+   * Единый вход в выбор тарифа: сначала глобальная модалка с `force` (Free / navigate_* без billing_manage),
+   * иначе локальная модалка Topbar при полном billing_manage, иначе — настройки.
+   */
+  const openTopbarTariffFlow = useCallback(
+    (sourceAction: "topbar_upgrade" | "topbar_notifications"): "pricing" | "settings" | "noop" => {
+      if (pendingPlanChange) return "noop";
+      if (billingUiLoading && !resolvedUi) return "noop";
+
+      const payloadPlan =
+        resolveBootstrapPlanAnalyticsSlug(bootstrap ?? null) ??
+        (matrix?.plan as string | undefined) ??
+        "unknown";
+
+      if (requestBillingPricingModal(sourceAction, { force: true })) {
+        emitBillingCjmEvent(
+          "upgrade_clicked",
+          billingPayloadFromResolved(resolvedUi ?? null, {
+            plan: payloadPlan,
+            userId: null,
+            source_action: sourceAction,
+          })
+        );
+        return "pricing";
+      }
+      if (canManageBillingForCheckout) {
+        emitBillingCjmEvent(
+          "upgrade_clicked",
+          billingPayloadFromResolved(resolvedUi ?? null, {
+            plan: payloadPlan,
+            userId: null,
+            source_action: sourceAction,
+          })
+        );
+        setTariffModalOpen(true);
+        return "pricing";
+      }
+      router.push(
+        projectId ? `/app/settings?project_id=${encodeURIComponent(projectId)}` : "/app/settings"
+      );
+      return "settings";
+    },
+    [
+      pendingPlanChange,
+      billingUiLoading,
+      resolvedUi,
+      requestBillingPricingModal,
+      bootstrap,
+      matrix?.plan,
+      canManageBillingForCheckout,
+      router,
+      projectId,
+      setTariffModalOpen,
+    ]
+  );
+
   const handleOpenTariffFromNotif = useCallback(() => {
-    if (pendingPlanChange) return;
-    if (billingUiLoading) return;
-    if (!canManageBillingForCheckout) {
-      router.push("/app/settings");
-      setNotifOpen(false);
-      return;
-    }
-    emitBillingCjmEvent(
-      "upgrade_clicked",
-      billingPayloadFromResolved(resolvedUi ?? null, {
-        plan:
-          resolveBootstrapPlanAnalyticsSlug(bootstrap ?? null) ??
-          (matrix?.plan as string | undefined) ??
-          "unknown",
-        userId: null,
-        source_action: "topbar_notifications",
-      })
-    );
-    setTariffModalOpen(true);
-    setNotifOpen(false);
-  }, [
-    pendingPlanChange,
-    billingUiLoading,
-    canManageBillingForCheckout,
-    router,
-    resolvedUi,
-    bootstrap,
-    matrix?.plan,
-    setTariffModalOpen,
-    setNotifOpen,
-  ]);
+    const r = openTopbarTariffFlow("topbar_notifications");
+    if (r !== "noop") setNotifOpen(false);
+  }, [openTopbarTariffFlow]);
 
   const mobileNav = useOptionalAppMobileNav();
   const [mobileProfileOpen, setMobileProfileOpen] = useState(false);
@@ -1050,25 +1080,9 @@ export default function Topbar({ email }: { email?: string }) {
                   if (isMaxPlan || pendingPlanChange) {
                     return;
                   }
-                  if (billingUiLoading) return;
-                  if (!canManageBillingForCheckout) {
-                    router.push("/app/settings");
-                    setPlanTariffPanelOpen(false);
-                    return;
-                  }
-                  emitBillingCjmEvent(
-                    "upgrade_clicked",
-                    billingPayloadFromResolved(resolvedUi ?? null, {
-                      plan:
-                        resolveBootstrapPlanAnalyticsSlug(bootstrap ?? null) ??
-                        (matrix?.plan as string | undefined) ??
-                        "unknown",
-                      userId: null,
-                      source_action: "topbar_upgrade",
-                    })
-                  );
-                  setTariffModalOpen(true);
-                  queueMicrotask(() => setPlanTariffPanelOpen(false));
+                  const r = openTopbarTariffFlow("topbar_upgrade");
+                  if (r === "pricing") queueMicrotask(() => setPlanTariffPanelOpen(false));
+                  if (r === "settings") setPlanTariffPanelOpen(false);
                 }}
                 onMouseEnter={(e) => {
                   if (!isMaxPlan) return;
@@ -1417,25 +1431,9 @@ export default function Topbar({ email }: { email?: string }) {
             if (isMaxPlan || pendingPlanChange) {
               return;
             }
-            if (billingUiLoading) return;
-            if (!canManageBillingForCheckout) {
-              router.push("/app/settings");
-              setPlanTariffPanelOpen(false);
-              return;
-            }
-            emitBillingCjmEvent(
-              "upgrade_clicked",
-              billingPayloadFromResolved(resolvedUi ?? null, {
-                plan:
-                  resolveBootstrapPlanAnalyticsSlug(bootstrap ?? null) ??
-                  (matrix?.plan as string | undefined) ??
-                  "unknown",
-                userId: null,
-                source_action: "topbar_upgrade",
-              })
-            );
-            setTariffModalOpen(true);
-            queueMicrotask(() => setPlanTariffPanelOpen(false));
+            const r = openTopbarTariffFlow("topbar_upgrade");
+            if (r === "pricing") queueMicrotask(() => setPlanTariffPanelOpen(false));
+            if (r === "settings") setPlanTariffPanelOpen(false);
           }}
         >
           Сменить тариф

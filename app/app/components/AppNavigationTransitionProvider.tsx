@@ -6,7 +6,38 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 /** Единый z-index: выше таббара (190) и mobile sheet (200). */
-const NAV_TRANSITION_OVERLAY_Z = 230;
+export const NAV_TRANSITION_OVERLAY_Z = 230;
+
+/** Тот же полноэкранный оверлей «Подождите…», что при глобальных переходах (см. default export ниже). */
+export function NavTransitionLoadingOverlay({ open }: { open: boolean }) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    return acquireBodyScrollLock();
+  }, [open]);
+
+  if (!open || !mounted || typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      className="pointer-events-auto fixed inset-0 flex items-center justify-center bg-black/55 backdrop-blur-[6px] motion-reduce:backdrop-blur-sm"
+      style={{ zIndex: NAV_TRANSITION_OVERLAY_Z }}
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <span className="rounded-2xl border border-white/12 bg-[#14141c]/95 px-8 py-5 text-[15px] font-semibold text-white shadow-2xl">
+        Подождите...
+      </span>
+    </div>,
+    document.body
+  );
+}
 
 function normalizePath(p: string): string {
   if (!p || p === "") return "/";
@@ -34,7 +65,6 @@ function shouldSuppressNavOverlay(fromPath: string, toPath: string): boolean {
 export default function AppNavigationTransitionProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [pending, setPending] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
 
@@ -54,15 +84,6 @@ export default function AppNavigationTransitionProvider({ children }: { children
   useEffect(() => {
     clear();
   }, [pathname, clear]);
-
-  useEffect(() => {
-    if (!pending) return;
-    return acquireBodyScrollLock();
-  }, [pending]);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   /** Клики по внутренним ссылкам — мгновенная реакция до history. */
   useEffect(() => {
@@ -133,28 +154,10 @@ export default function AppNavigationTransitionProvider({ children }: { children
     return () => window.removeEventListener("popstate", onPopState);
   }, [tryBegin]);
 
-  const overlay =
-    pending && mounted && typeof document !== "undefined"
-      ? createPortal(
-          <div
-            className="pointer-events-auto fixed inset-0 flex items-center justify-center bg-black/55 backdrop-blur-[6px] motion-reduce:backdrop-blur-sm"
-            style={{ zIndex: NAV_TRANSITION_OVERLAY_Z }}
-            role="status"
-            aria-live="polite"
-            aria-busy="true"
-          >
-            <span className="rounded-2xl border border-white/12 bg-[#14141c]/95 px-8 py-5 text-[15px] font-semibold text-white shadow-2xl">
-              Подождите...
-            </span>
-          </div>,
-          document.body
-        )
-      : null;
-
   return (
     <>
       {children}
-      {overlay}
+      <NavTransitionLoadingOverlay open={pending} />
     </>
   );
 }

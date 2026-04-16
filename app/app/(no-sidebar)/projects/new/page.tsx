@@ -6,6 +6,7 @@ import Link from "next/link";
 import { supabase } from "@/app/lib/supabaseClient";
 import { PROJECT_PLAN_LIMIT_USER_MESSAGE } from "@/app/lib/projectPlanLimit";
 import PortalTooltip from "@/app/app/components/PortalTooltip";
+import { NavTransitionLoadingOverlay } from "@/app/app/components/AppNavigationTransitionProvider";
 
 const ORG_ROLES_CAN_CREATE = ["owner", "admin"];
 
@@ -37,6 +38,8 @@ export default function NewProjectPage() {
   const [error, setError] = useState<string | null>(null);
   const [planBlocked, setPlanBlocked] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
+  /** Только «Отмена»: тот же оверлей «Подождите…», что при переходах в остальном приложении. */
+  const [cancelNavOverlay, setCancelNavOverlay] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -184,6 +187,7 @@ export default function NewProjectPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-8 p-6">
+      <NavTransitionLoadingOverlay open={cancelNavOverlay} />
       <div>
         <h1 className="text-2xl font-semibold text-white">Создать проект</h1>
         <p className="mt-1 text-sm text-zinc-400">
@@ -232,7 +236,10 @@ export default function NewProjectPage() {
           )}
           <button
             type="button"
-            onClick={() => router.push("/app/projects")}
+            onClick={() => {
+              setCancelNavOverlay(true);
+              router.push("/app/projects");
+            }}
             className="inline-flex h-11 cursor-pointer items-center rounded-xl border border-white/10 px-6 text-sm text-zinc-300 hover:bg-white/[0.04]"
           >
             Отмена
