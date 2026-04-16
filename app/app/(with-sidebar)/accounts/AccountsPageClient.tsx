@@ -30,7 +30,7 @@ type CanonicalAccount = {
   last_sync_status?: string | null;
 };
 
-type Toast = { type: "success" | "error" | "info"; text: string };
+type Toast = { type: "success" | "error" | "info"; text: string; detail?: string };
 
 const pageWrap: React.CSSProperties = { padding: 22, color: "white" };
 
@@ -368,57 +368,98 @@ function PostConnectProgress({ flow }: { flow: PostConnectFlow }) {
   );
 }
 
+function truncateToastDetail(s: string, max = 220): string {
+  const t = s.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max)}…`;
+}
+
 function ToastView({ toast, onClose }: { toast: Toast | null; onClose: () => void }) {
   if (!toast) return null;
 
-  const bg =
+  const palette =
     toast.type === "success"
-      ? "rgba(110,255,200,0.12)"
+      ? {
+          bg: "linear-gradient(180deg, rgba(22,40,32,0.98) 0%, rgba(14,26,20,0.99) 100%)",
+          border: "1px solid rgba(74,222,128,0.45)",
+          title: "rgba(240,255,245,0.98)",
+          detail: "rgba(200,230,210,0.88)",
+          closeBg: "rgba(255,255,255,0.08)",
+          closeBorder: "1px solid rgba(255,255,255,0.14)",
+        }
       : toast.type === "error"
-      ? "rgba(255,120,120,0.12)"
-      : "rgba(255,255,255,0.08)";
-  const br =
-    toast.type === "success"
-      ? "rgba(110,255,200,0.25)"
-      : toast.type === "error"
-      ? "rgba(255,120,120,0.25)"
-      : "rgba(255,255,255,0.16)";
+        ? {
+            bg: "linear-gradient(180deg, rgba(48,22,24,0.99) 0%, rgba(28,14,16,0.995) 100%)",
+            border: "1px solid rgba(248,113,113,0.5)",
+            title: "rgba(255,235,235,0.98)",
+            detail: "rgba(255,200,200,0.88)",
+            closeBg: "rgba(0,0,0,0.25)",
+            closeBorder: "1px solid rgba(255,255,255,0.12)",
+          }
+        : {
+            bg: "linear-gradient(180deg, rgba(32,32,40,0.99) 0%, rgba(20,20,26,0.995) 100%)",
+            border: "1px solid rgba(255,255,255,0.16)",
+            title: "rgba(255,255,255,0.96)",
+            detail: "rgba(220,220,230,0.85)",
+            closeBg: "rgba(255,255,255,0.08)",
+            closeBorder: "1px solid rgba(255,255,255,0.12)",
+          };
 
   return (
     <div
+      role="alert"
       style={{
         position: "fixed",
-        right: 18,
-        top: 18,
-        zIndex: 9999,
-        width: 520,
-        maxWidth: "calc(100vw - 36px)",
+        left: "50%",
+        bottom: "max(20px, env(safe-area-inset-bottom, 0px))",
+        transform: "translateX(-50%)",
+        zIndex: 10050,
+        width: "min(520px, calc(100vw - 24px))",
         borderRadius: 16,
-        padding: 14,
-        border: `1px solid ${br}`,
-        background: bg,
-        boxShadow: "0 18px 60px rgba(0,0,0,0.55)",
+        padding: "14px 14px 14px 16px",
+        border: palette.border,
+        background: palette.bg,
+        boxShadow: "0 20px 50px rgba(0,0,0,0.65), 0 0 0 1px rgba(0,0,0,0.35)",
         display: "flex",
-        justifyContent: "space-between",
+        alignItems: "flex-start",
         gap: 12,
-        alignItems: "center",
+        boxSizing: "border-box",
       }}
     >
-      <div style={{ fontWeight: 800, lineHeight: 1.2 }}>{toast.text}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 800, lineHeight: 1.35, fontSize: 15, color: palette.title }}>{toast.text}</div>
+        {toast.detail ? (
+          <div style={{ marginTop: 6, fontSize: 13, lineHeight: 1.45, color: palette.detail, wordBreak: "break-word" }}>
+            {truncateToastDetail(toast.detail)}
+          </div>
+        ) : null}
+      </div>
       <button
+        type="button"
         onClick={onClose}
         style={{
-          height: 34,
-          width: 34,
-          borderRadius: 12,
-          border: "1px solid rgba(255,255,255,0.16)",
-          background: "rgba(0,0,0,0.12)",
-          color: "white",
+          flexShrink: 0,
+          width: 36,
+          height: 36,
+          borderRadius: 10,
+          border: palette.closeBorder,
+          background: palette.closeBg,
+          color: "rgba(255,255,255,0.92)",
           cursor: "pointer",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 0,
+          marginTop: 1,
+          lineHeight: 1,
+          fontSize: 20,
+          fontWeight: 500,
         }}
-        aria-label="close"
+        aria-label="Закрыть уведомление"
       >
-        ✕
+        <span aria-hidden style={{ display: "block", transform: "translateY(-0.5px)" }}>
+          ×
+        </span>
       </button>
     </div>
   );
@@ -1191,16 +1232,42 @@ export default function AccountsPageClient() {
   const googleShowDisconnect = googleCanShowAccountSelection;
   const tiktokShowDisconnect = tiktokCanShowAccountSelection;
 
-  async function refresh(opts?: { manageBusy?: boolean }) {
+  async function refresh(opts?: { manageBusy?: boolean; quiet?: boolean }) {
     const manageBusy = opts?.manageBusy ?? true;
+    const quiet = opts?.quiet ?? false;
     if (!projectId) return;
     if (manageBusy) {
       setPostConnectFlow((f) => (f && f.step === 0 ? { ...f, step: 1 } : f));
       setPageBusy({ kind: "refresh" });
     }
+    const showFetchToast = (title: string, detail?: string) => {
+      if (quiet) {
+        console.warn("[accounts_refresh]", title, detail ?? "");
+        return;
+      }
+      setToast({ type: "error", text: title, detail });
+    };
     try {
       const statusRes = await fetch(`/api/oauth/integration/status?project_id=${encodeURIComponent(projectId)}`);
-      const statusJson = (await statusRes.json()) as { success?: boolean; integrations?: IntegrationStatusRow[] };
+      const statusRaw = await statusRes.text();
+      let statusJson: { success?: boolean; integrations?: IntegrationStatusRow[]; error?: string } = {};
+      try {
+        statusJson = JSON.parse(statusRaw) as typeof statusJson;
+      } catch {
+        showFetchToast(
+          "Не удалось разобрать ответ сервера (статус интеграций)",
+          `HTTP ${statusRes.status}. Ответ не JSON — часто это редирект на логин или ошибка прокси.`
+        );
+        return;
+      }
+      if (!statusRes.ok) {
+        const apiErr = typeof statusJson.error === "string" && statusJson.error.trim() ? statusJson.error.trim() : null;
+        showFetchToast(
+          "Не удалось загрузить статус подключений каналов",
+          apiErr ?? `Код ответа ${statusRes.status}. Попробуй обновить страницу или войти снова.`
+        );
+        return;
+      }
       const statusList = statusJson?.integrations ?? [];
       setIntegrations(statusList);
 
@@ -1210,7 +1277,26 @@ export default function AccountsPageClient() {
       setIntegrationId(metaFromUnified?.integration_id ?? null);
 
       const accRes = await fetch(`/api/dashboard/accounts?project_id=${encodeURIComponent(projectId)}`);
-      const accJson = (await accRes.json()) as { success?: boolean; accounts?: CanonicalAccount[] };
+      const accRaw = await accRes.text();
+      let accJson: { success?: boolean; accounts?: CanonicalAccount[]; error?: string } = {};
+      try {
+        accJson = JSON.parse(accRaw) as typeof accJson;
+      } catch {
+        showFetchToast(
+          "Не удалось разобрать ответ сервера (список кабинетов)",
+          `HTTP ${accRes.status}. Ответ не JSON.`
+        );
+        return;
+      }
+      if (!accRes.ok || accJson.success === false) {
+        const apiErr = typeof accJson.error === "string" && accJson.error.trim() ? accJson.error.trim() : null;
+        showFetchToast(
+          "Не удалось загрузить список рекламных кабинетов",
+          apiErr ??
+            (!accRes.ok ? `Код ответа ${accRes.status}. Возможно, нет доступа к проекту или подписка не позволяет аналитику.` : "Сервер отклонил запрос.")
+        );
+        return;
+      }
       let list = accJson?.accounts ?? [];
 
       const googleShouldDiscover =
@@ -1280,9 +1366,25 @@ export default function AccountsPageClient() {
         .filter((a) => a.platform === "tiktok" && a.is_enabled)
         .map((a) => a.platform_account_id);
       setSelectedTikTokIds(tiktokEnabled);
-    } catch {
+    } catch (e) {
       setPostConnectFlow(null);
-      setToast({ type: "error", text: "Ошибка загрузки кабинетов/подключений" });
+      const net =
+        e instanceof TypeError && (e.message.includes("fetch") || e.message.includes("Failed to fetch"));
+      if (quiet) {
+        console.warn("[accounts_refresh] network or unexpected", e);
+      } else if (net) {
+        setToast({
+          type: "error",
+          text: "Нет соединения с сервером",
+          detail: "Проверь интернет, VPN и попробуй снова. Если всё в порядке — зайди позже: возможно, краткий сбой.",
+        });
+      } else {
+        setToast({
+          type: "error",
+          text: "Сбой при обновлении данных",
+          detail: e instanceof Error && e.message ? truncateToastDetail(e.message, 180) : "Неизвестная ошибка.",
+        });
+      }
     } finally {
       if (manageBusy) {
         setPageBusy({ kind: "idle" });
@@ -1379,7 +1481,7 @@ export default function AccountsPageClient() {
       const now = Date.now();
       if (now - lastAccountsVisRefreshRef.current < 45_000) return;
       lastAccountsVisRefreshRef.current = now;
-      void refreshRef.current({ manageBusy: false });
+      void refreshRef.current({ manageBusy: false, quiet: true });
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
@@ -1387,7 +1489,7 @@ export default function AccountsPageClient() {
 
   useEffect(() => {
     if (!projectId) return;
-    void refresh({ manageBusy: false });
+    void refresh({ manageBusy: false, quiet: true });
   }, [projectId]);
 
   const accountsByPlatform = useMemo(() => {
