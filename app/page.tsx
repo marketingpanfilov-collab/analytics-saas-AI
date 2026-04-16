@@ -399,15 +399,16 @@ export default function Page() {
                   <span className="hero-badge-label">Alert</span>
                 </span>
               </div>
-              <h1 className="hero-title-gradient mx-auto max-w-4xl overflow-visible pb-[0.12em] text-[2.55rem] font-extrabold leading-[1.1] md:text-6xl md:leading-[1.1] xl:text-[72px] xl:leading-[1.08]">
-                Управляйте бизнесом
+              <h1 className="hero-title-gradient mx-auto max-w-4xl overflow-visible pb-[0.12em] text-[2.8rem] font-extrabold leading-[1.1] md:text-6xl md:leading-[1.1] xl:text-[72px] xl:leading-[1.08]">
+                Сквозная аналитика
                 <br />
-                через прибыль
+                для роста бизнеса
               </h1>
               </div>
 
-              <p className="mx-auto mt-5 max-w-xl text-[1.08rem] leading-relaxed text-white/58 md:text-lg">
-                Единая прозрачная аналитика, которая помогает принимать решения и управлять прибылью
+              <p className="mx-auto mt-5 max-w-[min(100%,38rem)] md:max-w-2xl text-[1.08rem] leading-relaxed text-white/58 md:text-lg">
+                Вся аналитика в одном месте — рекламные кампании, CRM и события на сайте. Автоматизируем рутину
+                и ускоряем принятие решений
               </p>
 
               <div className="mt-8 flex flex-wrap items-center justify-center gap-3 md:justify-center">

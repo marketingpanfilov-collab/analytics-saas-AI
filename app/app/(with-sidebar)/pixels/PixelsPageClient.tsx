@@ -1158,7 +1158,7 @@ ${generatedPurchaseJson}`;
                   isMobileViewport && "w-full min-h-[44px]"
                 )}
               >
-                Connect CRM — Coming soon
+                Connect CRM — Недоступно в вашем тарифе
               </button>
             </div>
             <div className="mt-4 rounded-lg border border-neutral-700 bg-neutral-800/50 p-3">
