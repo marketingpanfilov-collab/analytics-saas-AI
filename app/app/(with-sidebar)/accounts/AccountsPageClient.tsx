@@ -135,12 +135,21 @@ function Button({
   const isOutline = kind === "outline";
   const busy = !!(pending && pendingLabel);
   const inactive = !!disabled || busy;
-  const bg = isPrimary
-    ? "rgba(120,120,255,0.22)"
+  /** Явно «выключено», без синего tint как у активного primary (иначе выглядит как кликабельный CTA). */
+  const primaryDisabledLook = isPrimary && !!disabled && !busy;
+  const bg = primaryDisabledLook
+    ? "rgba(42,42,48,0.95)"
+    : isPrimary
+      ? "rgba(120,120,255,0.22)"
+      : isOutline
+        ? "transparent"
+        : "rgba(255,255,255,0.04)";
+  const border = primaryDisabledLook
+    ? "1px solid rgba(255,255,255,0.08)"
     : isOutline
-    ? "transparent"
-    : "rgba(255,255,255,0.04)";
-  const border = isOutline ? "1px solid rgba(255,255,255,0.28)" : "1px solid rgba(255,255,255,0.12)";
+      ? "1px solid rgba(255,255,255,0.28)"
+      : "1px solid rgba(255,255,255,0.12)";
+  const color = primaryDisabledLook ? "rgba(255,255,255,0.38)" : "white";
   return (
     <button
       type="button"
@@ -152,10 +161,10 @@ function Button({
         borderRadius: 12,
         border,
         background: bg,
-        color: "white",
+        color,
         fontWeight: 750,
         cursor: inactive ? "not-allowed" : "pointer",
-        opacity: inactive ? 0.55 : 1,
+        opacity: inactive && !primaryDisabledLook ? 0.55 : 1,
         whiteSpace: "nowrap",
         transition: "opacity 0.18s ease, transform 0.18s ease, border-color 0.18s ease, background 0.18s ease",
         boxSizing: "border-box",
@@ -1370,7 +1379,7 @@ export default function AccountsPageClient() {
       const now = Date.now();
       if (now - lastAccountsVisRefreshRef.current < 45_000) return;
       lastAccountsVisRefreshRef.current = now;
-      void refreshRef.current();
+      void refreshRef.current({ manageBusy: false });
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
@@ -1378,7 +1387,7 @@ export default function AccountsPageClient() {
 
   useEffect(() => {
     if (!projectId) return;
-    refresh();
+    void refresh({ manageBusy: false });
   }, [projectId]);
 
   const accountsByPlatform = useMemo(() => {

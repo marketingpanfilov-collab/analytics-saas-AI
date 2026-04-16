@@ -369,6 +369,12 @@ export function resolvePlanFeatureMatrixForBillingGate(input: {
   effective_plan: EffectivePlan;
   experience_tier: ExperienceTier;
 }): PlanFeatureMatrix {
+  // `no_subscription` → `experience_tier === "free"` (см. computeExperienceTier). Строка Paddle со
+  // статусом вроде `inactive` тоже даёт `no_subscription`, но slug плана в БД может остаться growth —
+  // лимиты и матрица должны совпадать с Free, иначе UI показывает «Free» и лимиты paid.
+  if (input.experience_tier === "free") {
+    return getPlanFeatureMatrix("free");
+  }
   if (
     input.effective_plan === "starter" ||
     input.effective_plan === "growth" ||
@@ -377,9 +383,6 @@ export function resolvePlanFeatureMatrixForBillingGate(input: {
     return getPlanFeatureMatrix(input.effective_plan);
   }
   if (input.effective_plan === "free") {
-    return getPlanFeatureMatrix("free");
-  }
-  if (input.experience_tier === "free") {
     return getPlanFeatureMatrix("free");
   }
   return getPlanFeatureMatrix("unknown");
