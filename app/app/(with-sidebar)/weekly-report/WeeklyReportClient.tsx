@@ -553,7 +553,7 @@ export default function WeeklyReportClient() {
                 ) : exportWall ? (
                   <button
                     type="button"
-                    onClick={() => requestBillingPricingModal("export_click")}
+                    onClick={() => requestBillingPricingModal("export_click", { force: true })}
                     className="inline-flex min-h-[44px] w-full items-center justify-center rounded-lg bg-white/10 px-3 py-2.5 text-xs font-medium text-white/90 hover:bg-white/14 sm:min-h-0 sm:w-auto sm:px-2.5 sm:py-1.5"
                   >
                     Export / Print

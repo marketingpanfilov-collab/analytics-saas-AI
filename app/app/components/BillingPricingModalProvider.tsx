@@ -4,6 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -52,6 +53,10 @@ function BillingPricingModalProviderInner({ children }: { children: ReactNode })
   /** Аргумент последнего вызова requestBillingPricingModal (для контекста шапки модалки). */
   const [pricingModalEntrySource, setPricingModalEntrySource] = useState<string | null>(null);
   const openRef = useRef(false);
+
+  useEffect(() => {
+    if (!open) openRef.current = false;
+  }, [open]);
 
   const billingBlockingOpts = useMemo(
     () => ({ overLimitApplyGraceUntilMs, relaxOverLimitForPendingWebhook }),

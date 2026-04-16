@@ -82,9 +82,9 @@ function secondaryCtaStyle(loading: boolean): CSSProperties {
   return {
     padding: "10px 16px",
     borderRadius: 10,
-    border: "1px solid rgba(255,255,255,0.22)",
-    background: "transparent",
-    color: "white",
+    border: loading ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(255,255,255,0.22)",
+    background: loading ? "rgba(255,255,255,0.04)" : "transparent",
+    color: loading ? "rgba(255,255,255,0.38)" : "white",
     fontWeight: 600,
     fontSize: 14,
     cursor: loading ? "not-allowed" : "pointer",
@@ -548,7 +548,7 @@ function PostCheckoutOnboardingModalInner() {
                   onClick={() => setStep(1)}
                   style={secondaryCtaStyle(saving)}
                 >
-                  {saving ? "Подождите…" : "Назад"}
+                  Назад
                 </button>
                 <button
                   type="button"
@@ -620,7 +620,7 @@ function PostCheckoutOnboardingModalInner() {
                   onClick={() => setStep(2)}
                   style={secondaryCtaStyle(saving)}
                 >
-                  {saving ? "Подождите…" : "Назад"}
+                  Назад
                 </button>
                 <button
                   type="button"

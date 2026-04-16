@@ -622,6 +622,7 @@ export default function Topbar({ email }: { email?: string }) {
 
   const handleOpenTariffFromNotif = useCallback(() => {
     if (pendingPlanChange) return;
+    if (billingUiLoading) return;
     if (!canManageBillingForCheckout) {
       router.push("/app/settings");
       setNotifOpen(false);
@@ -642,6 +643,7 @@ export default function Topbar({ email }: { email?: string }) {
     setNotifOpen(false);
   }, [
     pendingPlanChange,
+    billingUiLoading,
     canManageBillingForCheckout,
     router,
     resolvedUi,
@@ -1034,10 +1036,12 @@ export default function Topbar({ email }: { email?: string }) {
                     : undefined
                 }
                 onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
                   if (isMaxPlan || pendingPlanChange) {
-                    e.preventDefault();
                     return;
                   }
+                  if (billingUiLoading) return;
                   if (!canManageBillingForCheckout) {
                     router.push("/app/settings");
                     setPlanTariffPanelOpen(false);
@@ -1055,7 +1059,7 @@ export default function Topbar({ email }: { email?: string }) {
                     })
                   );
                   setTariffModalOpen(true);
-                  setPlanTariffPanelOpen(false);
+                  queueMicrotask(() => setPlanTariffPanelOpen(false));
                 }}
                 onMouseEnter={(e) => {
                   if (!isMaxPlan) return;
@@ -1399,10 +1403,12 @@ export default function Topbar({ email }: { email?: string }) {
             pendingPlanChange ? "Смена тарифа уже обрабатывается — не оплачивайте повторно" : undefined
           }
           onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
             if (isMaxPlan || pendingPlanChange) {
-              e.preventDefault();
               return;
             }
+            if (billingUiLoading) return;
             if (!canManageBillingForCheckout) {
               router.push("/app/settings");
               setPlanTariffPanelOpen(false);
@@ -1420,7 +1426,7 @@ export default function Topbar({ email }: { email?: string }) {
               })
             );
             setTariffModalOpen(true);
-            setPlanTariffPanelOpen(false);
+            queueMicrotask(() => setPlanTariffPanelOpen(false));
           }}
         >
           Сменить тариф

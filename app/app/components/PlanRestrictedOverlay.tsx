@@ -87,9 +87,10 @@ export default function PlanRestrictedOverlay({
   }, [restricted, mainPaneRef]);
 
   const onUpgrade = useCallback(() => {
+    if (bootstrapLoading) return;
     const opened = requestBillingPricingModal(upgradeSource, { force: true });
     if (!opened) router.push("/app/settings");
-  }, [requestBillingPricingModal, router, upgradeSource]);
+  }, [requestBillingPricingModal, router, upgradeSource, bootstrapLoading]);
 
   const card = (
     <div

@@ -652,9 +652,12 @@ export default function ProjectsListClient({
               <div className="mt-4 shrink-0 sm:mt-0">
                 <button
                   type="button"
-                  onClick={() =>
-                    requestBillingPricingModal("projects_page_free_upgrade_banner", { force: true })
-                  }
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (billingBootstrapLoading) return;
+                    requestBillingPricingModal("projects_page_free_upgrade_banner", { force: true });
+                  }}
                   className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 shadow-sm transition-colors hover:bg-amber-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/90 sm:min-h-10 sm:w-auto sm:px-5"
                 >
                   {FREE_DASHBOARD_ATTRIBUTION_CTA_LABEL}
@@ -799,9 +802,12 @@ export default function ProjectsListClient({
             <div className="mt-4 shrink-0 sm:mt-0">
               <button
                 type="button"
-                onClick={() =>
-                  requestBillingPricingModal("projects_page_free_upgrade_banner", { force: true })
-                }
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (billingBootstrapLoading) return;
+                  requestBillingPricingModal("projects_page_free_upgrade_banner", { force: true });
+                }}
                 className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-zinc-950 shadow-sm transition-colors hover:bg-amber-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/90 sm:min-h-10 sm:w-auto sm:px-5"
               >
                 {FREE_DASHBOARD_ATTRIBUTION_CTA_LABEL}

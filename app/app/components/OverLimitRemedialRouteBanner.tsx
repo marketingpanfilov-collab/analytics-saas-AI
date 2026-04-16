@@ -46,7 +46,7 @@ export function OverLimitRemedialRouteBanner({
         {canUpgrade && pricingModal ? (
           <button
             type="button"
-            onClick={() => pricingModal.requestBillingPricingModal("over_limit_remedial_banner")}
+            onClick={() => pricingModal.requestBillingPricingModal("over_limit_remedial_banner", { force: true })}
             style={{
               padding: "7px 14px",
               borderRadius: 10,

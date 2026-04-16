@@ -3895,9 +3895,10 @@ export default function AppDashboardClient() {
               footerNote={FREE_DASHBOARD_ATTRIBUTION_LIMIT_FOOTNOTE}
               visualTone="premium"
               ctaLabel={FREE_DASHBOARD_ATTRIBUTION_CTA_LABEL}
-              onCtaClick={() =>
-                requestBillingPricingModal("free_dashboard_attribution_heavy_limited", { force: true })
-              }
+              onCtaClick={() => {
+                if (billingBootstrapLoading) return;
+                requestBillingPricingModal("free_dashboard_attribution_heavy_limited", { force: true });
+              }}
             />
           ) : (
             <>
@@ -4004,9 +4005,10 @@ export default function AppDashboardClient() {
             footerNote={FREE_DASHBOARD_ATTRIBUTION_LIMIT_FOOTNOTE}
             visualTone="premium"
             ctaLabel={FREE_DASHBOARD_ATTRIBUTION_CTA_LABEL}
-            onCtaClick={() =>
-              requestBillingPricingModal("free_dashboard_attribution_heavy_limited", { force: true })
-            }
+            onCtaClick={() => {
+              if (billingBootstrapLoading) return;
+              requestBillingPricingModal("free_dashboard_attribution_heavy_limited", { force: true });
+            }}
           />
         </div>
       ) : (

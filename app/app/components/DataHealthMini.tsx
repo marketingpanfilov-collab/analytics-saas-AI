@@ -139,7 +139,7 @@ export default function DataHealthMini({
   variant = "default",
 }: DataHealthMiniProps) {
   const router = useRouter();
-  const { bootstrap } = useBillingBootstrap();
+  const { bootstrap, loading: billingBootstrapLoading } = useBillingBootstrap();
   const { requestBillingPricingModal } = useBillingPricingModalRequest();
   /** Только Growth / Scale: оценка и рекомендации (см. попап и Topbar prefetch). */
   const hasPaidDataQualityAccess =
@@ -261,9 +261,10 @@ export default function DataHealthMini({
   const status = getStatusFromScore(v);
 
   const onDataQualityUpgradeClick = useCallback(() => {
+    if (billingBootstrapLoading) return;
     const opened = requestBillingPricingModal("data_quality_starter", { force: true });
     if (!opened) router.push("/app/settings");
-  }, [requestBillingPricingModal, router]);
+  }, [requestBillingPricingModal, router, billingBootstrapLoading]);
 
   /**
    * Mobile context strip: тот же формат, что и desktop (две строки → одна строка «Качество данных: …»).

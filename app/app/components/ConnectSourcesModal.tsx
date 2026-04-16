@@ -76,7 +76,7 @@ export default function ConnectSourcesModal({
 
   async function connectMeta(adAccountId: string) {
     if (!canSync) {
-      if (!requestBillingPricingModal("oauth_connect_click")) {
+      if (!requestBillingPricingModal("oauth_connect_click", { force: true })) {
         alert("Подключение кабинетов недоступно при текущем статусе подписки.");
       }
       return;

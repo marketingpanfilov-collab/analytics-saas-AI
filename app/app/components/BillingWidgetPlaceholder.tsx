@@ -138,7 +138,11 @@ export default function BillingWidgetPlaceholder({
       {ctaLabel && onCtaClick ? (
         <button
           type="button"
-          onClick={onCtaClick}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onCtaClick();
+          }}
           className="mt-1 w-fit cursor-pointer rounded-[10px] bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/80"
         >
           {ctaLabel}
