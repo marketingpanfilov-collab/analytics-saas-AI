@@ -42,13 +42,23 @@ function isVerifyType(t: string): t is VerifyEmailType {
   return (VERIFY_TYPES as readonly string[]).includes(t);
 }
 
+function getVerifyTypeCandidates(type: VerifyEmailType): VerifyEmailType[] {
+  // Supabase projects may validate confirmation links as either `signup` or `email`.
+  // Try both for email-confirmation flow to avoid false "invalid/expired" failures.
+  if (type === "signup") return ["signup", "email"];
+  if (type === "email") return ["email", "signup"];
+  return [type];
+}
+
 /**
  * Подтверждение email / сброс пароля по token_hash из письма (без PKCE code_verifier).
  * В шаблоне Supabase замените href кнопки с {{ .ConfirmationURL }} на URL этого route — см. supabase/templates/*.html
  */
 export async function GET(request: NextRequest) {
   const url = request.nextUrl.clone();
-  const tokenHash = url.searchParams.get("token_hash");
+  const rawTokenHash = url.searchParams.get("token_hash");
+  // Query parsers may decode '+' as space; normalize for token verification.
+  const tokenHash = rawTokenHash?.replace(/ /g, "+") ?? null;
   const typeRaw = url.searchParams.get("type") ?? "";
   const nextRaw =
     url.searchParams.get("next") ?? nextFromEmailRedirectTo(url.searchParams.get("redirect_to"));
@@ -84,10 +94,19 @@ export async function GET(request: NextRequest) {
     }
   );
 
-  const { error } = await supabase.auth.verifyOtp({
-    token_hash: tokenHash,
-    type: typeRaw,
-  });
+  let error: Error | null = null;
+  const verifyTypes = getVerifyTypeCandidates(typeRaw);
+  for (const verifyType of verifyTypes) {
+    const result = await supabase.auth.verifyOtp({
+      token_hash: tokenHash,
+      type: verifyType,
+    });
+    if (!result.error) {
+      error = null;
+      break;
+    }
+    error = result.error;
+  }
 
   if (error) {
     loginBase.searchParams.set("auth_error", "verify_failed");
