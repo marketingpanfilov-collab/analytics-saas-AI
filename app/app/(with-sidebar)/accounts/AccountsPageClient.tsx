@@ -2260,8 +2260,7 @@ export default function AccountsPageClient() {
           <button
             type="button"
             onClick={() => {
-              const opened = requestBillingPricingModal("free_ad_accounts_cap_accounts_page", { force: true });
-              if (!opened) router.push("/app/settings");
+              requestBillingPricingModal("free_ad_accounts_cap_accounts_page", { force: true });
             }}
             style={{
               padding: "10px 16px",

@@ -11,7 +11,11 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { canOfferBillingInlinePricing, isBillingBlocking } from "@/app/lib/billingBootstrapClient";
+import {
+  canAttemptBillingUpgradeModal,
+  isBillingBlocking,
+  readLastKnownBootstrap,
+} from "@/app/lib/billingBootstrapClient";
 import { suggestUpgradePlanId } from "@/app/lib/billingPlanDisplay";
 import { ScreenId } from "@/app/lib/billingUiContract";
 import { useBillingBootstrap } from "./BillingBootstrapProvider";
@@ -47,8 +51,13 @@ export function useOptionalBillingPricingModalRequest(): Ctx | null {
  * `project_id` для чекаута берётся в `BillingInlinePricing` из URL или пропа.
  */
 function BillingPricingModalProviderInner({ children }: { children: ReactNode }) {
-  const { resolvedUi, bootstrap, overLimitApplyGraceUntilMs, relaxOverLimitForPendingWebhook } =
-    useBillingBootstrap();
+  const {
+    resolvedUi,
+    bootstrap,
+    loading: billingBootstrapLoading,
+    overLimitApplyGraceUntilMs,
+    relaxOverLimitForPendingWebhook,
+  } = useBillingBootstrap();
   const [open, setOpen] = useState(false);
   /** Аргумент последнего вызова requestBillingPricingModal (для контекста шапки модалки). */
   const [pricingModalEntrySource, setPricingModalEntrySource] = useState<string | null>(null);
@@ -65,16 +74,22 @@ function BillingPricingModalProviderInner({ children }: { children: ReactNode })
 
   const requestBillingPricingModal = useCallback(
     (sourceAction: string, opts?: RequestBillingPricingModalOptions) => {
-      if (!resolvedUi) return false;
-      if (!opts?.force && !isBillingBlocking(resolvedUi, billingBlockingOpts)) return false;
-      if (!canOfferBillingInlinePricing(resolvedUi)) return false;
+      if (billingBootstrapLoading && !resolvedUi) return false;
+      let gateResolved = resolvedUi;
+      if (!gateResolved && opts?.force) {
+        const last = readLastKnownBootstrap();
+        if (last?.resolved_ui_state) gateResolved = last.resolved_ui_state;
+      }
+      if (!gateResolved) return false;
+      if (!opts?.force && !isBillingBlocking(gateResolved, billingBlockingOpts)) return false;
+      if (!canAttemptBillingUpgradeModal(gateResolved, opts)) return false;
       if (openRef.current) return false;
       openRef.current = true;
       setPricingModalEntrySource(sourceAction);
       setOpen(true);
       return true;
     },
-    [resolvedUi, billingBlockingOpts]
+    [resolvedUi, billingBootstrapLoading, billingBlockingOpts]
   );
 
   const close = useCallback(() => {

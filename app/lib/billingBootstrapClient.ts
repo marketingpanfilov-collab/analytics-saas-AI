@@ -76,6 +76,27 @@ export function canOfferBillingInlinePricing(resolved: ResolvedUiStateV1 | null)
   );
 }
 
+/**
+ * Можно ли показать модалку выбора тарифа / Paddle.
+ * `force` — CTA «апгрейд» со страницы: разрешаем и без billing_* в allowed_actions (например NO_ACCESS с navigate_projects),
+ * но не при pending_plan_change и не «из воздуха» без базовых прав в приложении.
+ */
+export function canAttemptBillingUpgradeModal(
+  resolved: ResolvedUiStateV1 | null,
+  opts?: { force?: boolean }
+): boolean {
+  if (!resolved || resolved.pending_plan_change) return false;
+  if (canOfferBillingInlinePricing(resolved)) return true;
+  if (!opts?.force) return false;
+  return (
+    billingActionAllowed(resolved, ActionId.wildcard) ||
+    billingActionAllowed(resolved, ActionId.billing_checkout) ||
+    billingActionAllowed(resolved, ActionId.billing_manage) ||
+    billingActionAllowed(resolved, ActionId.navigate_app) ||
+    billingActionAllowed(resolved, ActionId.navigate_projects)
+  );
+}
+
 export function routePathnameOnly(path: string): string {
   const q = path.indexOf("?");
   return q >= 0 ? path.slice(0, q) : path;

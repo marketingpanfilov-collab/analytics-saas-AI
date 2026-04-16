@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useLayoutEffect, useMemo, useState, type CSSProperties } from "react";
-import { useRouter } from "next/navigation";
 import type { EffectivePlan } from "@/app/lib/accessState";
 import { useAppMainPaneRef } from "./AppMainPaneRefContext";
 import { useBillingBootstrap } from "./BillingBootstrapProvider";
@@ -48,7 +47,6 @@ export default function PlanRestrictedOverlay({
 }: PlanRestrictedOverlayProps) {
   const { bootstrap, loading: bootstrapLoading } = useBillingBootstrap();
   const { requestBillingPricingModal } = useBillingPricingModalRequest();
-  const router = useRouter();
   const mainPaneRef = useAppMainPaneRef();
   const [paneBox, setPaneBox] = useState<PaneBox | null>(null);
 
@@ -88,9 +86,8 @@ export default function PlanRestrictedOverlay({
 
   const onUpgrade = useCallback(() => {
     if (bootstrapLoading) return;
-    const opened = requestBillingPricingModal(upgradeSource, { force: true });
-    if (!opened) router.push("/app/settings");
-  }, [requestBillingPricingModal, router, upgradeSource, bootstrapLoading]);
+    requestBillingPricingModal(upgradeSource, { force: true });
+  }, [requestBillingPricingModal, upgradeSource, bootstrapLoading]);
 
   const card = (
     <div

@@ -674,6 +674,15 @@ export default function Topbar({ email }: { email?: string }) {
     if (!isNarrowViewport) setMobileProjectOpen(false);
   }, [isNarrowViewport, mobileProjectOpen]);
 
+  /** Смена страницы: не оставлять «невидимый» слой sheet (см. MobileBottomSheet — анимация закрытия). */
+  useEffect(() => {
+    setMobileProjectOpen(false);
+    setMobileProfileOpen(false);
+    setNotifOpen(false);
+    setPlanTariffPanelOpen(false);
+    setTariffModalOpen(false);
+  }, [pathname]);
+
   return (
     <>
     <header

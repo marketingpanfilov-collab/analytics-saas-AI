@@ -137,8 +137,8 @@ export function MobileBottomSheet({
       <button
         type="button"
         aria-label="Закрыть"
-        className={`pointer-events-auto absolute inset-0 bg-black/55 backdrop-blur-[3px] transition-opacity ${
-          visible ? "opacity-100" : "opacity-0"
+        className={`absolute inset-0 bg-black/55 backdrop-blur-[3px] transition-opacity ${
+          visible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
         }`}
         style={{
           transitionDuration: `${BACKDROP_MS}ms`,
@@ -150,7 +150,9 @@ export function MobileBottomSheet({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={`pointer-events-auto relative z-10 flex w-full flex-col rounded-t-[20px] border border-white/[0.08] border-b-0 bg-[#16161e] shadow-[0_-24px_64px_rgba(0,0,0,0.48)] ${panelMaxClassName} ${className}`}
+        className={`relative z-10 flex w-full flex-col rounded-t-[20px] border border-white/[0.08] border-b-0 bg-[#16161e] shadow-[0_-24px_64px_rgba(0,0,0,0.48)] ${panelMaxClassName} ${className} ${
+          visible ? "pointer-events-auto" : "pointer-events-none"
+        }`}
         style={{
           transform: visible ? "translate3d(0,0,0)" : "translate3d(0,16px,0)",
           opacity: visible ? 1 : 0,

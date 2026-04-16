@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { acquireBodyScrollLock } from "@/app/lib/bodyScrollLock";
@@ -138,7 +137,6 @@ export default function DataHealthMini({
   dataQualityPrefetchPending = false,
   variant = "default",
 }: DataHealthMiniProps) {
-  const router = useRouter();
   const { bootstrap, loading: billingBootstrapLoading } = useBillingBootstrap();
   const { requestBillingPricingModal } = useBillingPricingModalRequest();
   /** Только Growth / Scale: оценка и рекомендации (см. попап и Topbar prefetch). */
@@ -262,9 +260,8 @@ export default function DataHealthMini({
 
   const onDataQualityUpgradeClick = useCallback(() => {
     if (billingBootstrapLoading) return;
-    const opened = requestBillingPricingModal("data_quality_starter", { force: true });
-    if (!opened) router.push("/app/settings");
-  }, [requestBillingPricingModal, router, billingBootstrapLoading]);
+    requestBillingPricingModal("data_quality_starter", { force: true });
+  }, [requestBillingPricingModal, billingBootstrapLoading]);
 
   /**
    * Mobile context strip: тот же формат, что и desktop (две строки → одна строка «Качество данных: …»).
