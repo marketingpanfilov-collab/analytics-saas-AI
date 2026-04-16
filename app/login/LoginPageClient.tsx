@@ -254,6 +254,13 @@ export default function LoginPageClient() {
     billing: BillingPeriod;
   } | null>(null);
 
+  /** signUp после оплаты: один вход (Paddle + «Проверить оплату» не должны слать письмо дважды). */
+  const loginCheckoutSignupInFlightRef = useRef(false);
+  /** Free / invite: двойной клик «Создать аккаунт» до setState(loading). */
+  const inviteFreeSignupInFlightRef = useRef(false);
+  /** Один onPaid на checkout_attempt_id (Paddle может дернуть success несколькими событиями). */
+  const paddleOnPaidOncePerAttemptRef = useRef<string | null>(null);
+
   const PLAN_LABELS: Record<PricingPlanId, string> = {
     starter: "Starter",
     growth: "Growth",
@@ -419,6 +426,11 @@ export default function LoginPageClient() {
     billing: BillingPeriod;
   }) {
     const { organizationId, checkoutAttemptId, plan: effectivePlan, billing: effectiveBilling } = args;
+    if (loginCheckoutSignupInFlightRef.current) {
+      return;
+    }
+    loginCheckoutSignupInFlightRef.current = true;
+    try {
     const signUpRes = await supabase.auth.signUp({
       email: email.trim(),
       password,
@@ -523,6 +535,9 @@ export default function LoginPageClient() {
     }
     router.replace(target);
     setLoading(false);
+    } finally {
+      loginCheckoutSignupInFlightRef.current = false;
+    }
   }
 
   const inviteOnlySignup = async () => {
@@ -531,6 +546,10 @@ export default function LoginPageClient() {
     if (!acceptTerms) {
       return setMsg("Для регистрации необходимо принять пользовательское соглашение.");
     }
+    if (inviteFreeSignupInFlightRef.current) {
+      return;
+    }
+    inviteFreeSignupInFlightRef.current = true;
 
     setPendingSignupConfirmEmail(false);
     setLoading(true);
@@ -568,6 +587,7 @@ export default function LoginPageClient() {
       setMsg(e instanceof Error ? e.message : "Не удалось выполнить запрос. Попробуйте ещё раз.");
     } finally {
       setLoading(false);
+      inviteFreeSignupInFlightRef.current = false;
     }
   };
 
@@ -678,6 +698,11 @@ export default function LoginPageClient() {
         paid: false,
         onPaid: () => {
           void (async () => {
+            if (paddleOnPaidOncePerAttemptRef.current === checkoutAttemptId) {
+              return;
+            }
+            paddleOnPaidOncePerAttemptRef.current = checkoutAttemptId;
+
             setLoginPaymentRecovery(false);
             setLoginReconcileHint(null);
             setMsg(`${BILLING_SOFT_PAYMENT_HEADLINE}. Обычно до 30 секунд, иногда до минуты.`);
