@@ -641,7 +641,7 @@ export default function LoginPageClient() {
       clearCheckoutAttemptSession();
     }
     router.replace(target);
-    setLoading(false);
+    // Не сбрасываем loading: иначе кнопка на секунду активна до завершения навигации.
     } finally {
       loginCheckoutSignupInFlightRef.current = false;
     }
@@ -677,6 +677,7 @@ export default function LoginPageClient() {
     setPasswordPairError(null);
     setEmailInUseError(null);
     setLoading(true);
+    let navigatedAway = false;
     try {
       const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
@@ -717,14 +718,15 @@ export default function LoginPageClient() {
       setEmailInUseError(null);
       await postMarkMetaCrEligibleFromSignupSession();
       router.replace(buildPostSignupOnboardingPath(nextPath));
+      navigatedAway = true;
     } catch (e) {
       console.error("[Login invite signup] error", e);
       setPasswordPairError(null);
       setEmailInUseError(null);
       setMsg(e instanceof Error ? e.message : "Не удалось выполнить запрос. Попробуйте ещё раз.");
     } finally {
-      setLoading(false);
       inviteFreeSignupInFlightRef.current = false;
+      if (!navigatedAway) setLoading(false);
     }
   };
 
