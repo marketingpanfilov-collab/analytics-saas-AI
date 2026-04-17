@@ -7,7 +7,10 @@ import { broadcastBillingBootstrapInvalidate } from "@/app/lib/billingBootstrapC
 import { emitBillingFunnelEvent } from "@/app/lib/billingFunnelAnalytics";
 import { COMPANY_SIZE_VALUES, getCompanySizeSelectOptions } from "@/app/lib/companySize";
 import { COMPANY_SPHERE_KEYS, getCompanySphereGroupedSelect } from "@/app/lib/companySphere";
-import { resolveBootstrapPlanAnalyticsSlug } from "@/app/lib/billingBootstrapPlanLabel";
+import {
+  isFreeTierFromBootstrap,
+  resolveBootstrapPlanAnalyticsSlug,
+} from "@/app/lib/billingBootstrapPlanLabel";
 import { fireMetaCompleteRegistrationPixel } from "@/app/lib/metaPixelBrowser";
 import { useBillingBootstrap } from "./BillingBootstrapProvider";
 
@@ -130,6 +133,11 @@ function PostCheckoutOnboardingModalInner() {
   );
   const companySizeOptions = useMemo(() => getCompanySizeSelectOptions(false), []);
 
+  const step1Headline = useMemo(
+    () => (isFreeTierFromBootstrap(bootstrap) ? "Аккаунт активирован" : "Подписка активирована"),
+    [bootstrap]
+  );
+
   const syncFromBootstrap = useCallback(() => {
     setErr(null);
     if (suppressBootstrapSyncRef.current) return;
@@ -216,9 +224,19 @@ function PostCheckoutOnboardingModalInner() {
     return j;
   };
 
-  const onStep1Continue = () => {
+  const onStep1Continue = async () => {
     if (saving) return;
-    setStep(2);
+    setSaving(true);
+    setErr(null);
+    try {
+      await postJson({ action: "advance_step", step: 2 });
+      setStep(2);
+      void reloadBootstrap();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const onSaveCompany = async () => {
@@ -440,15 +458,16 @@ function PostCheckoutOnboardingModalInner() {
           {step === 1 && (
             <>
               <h2 id="post-checkout-title" style={{ fontSize: 20, fontWeight: 700, margin: "0 0 12px" }}>
-                Подписка активирована
+                {step1Headline}
               </h2>
               <p style={{ fontSize: 14, color: "rgba(255,255,255,0.78)", lineHeight: 1.55, margin: "0 0 24px" }}>
                 Остался один шаг — настроим рабочее пространство под ваш бизнес.
               </p>
+              {errBox}
               <button
                 type="button"
                 disabled={saving}
-                onClick={onStep1Continue}
+                onClick={() => void onStep1Continue()}
                 style={{ ...primaryCtaStyle(saving, true), width: "100%" }}
               >
                 {saving ? "Подождите…" : "Продолжить настройку"}

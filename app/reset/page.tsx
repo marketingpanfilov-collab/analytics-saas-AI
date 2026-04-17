@@ -240,7 +240,8 @@ const styles: Record<string, React.CSSProperties> = {
     pointerEvents: "none",
   },
   card: {
-    width: "min(920px, 100%)",
+    width: "100%",
+    maxWidth: 440,
     borderRadius: 28,
     background: "rgba(20, 20, 30, 0.72)",
     border: "1px solid rgba(255,255,255,0.08)",
@@ -248,14 +249,16 @@ const styles: Record<string, React.CSSProperties> = {
     backdropFilter: "blur(14px)",
     padding: 28,
     position: "relative",
+    boxSizing: "border-box",
   },
   headerRow: {
     display: "flex",
     gap: 20,
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
     alignItems: "flex-start",
     flexWrap: "wrap",
     marginBottom: 18,
+    width: "100%",
   },
   h1: {
     fontSize: 34,
@@ -264,7 +267,7 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 6,
   },
   sub: {
-    maxWidth: 560,
+    maxWidth: "100%",
     fontSize: 16,
     lineHeight: 1.5,
     opacity: 0.75,
@@ -273,7 +276,7 @@ const styles: Record<string, React.CSSProperties> = {
     display: "grid",
     gap: 12,
     paddingTop: 6,
-    maxWidth: 520,
+    width: "100%",
   },
   label: {
     fontSize: 14,

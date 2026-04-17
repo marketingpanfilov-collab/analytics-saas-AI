@@ -1860,14 +1860,14 @@ export default function AccountsPageClient() {
             }
           }
         } else {
-          setToast({
-            type: "error",
-            text:
-              j?.error ??
-              (googleStatus === "disconnected"
-                ? "Не удалось сохранить: переподключи Google OAuth и попробуй снова."
-                : "Не удалось сохранить выбор Google"),
-          });
+        setToast({
+          type: "error",
+          text:
+            j?.error ??
+            (googleStatus === "disconnected"
+              ? "Не удалось сохранить: переподключи Google OAuth и попробуй снова."
+              : "Не удалось сохранить выбор Google"),
+        });
         }
       } else {
         setToast({ type: "success", text: `Сохранено аккаунтов Google: ${j.saved ?? selectedGoogleIds.length}` });
@@ -1918,14 +1918,14 @@ export default function AccountsPageClient() {
             }
           }
         } else {
-          setToast({
-            type: "error",
-            text:
-              j?.error ??
-              (tiktokStatus === "disconnected"
-                ? "Не удалось сохранить: переподключи TikTok OAuth и попробуй снова."
-                : "Не удалось сохранить выбор TikTok"),
-          });
+        setToast({
+          type: "error",
+          text:
+            j?.error ??
+            (tiktokStatus === "disconnected"
+              ? "Не удалось сохранить: переподключи TikTok OAuth и попробуй снова."
+              : "Не удалось сохранить выбор TikTok"),
+        });
         }
       } else {
         setToast({ type: "success", text: `Сохранено TikTok аккаунтов: ${j.saved ?? selectedTikTokIds.length}` });
@@ -2618,7 +2618,7 @@ export default function AccountsPageClient() {
         }}
       >
         <div
-          style={{
+                style={{
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -2678,7 +2678,7 @@ export default function AccountsPageClient() {
           }}
         >
           {integrationOverview.sub}
-        </div>
+          </div>
         {integrationOverview.limitReached ? (
           <div
             style={{
@@ -2690,9 +2690,9 @@ export default function AccountsPageClient() {
             }}
           >
             Вы используете максимальное количество аккаунтов для текущего тарифа
+            </div>
+          ) : null}
           </div>
-        ) : null}
-      </div>
 
       <div style={channelsGrid}>
         <IntegrationChannelCard
@@ -2807,7 +2807,7 @@ export default function AccountsPageClient() {
           <div style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 36 }}>
             <div style={{ fontSize: 17, fontWeight: 800, flex: 1, letterSpacing: "-0.02em" }}>Yandex</div>
             <span
-              style={{
+                style={{
                 ...badgeBase,
                 height: 26,
                 padding: "0 9px",
@@ -2831,9 +2831,9 @@ export default function AccountsPageClient() {
             <Button kind="outline" disabled>
               Скоро
             </Button>
-          </div>
+              </div>
         </div>
-      </div>
+          </div>
 
       <details
         className="accounts-details"
@@ -2847,7 +2847,7 @@ export default function AccountsPageClient() {
         }}
       >
         <summary
-          style={{
+                style={{
             fontSize: 16,
             fontWeight: 800,
             cursor: "pointer",
@@ -2857,83 +2857,83 @@ export default function AccountsPageClient() {
           }}
         >
           Подключённые аккаунты
-        </summary>
+              </summary>
 
-        {(() => {
-          const connectedCount = PLATFORM_ORDER.reduce(
-            (n, pid) => n + (connectedAccountsByPlatformFiltered.get(pid)?.length ?? 0),
-            0
-          );
-          if (connectedCount === 0) {
+          {(() => {
+            const connectedCount = PLATFORM_ORDER.reduce(
+              (n, pid) => n + (connectedAccountsByPlatformFiltered.get(pid)?.length ?? 0),
+              0
+            );
+            if (connectedCount === 0) {
             return <div style={{ ...smallMuted, marginTop: 12 }}>Нет активных аккаунтов.</div>;
-          }
-          return (
+            }
+            return (
             <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 14 }}>
-              {PLATFORM_ORDER.map((platformId) => {
-                const list = connectedAccountsByPlatformFiltered.get(platformId);
-                const isMeta = platformId === "meta";
-                const isGoogle = platformId === "google";
-                const isTikTok = platformId === "tiktok";
+                {PLATFORM_ORDER.map((platformId) => {
+                  const list = connectedAccountsByPlatformFiltered.get(platformId);
+                  const isMeta = platformId === "meta";
+                  const isGoogle = platformId === "google";
+                  const isTikTok = platformId === "tiktok";
                 if (platformId === "yandex") return null;
-                if (isMeta && !platformActiveForList.meta) return null;
-                if (isGoogle && !platformActiveForList.google) return null;
-                if (isTikTok && !platformActiveForList.tiktok) return null;
-                if (!list?.length) return null;
-                const label = PLATFORM_LABELS[platformId] ?? platformId;
-                return (
-                  <div key={platformId}>
-                    <div style={{ fontSize: 13, fontWeight: 800, opacity: 0.85, marginBottom: 8 }}>
-                      {label} ({list.length})
-                    </div>
-                    <div style={{ display: "grid", gap: 10 }}>
-                      {list.map((a) => {
-                        const syncing = syncingAccountId === a.platform_account_id;
+                  if (isMeta && !platformActiveForList.meta) return null;
+                  if (isGoogle && !platformActiveForList.google) return null;
+                  if (isTikTok && !platformActiveForList.tiktok) return null;
+                  if (!list?.length) return null;
+                  const label = PLATFORM_LABELS[platformId] ?? platformId;
+                  return (
+                    <div key={platformId}>
+                      <div style={{ fontSize: 13, fontWeight: 800, opacity: 0.85, marginBottom: 8 }}>
+                        {label} ({list.length})
+                      </div>
+                      <div style={{ display: "grid", gap: 10 }}>
+                        {list.map((a) => {
+                          const syncing = syncingAccountId === a.platform_account_id;
                         return (
-                          <div
+                            <div
                             key={a.id}
-                            style={{
+                              style={{
                               padding: 12,
-                              borderRadius: 12,
-                              border: "1px solid rgba(255,255,255,0.10)",
+                                borderRadius: 12,
+                                border: "1px solid rgba(255,255,255,0.10)",
                               background: "rgba(255,255,255,0.02)",
-                              display: "flex",
-                              flexWrap: "wrap",
-                              alignItems: "flex-start",
+                                display: "flex",
+                                flexWrap: "wrap",
+                                alignItems: "flex-start",
                               justifyContent: "space-between",
-                              gap: 12,
-                            }}
-                          >
-                            <div style={{ minWidth: 0, flex: 1 }}>
+                                gap: 12,
+                              }}
+                            >
+                              <div style={{ minWidth: 0, flex: 1 }}>
                               <div style={{ fontWeight: 800, fontSize: 14 }}>{a.name || a.platform_account_id}</div>
                               <div style={{ ...smallMuted, marginTop: 4, fontSize: 12 }}>{a.platform_account_id}</div>
-                            </div>
+                                </div>
                             <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
-                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                                <span
-                                  style={{
-                                    ...badgeBase,
-                                    background: a.is_enabled ? "rgba(110,255,200,0.12)" : "rgba(255,255,255,0.06)",
+                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                  <span
+                                    style={{
+                                      ...badgeBase,
+                                      background: a.is_enabled ? "rgba(110,255,200,0.12)" : "rgba(255,255,255,0.06)",
                                     border: a.is_enabled
                                       ? "1px solid rgba(110,255,200,0.25)"
                                       : "1px solid rgba(255,255,255,0.14)",
-                                    color: a.is_enabled ? "rgba(140,255,210,0.95)" : "rgba(255,255,255,0.6)",
-                                  }}
-                                >
+                                      color: a.is_enabled ? "rgba(140,255,210,0.95)" : "rgba(255,255,255,0.6)",
+                                    }}
+                                  >
                                   {a.is_enabled ? "Подключен" : "Не подключен"}
-                                </span>
-                                <span
-                                  style={{
-                                    ...badgeBase,
-                                    background: a.has_data ? "rgba(100,180,255,0.12)" : "rgba(255,255,255,0.06)",
+                                  </span>
+                                  <span
+                                    style={{
+                                      ...badgeBase,
+                                      background: a.has_data ? "rgba(100,180,255,0.12)" : "rgba(255,255,255,0.06)",
                                     border: a.has_data
                                       ? "1px solid rgba(100,180,255,0.25)"
                                       : "1px solid rgba(255,255,255,0.14)",
-                                    color: a.has_data ? "rgba(160,200,255,0.95)" : "rgba(255,255,255,0.6)",
-                                  }}
-                                >
+                                      color: a.has_data ? "rgba(160,200,255,0.95)" : "rgba(255,255,255,0.6)",
+                                    }}
+                                  >
                                   {a.has_data ? "Есть данные" : "Нет данных"}
-                                </span>
-                              </div>
+                                  </span>
+                                </div>
                               <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
                                 <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
                                   {isMeta ? (
@@ -3043,17 +3043,17 @@ export default function AccountsPageClient() {
                                   </div>
                                 ) : null}
                               </div>
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })()}
+                  );
+                })}
+              </div>
+            );
+          })()}
       </details>
     </div>
   );

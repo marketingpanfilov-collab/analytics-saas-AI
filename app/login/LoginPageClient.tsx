@@ -40,6 +40,10 @@ import { addPaddleEventListener, getPaddle } from "../lib/paddle";
 import { formatAuthErrorMessage } from "../lib/auth/formatAuthErrorMessage";
 import { safeAppNextTarget } from "../lib/auth/safeAppNextTarget";
 import { getPaddlePriceId, getPaddleProductId, type BillingPeriod } from "../lib/paddlePriceMap";
+import {
+  META_CR_ELIGIBLE_USER_METADATA_KEY,
+  userMetadataIndicatesMetaCrEligible,
+} from "../lib/metaCompleteRegistrationEligible";
 import { supabase } from "../lib/supabaseClient";
 
 const DEFAULT_POST_AUTH_APP = "/app/projects";
@@ -121,6 +125,51 @@ function isExistingUserWithoutNewIdentity(
 
 const EXISTING_EMAIL_MSG =
   "Пользователь с этим email уже зарегистрирован. Авторизуйтесь или используйте другой email.";
+
+const POST_SIGNUP_ONBOARDING_BASE = "/app/projects/onboarding";
+
+/** После успешной регистрации с сессией: онбординг + безопасные query из next (plan/billing). */
+function buildPostSignupOnboardingPath(nextPath: string): string {
+  const v = validateBillingReturnPath(nextPath);
+  if (!v) return POST_SIGNUP_ONBOARDING_BASE;
+  const qi = v.indexOf("?");
+  return qi >= 0 ? `${POST_SIGNUP_ONBOARDING_BASE}${v.slice(qi)}` : POST_SIGNUP_ONBOARDING_BASE;
+}
+
+function validateSignupPasswordPair(password: string, confirmPassword: string): string | null {
+  if (!confirmPassword.trim()) return "Введите подтверждение пароля.";
+  if (password !== confirmPassword) return "Пароли не совпадают.";
+  return null;
+}
+
+/** Сессия не создалась после signUp (сбой или устаревшие настройки на стороне входа). */
+const SIGNUP_NO_SESSION_MSG =
+  "Регистрация не завершилась автоматически. Откройте вкладку «Вход», введите тот же email и пароль — доступ должен открыться. Если вход не удаётся, обновите страницу и попробуйте снова либо напишите в поддержку.";
+
+/** Оплата прошла, но браузер не получил сессию сразу после создания аккаунта. */
+const PAID_SIGNUP_NO_SESSION_MSG =
+  "Оплата прошла, но мы не смогли сразу войти в аккаунт. Откройте вкладку «Вход» и войдите с тем же email и паролем — подписка должна подтянуться. Если не получается, напишите в поддержку: поможем связать оплату с аккаунтом.";
+
+/**
+ * Разрешение на CompleteRegistration при save_company онбординга.
+ * Только клиентский `updateUser` (без service role сразу после signUp) — иначе сессия могла ломаться и вход переставал работать.
+ */
+async function postMarkMetaCrEligibleFromSignupSession(): Promise<void> {
+  try {
+    const { data: uwrap } = await supabase.auth.getUser();
+    const md = uwrap.user?.user_metadata as Record<string, unknown> | undefined;
+    if (userMetadataIndicatesMetaCrEligible(md)) return;
+
+    const { error } = await supabase.auth.updateUser({
+      data: { [META_CR_ELIGIBLE_USER_METADATA_KEY]: true },
+    });
+    if (error) {
+      console.warn("[Login] meta_cr_eligible updateUser", error.message);
+    }
+  } catch (e) {
+    console.warn("[Login] meta_cr_eligible", e);
+  }
+}
 
 type Mode = "login" | "signup";
 
@@ -223,6 +272,11 @@ export default function LoginPageClient() {
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  /** Ошибка пары паролей — только под полями пароля (не дублируем в общем `msg`). */
+  const [passwordPairError, setPasswordPairError] = useState<string | null>(null);
+  /** Email уже зарегистрирован — только под полем Email (см. EXISTING_EMAIL_MSG). */
+  const [emailInUseError, setEmailInUseError] = useState<string | null>(null);
   const [acceptTerms, setAcceptTerms] = useState(true);
 
   const [loading, setLoading] = useState(false);
@@ -230,7 +284,7 @@ export default function LoginPageClient() {
   const [loginPaymentRecovery, setLoginPaymentRecovery] = useState(false);
   const [loginReconcileBusy, setLoginReconcileBusy] = useState(false);
   const [loginReconcileHint, setLoginReconcileHint] = useState<string | null>(null);
-  /** После signUp без сессии (нужно подтвердить email) — показать «Отправить письмо повторно». */
+  /** Редкий UX (например старые ссылки): основной поток регистрации без подтверждения email в Supabase. */
   const [pendingSignupConfirmEmail, setPendingSignupConfirmEmail] = useState(false);
   /** Отдельно от `loading` формы — иначе застрявший спиннер после Paddle/других шагов блокирует повторную отправку. */
   const [resendConfirmBusy, setResendConfirmBusy] = useState(false);
@@ -323,6 +377,14 @@ export default function LoginPageClient() {
   useEffect(() => {
     setModalBilling(billing);
   }, [billing]);
+
+  useEffect(() => {
+    if (mode === "login") {
+      setConfirmPassword("");
+      setPasswordPairError(null);
+      setEmailInUseError(null);
+    }
+  }, [mode]);
 
   useEffect(() => {
     if (!pendingSignupConfirmEmail) setForgotPasswordDisclosed(false);
@@ -460,6 +522,17 @@ export default function LoginPageClient() {
     }
     loginCheckoutSignupInFlightRef.current = true;
     try {
+    const pairErr = validateSignupPasswordPair(password, confirmPassword);
+    if (pairErr) {
+      setPasswordPairError(pairErr);
+      setEmailInUseError(null);
+      setMsg("");
+      setLoading(false);
+      return;
+    }
+    setPasswordPairError(null);
+    setEmailInUseError(null);
+
     const signUpRes = await supabase.auth.signUp({
       email: email.trim(),
       password,
@@ -474,12 +547,14 @@ export default function LoginPageClient() {
           password,
         });
         if (inRes.error || !inRes.data.session) {
-          setMsg(EXISTING_EMAIL_MSG);
+          setEmailInUseError(EXISTING_EMAIL_MSG);
+          setMsg("");
           setLoading(false);
           return;
         }
         data = { user: inRes.data.user, session: inRes.data.session };
       } else {
+        setEmailInUseError(null);
         setMsg(signUpRes.error.message);
         setLoading(false);
         return;
@@ -491,7 +566,8 @@ export default function LoginPageClient() {
         password,
       });
       if (inRes.error || !inRes.data.session) {
-        setMsg(EXISTING_EMAIL_MSG);
+        setEmailInUseError(EXISTING_EMAIL_MSG);
+        setMsg("");
         setLoading(false);
         return;
       }
@@ -506,6 +582,7 @@ export default function LoginPageClient() {
     const userId = session?.user?.id ?? data.user?.id ?? null;
 
     if (session && userId) {
+      await postMarkMetaCrEligibleFromSignupSession();
       const fin = await fetch("/api/auth/finalize-login-checkout", {
         method: "POST",
         credentials: "include",
@@ -515,6 +592,7 @@ export default function LoginPageClient() {
       if (!fin.ok) {
         persistLoginCheckoutFinalizeOrg(organizationId);
         const j = (await fin.json().catch(() => null)) as { error?: string } | null;
+        setEmailInUseError(null);
         setMsg(j?.error ?? "Оплата получена, но не удалось привязать организацию. Обновите страницу или напишите в поддержку.");
         setLoading(false);
         return;
@@ -522,10 +600,9 @@ export default function LoginPageClient() {
       clearLoginCheckoutFinalizeOrg();
     } else {
       persistLoginCheckoutFinalizeOrg(organizationId);
-      setPendingSignupConfirmEmail(true);
-      setMsg(
-        "✅ Оплата прошла успешно. На ваш email отправлено письмо для подтверждения — перейдите по ссылке, чтобы открыть настройку аккаунта."
-      );
+      setPendingSignupConfirmEmail(false);
+      setEmailInUseError(null);
+      setMsg(PAID_SIGNUP_NO_SESSION_MSG);
       setLoading(false);
       return;
     }
@@ -534,7 +611,7 @@ export default function LoginPageClient() {
       reload: () => fetchBillingBootstrapPack(),
     });
     if (pack.bootstrap) writeLastKnownBootstrap(pack.bootstrap);
-    const target = validateBillingReturnPath(nextPath) ?? "/app/projects";
+    const target = buildPostSignupOnboardingPath(nextPath);
     const stillBlocking = pack.resolved ? isBillingBlocking(pack.resolved) : true;
     if (stillBlocking) {
       emitBillingFunnelEvent("billing_checkout_stuck_timeout", {
@@ -546,6 +623,7 @@ export default function LoginPageClient() {
         source: "login",
       });
       setLoginPaymentRecovery(true);
+      setEmailInUseError(null);
       setMsg(`${BILLING_SOFT_PAYMENT_HEADLINE}. ${BILLING_SOFT_PAYMENT_DETAIL}`);
     } else {
       emitBillingFunnelEvent("billing_access_unblocked", {
@@ -570,9 +648,24 @@ export default function LoginPageClient() {
   }
 
   const inviteOnlySignup = async () => {
-    if (!email.trim()) return setMsg("Введите email");
-    if (!password.trim()) return setMsg("Введите пароль");
+    if (!email.trim()) {
+      setPasswordPairError(null);
+      setEmailInUseError(null);
+      return setMsg("Введите email");
+    }
+    if (!password.trim()) {
+      setPasswordPairError(null);
+      setEmailInUseError(null);
+      return setMsg("Введите пароль");
+    }
+    const pairErr = validateSignupPasswordPair(password, confirmPassword);
+    if (pairErr) {
+      setPasswordPairError(pairErr);
+      return;
+    }
     if (!acceptTerms) {
+      setPasswordPairError(null);
+      setEmailInUseError(null);
       return setMsg("Для регистрации необходимо принять пользовательское соглашение.");
     }
     if (inviteFreeSignupInFlightRef.current) {
@@ -581,6 +674,8 @@ export default function LoginPageClient() {
     inviteFreeSignupInFlightRef.current = true;
 
     setPendingSignupConfirmEmail(false);
+    setPasswordPairError(null);
+    setEmailInUseError(null);
     setLoading(true);
     try {
       const { data, error } = await supabase.auth.signUp({
@@ -589,30 +684,43 @@ export default function LoginPageClient() {
         options: { emailRedirectTo: buildEmailConfirmRedirectUrl(nextPath, { emailFlow: "signup" }) },
       });
       if (error) {
+        setPasswordPairError(null);
         if (isAlreadyRegisteredMessage(error.message)) {
-          setMsg(EXISTING_EMAIL_MSG);
+          setEmailInUseError(EXISTING_EMAIL_MSG);
+          setMsg("");
           return;
         }
+        setEmailInUseError(null);
         setMsg(error.message);
         return;
       }
       if (isExistingUserWithoutNewIdentity(data.user)) {
-        setMsg(EXISTING_EMAIL_MSG);
+        setPasswordPairError(null);
+        setEmailInUseError(EXISTING_EMAIL_MSG);
+        setMsg("");
         return;
       }
-      // При включённом «Confirm email» в Supabase сессии нет до клика по ссылке —
-      // редирект в /app без cookie даёт redirect на /login и визуально «зависание», если не снять loading.
-      if (!data.session) {
-        setPendingSignupConfirmEmail(true);
-        setMsg(
-          "Аккаунт создан. Подтвердите email по ссылке в письме, затем войдите — после этого откроется доступ к проектам."
-        );
+      let session = data.session;
+      if (!session) {
+        const { data: sessWrap } = await supabase.auth.getSession();
+        session = sessWrap.session;
+      }
+      if (!session) {
+        setPendingSignupConfirmEmail(false);
+        setPasswordPairError(null);
+        setEmailInUseError(null);
+        setMsg(SIGNUP_NO_SESSION_MSG);
         return;
       }
       setPendingSignupConfirmEmail(false);
-      router.replace(nextPath);
+      setPasswordPairError(null);
+      setEmailInUseError(null);
+      await postMarkMetaCrEligibleFromSignupSession();
+      router.replace(buildPostSignupOnboardingPath(nextPath));
     } catch (e) {
       console.error("[Login invite signup] error", e);
+      setPasswordPairError(null);
+      setEmailInUseError(null);
       setMsg(e instanceof Error ? e.message : "Не удалось выполнить запрос. Попробуйте ещё раз.");
     } finally {
       setLoading(false);
@@ -623,6 +731,8 @@ export default function LoginPageClient() {
   const submitWithPlan = async (plan: PricingPlanId, period: BillingPeriod) => {
     if (loading) return;
     setMsg("");
+    setPasswordPairError(null);
+    setEmailInUseError(null);
 
     const effectivePlan = plan;
     const effectiveBilling = period;
@@ -631,6 +741,13 @@ export default function LoginPageClient() {
     if (!password.trim()) return setMsg("Введите пароль");
     if (mode === "signup" && !acceptTerms) {
       return setMsg("Для регистрации необходимо принять пользовательское соглашение.");
+    }
+    if (mode === "signup") {
+      const pairErr = validateSignupPasswordPair(password, confirmPassword);
+      if (pairErr) {
+        setPasswordPairError(pairErr);
+        return;
+      }
     }
 
     setLoading(true);
@@ -859,6 +976,8 @@ export default function LoginPageClient() {
   const onSubmit = async () => {
     if (loading) return;
     setMsg("");
+    setPasswordPairError(null);
+    setEmailInUseError(null);
 
     if (mode === "signup" && isInviteOnlySignup) {
       await inviteOnlySignup();
@@ -1113,10 +1232,22 @@ export default function LoginPageClient() {
                 className={inputClass}
                 placeholder="you@example.com"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setEmailInUseError(null);
+                }}
                 autoComplete="email"
               />
             </div>
+
+            {emailInUseError ? (
+              <p
+                role="alert"
+                className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
+              >
+                {emailInUseError}
+              </p>
+            ) : null}
 
             <div>
               <label htmlFor="login-password" className="block text-sm font-medium text-zinc-300">
@@ -1128,10 +1259,42 @@ export default function LoginPageClient() {
                 type="password"
                 placeholder="••••••••"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (mode === "signup") setPasswordPairError(null);
+                }}
                 autoComplete={mode === "login" ? "current-password" : "new-password"}
               />
             </div>
+
+            {mode === "signup" ? (
+              <div>
+                <label htmlFor="login-password-confirm" className="block text-sm font-medium text-zinc-300">
+                  Подтвердите пароль
+                </label>
+                <input
+                  id="login-password-confirm"
+                  className={inputClass}
+                  type="password"
+                  placeholder="••••••••"
+                  value={confirmPassword}
+                  onChange={(e) => {
+                    setConfirmPassword(e.target.value);
+                    setPasswordPairError(null);
+                  }}
+                  autoComplete="new-password"
+                />
+              </div>
+            ) : null}
+
+            {mode === "signup" && passwordPairError ? (
+              <p
+                role="alert"
+                className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
+              >
+                {passwordPairError}
+              </p>
+            ) : null}
 
             <button
               type="button"

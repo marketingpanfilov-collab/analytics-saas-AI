@@ -1,6 +1,7 @@
 /**
- * HttpOnly cookie: пользователь только что подтвердил email (signup / PKCE с email_flow=signup).
- * Используется для одной отправки Meta CompleteRegistration после save_company онбординга.
+ * HttpOnly cookie: разрешение на одну отправку Meta CompleteRegistration после save_company онбординга.
+ * Выставляется при подтверждении signup из письма (/auth/verify) или PKCE email_flow=signup.
+ * Без письма тот же смысл даёт `user_metadata.boardiq_meta_cr_eligible` через `supabase.auth.updateUser` на клиенте после signUp.
  */
 export const META_COMPLETE_REGISTRATION_ELIGIBLE_COOKIE = "boardiq_meta_cr_eligible";
 

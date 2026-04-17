@@ -6,8 +6,9 @@ import {
 } from "@/app/lib/metaCompleteRegistrationCookie";
 
 /**
- * Серверный маркер «после подтверждения signup из письма» — переживает смену браузера/устройства.
- * JWT сессии может отставать от auth.users; для чтения eligibility используйте getUserById ниже.
+ * Серверный маркер «разрешить одну отправку CompleteRegistration после save_company»:
+ * email-verify, PKCE signup, или клиентский `auth.updateUser` после регистрации с сессией без письма.
+ * Переживает смену браузера/устройства (metadata). Для чтения eligibility используйте getUserById ниже.
  */
 export const META_CR_ELIGIBLE_USER_METADATA_KEY = "boardiq_meta_cr_eligible";
 
