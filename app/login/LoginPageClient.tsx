@@ -171,6 +171,30 @@ async function postMarkMetaCrEligibleFromSignupSession(): Promise<void> {
   }
 }
 
+/**
+ * Уведомление «Аккаунт успешно создан» через Supabase Magic Link.
+ * Best-effort: не блокирует регистрацию/редирект при ошибке почтового провайдера.
+ */
+async function postSignupSuccessNoticeMagicLink(emailRaw: string, nextPath: string): Promise<void> {
+  const email = emailRaw.trim();
+  if (!email) return;
+  try {
+    const redirectTo = buildEmailConfirmRedirectUrl(nextPath, { emailFlow: "signup" });
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: redirectTo,
+        shouldCreateUser: false,
+      },
+    });
+    if (error) {
+      console.warn("[Login] signup success notice magic_link", error.message);
+    }
+  } catch (e) {
+    console.warn("[Login] signup success notice magic_link", e);
+  }
+}
+
 type Mode = "login" | "signup";
 
 export default function LoginPageClient() {
@@ -533,6 +557,7 @@ export default function LoginPageClient() {
     setPasswordPairError(null);
     setEmailInUseError(null);
 
+    let usedExistingUserFallback = false;
     const signUpRes = await supabase.auth.signUp({
       email: email.trim(),
       password,
@@ -542,6 +567,7 @@ export default function LoginPageClient() {
     if (signUpRes.error) {
       const em = signUpRes.error.message.toLowerCase();
       if (isAlreadyRegisteredMessage(em)) {
+        usedExistingUserFallback = true;
         const inRes = await supabase.auth.signInWithPassword({
           email: email.trim(),
           password,
@@ -561,6 +587,7 @@ export default function LoginPageClient() {
       }
     }
     if (isExistingUserWithoutNewIdentity(data.user)) {
+      usedExistingUserFallback = true;
       const inRes = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
@@ -583,6 +610,9 @@ export default function LoginPageClient() {
 
     if (session && userId) {
       await postMarkMetaCrEligibleFromSignupSession();
+      if (!usedExistingUserFallback) {
+        await postSignupSuccessNoticeMagicLink(email, nextPath);
+      }
       const fin = await fetch("/api/auth/finalize-login-checkout", {
         method: "POST",
         credentials: "include",
@@ -717,6 +747,7 @@ export default function LoginPageClient() {
       setPasswordPairError(null);
       setEmailInUseError(null);
       await postMarkMetaCrEligibleFromSignupSession();
+      await postSignupSuccessNoticeMagicLink(email, nextPath);
       router.replace(buildPostSignupOnboardingPath(nextPath));
       navigatedAway = true;
     } catch (e) {

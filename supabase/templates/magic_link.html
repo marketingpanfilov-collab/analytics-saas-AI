@@ -27,12 +27,34 @@
     </div>
 
     <h1 style="color:#ffffff !important;-webkit-text-fill-color:#ffffff !important;font-size:22px;margin:0 0 16px;">
-      Доступ предоставлен
+      Ваш аккаунт активирован!
     </h1>
 
     <p style="color:#d4d4d8 !important;-webkit-text-fill-color:#d4d4d8 !important;font-size:14px;line-height:1.6;margin:0 0 20px;">
-      Вам выдан доступ к организации или проекту.
+      Вы успешно прошли регистрацию, и ваш аккаунт в BoardIQ готов к использованию.
     </p>
+
+    <div style="height:1px;background:rgba(255,255,255,0.06);margin:0 0 20px;"></div>
+
+    <p style="color:#d4d4d8 !important;-webkit-text-fill-color:#d4d4d8 !important;font-size:14px;line-height:1.6;font-weight:700;margin:0 0 12px;">
+      Выполните несколько шагов, чтобы запустить аналитику и получать точные данные:
+    </p>
+    <ul style="margin:0 0 20px 22px;padding:0;color:#d4d4d8 !important;-webkit-text-fill-color:#d4d4d8 !important;font-size:14px;line-height:1.65;">
+      <li style="margin:0 0 6px;">Заполните данные о компании.</li>
+      <li style="margin:0 0 6px;">Создайте первый проект.</li>
+      <li style="margin:0 0 6px;">Подключите рекламные источники (Meta, Google, TikTok).</li>
+      <li style="margin:0 0 6px;">Установите Pixel на сайт.</li>
+      <li style="margin:0;">Настройте передачу событий (регистрации, покупки) из CRM или с сайта.</li>
+    </ul>
+
+    <p style="color:#d4d4d8 !important;-webkit-text-fill-color:#d4d4d8 !important;font-size:14px;line-height:1.6;margin:0;">
+      Если у вас остались вопросы, вы можете посетить нашу
+      <a href="https://boardiq.kz/docs" style="color:#93c5fd !important;-webkit-text-fill-color:#93c5fd !important;text-decoration:underline !important;">Базу знаний</a>
+      или связаться с нами по почте:
+      <a href="mailto:support@boardiq.kz" style="color:#93c5fd !important;-webkit-text-fill-color:#93c5fd !important;text-decoration:underline !important;">support@boardiq.kz</a>.
+    </p>
+
+    <div style="height:1px;background:rgba(255,255,255,0.06);margin:24px 0;"></div>
 
     <!-- token_hash: вход по magic link в любом браузере (не PKCE). Скопируйте в Supabase → Magic link. -->
     <a href="{{ .SiteURL }}/auth/verify?token_hash={{ .TokenHash }}&amp;type=magiclink&amp;redirect_to={{ .RedirectTo }}"
@@ -44,21 +66,15 @@
       Если кнопка не работает, откройте ссылку:
     </p>
 
-    <p style="word-break:break-all;color:#93c5fd !important;-webkit-text-fill-color:#93c5fd !important;font-size:12px;margin:0 0 24px;">
+    <p style="word-break:break-all;color:#93c5fd !important;-webkit-text-fill-color:#93c5fd !important;font-size:12px;margin:0;">
       {{ .SiteURL }}/auth/verify?token_hash={{ .TokenHash }}&amp;type=magiclink&amp;redirect_to={{ .RedirectTo }}
     </p>
 
-    <div style="height:1px;background:rgba(255,255,255,0.06);margin:24px 0;"></div>
-
-    <p style="color:#a1a1aa !important;-webkit-text-fill-color:#a1a1aa !important;font-size:12px;line-height:1.6;margin:0 0 16px;">
-      Перейдите по ссылке, чтобы войти в BoardIQ под своей учётной записью.
-    </p>
-
-    <p style="color:#a1a1aa !important;-webkit-text-fill-color:#a1a1aa !important;font-size:11px;line-height:1.6;margin:0;">
+    <p style="color:#a1a1aa !important;-webkit-text-fill-color:#a1a1aa !important;font-size:11px;line-height:1.6;margin:16px 0 0;">
       Продолжая использование сервиса, вы соглашаетесь с
       <a href="https://boardiq.kz/terms" style="color:#c4c4cc !important;-webkit-text-fill-color:#c4c4cc !important;text-decoration:underline !important;">пользовательским соглашением</a>
       и
-      <a href="https://boardiq.kz/privacy" style="color:#c4c4cc !important;-webkit-text-fill-color:#c4c4cc !important;text-decoration:underline !important;">политикой обработки данных</a>.
+      <a href="https://boardiq.kz/privacy" style="color:#c4c4cc !important;-webkit-text-fill-color:#c4c4cc !important;text-decoration:underline !important;">политикой конфиденциальности</a>.
     </p>
 
   </div>
