@@ -445,18 +445,24 @@ export default function PixelsPageClient() {
   const regRecency = getConversionRecency(activity?.lastRegistration?.at ?? null);
   const purchaseRecency = getConversionRecency(activity?.lastPurchase?.at ?? null);
 
+  const ingestKeyDisplay = canManageIngestKey ? (ingestKey ?? "YOUR_PUBLIC_INGEST_KEY") : "YOUR_PUBLIC_INGEST_KEY";
+  const ingestKeyForHtmlAttr = ingestKeyDisplay
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;");
+
   const snippetPixel = `<script
   defer
   src="${apiBase}/tracker.js"
-  data-project-id="${projectIdPlaceholder}">
+  data-project-id="${projectIdPlaceholder}"
+  data-ingest-key="${ingestKeyForHtmlAttr}">
 </script>`;
 
   const snippetGTM = `<script
 src="${apiBase}/tracker.js"
-data-project-id="${projectIdPlaceholder}">
+data-project-id="${projectIdPlaceholder}"
+data-ingest-key="${ingestKeyForHtmlAttr}">
 </script>`;
-
-  const ingestKeyDisplay = canManageIngestKey ? (ingestKey ?? "YOUR_PUBLIC_INGEST_KEY") : "YOUR_PUBLIC_INGEST_KEY";
 
   const buildRegBody = (): Record<string, string | number> => {
     const o: Record<string, string | number> = {
@@ -729,13 +735,21 @@ ${generatedPurchaseJson}`;
                   <code className="rounded bg-neutral-800 px-1">&lt;/body&gt;</code>
                   ).
                 </p>
+                <p className="mt-1.5 text-xs text-neutral-500">
+                  Атрибут <code className="rounded bg-neutral-800 px-1">data-ingest-key</code> нужен для записи визитов;
+                  значение — публичный ключ проекта (тот же, что для <code className="rounded bg-neutral-800 px-1">X-BoardIQ-Key</code>{" "}
+                  на конверсиях). Если в кабинете виден замаскированный ключ — вставьте полный ключ из владельца проекта.
+                </p>
                 <div className="mt-3">
                   <CodeBlock code={snippetPixel} onCopy={copyToClipboard} copied={copied} copyLabel="Copy code" />
                 </div>
               </>
             ) : (
               <>
-                <p className="mt-1 text-xs text-neutral-400">Вставьте тот же скрипт через тег Custom HTML в GTM.</p>
+                <p className="mt-1 text-xs text-neutral-400">
+                  Вставьте тот же скрипт через тег Custom HTML в GTM (включая{" "}
+                  <code className="rounded bg-neutral-800 px-1">data-ingest-key</code>).
+                </p>
                 <div
                   className={cx(
                     "mt-4 flex flex-wrap items-center gap-2",

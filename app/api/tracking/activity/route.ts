@@ -5,6 +5,8 @@
  */
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/app/lib/supabaseAdmin";
+import { requireProjectAccessOrInternal } from "@/app/lib/auth/requireProjectAccessOrInternal";
+import { billingAnalyticsReadGateFromAccess } from "@/app/lib/auth/requireBillingAccess";
 
 export async function GET(req: Request) {
   try {
@@ -12,6 +14,14 @@ export async function GET(req: Request) {
     if (!projectId) {
       return NextResponse.json({ success: false, error: "project_id required" }, { status: 400 });
     }
+
+    const access = await requireProjectAccessOrInternal(req, projectId);
+    if (!access.allowed) {
+      return NextResponse.json(access.body, { status: access.status });
+    }
+
+    const billing = await billingAnalyticsReadGateFromAccess(access);
+    if (!billing.ok) return billing.response;
 
     const admin = supabaseAdmin();
 

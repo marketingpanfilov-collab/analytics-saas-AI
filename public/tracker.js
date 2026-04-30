@@ -1,6 +1,7 @@
 /**
  * First-party source tracker MVP
- * Embed: <script src="https://YOUR_DOMAIN/tracker.js?site_id=YOUR_SITE_ID"></script>
+ * Embed: <script defer src="https://YOUR_DOMAIN/tracker.js" data-project-id="PROJECT_UUID" data-ingest-key="PUBLIC_INGEST_KEY"></script>
+ * (ingest_key may also be passed as query on tracker.js URL)
  *
  * Captures: landing_url, referrer, utm_*, gclid, fbclid, yclid, ttclid, visitor_id
  * Persists: visitor_id in first-party cookie (1 year), sends to backend
@@ -37,6 +38,12 @@
   var siteId = (script && script.getAttribute("data-project-id")) || scriptUrl.searchParams.get("site_id");
   var ingestKey = (script && script.getAttribute("data-ingest-key")) || scriptUrl.searchParams.get("ingest_key");
   if (!siteId) return;
+
+  if (!ingestKey) {
+    console.warn(
+      "[BoardIQ tracker] Missing data-ingest-key on the script tag (or ingest_key on tracker.js URL). Visit beacons will not be recorded."
+    );
+  }
 
   console.log("[as-tracker] tracker initialized", { site_id: siteId });
 
